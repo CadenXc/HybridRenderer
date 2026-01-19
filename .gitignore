@@ -1,0 +1,24 @@
+# CMake 构建目录
+build/
+out/
+cmake-build-debug/
+cmake-build-release/
+
+# Visual Studio 生成文件
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.user
+
+# 二进制文件
+*.exe
+*.lib
+*.dll
+*.pdb
+*.exp
+*.ilk
+
+# 系统文件
+.DS_Store
+Thumbs.db
