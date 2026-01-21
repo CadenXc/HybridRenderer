@@ -1,0 +1,58 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+
+// Binding 0: TLAS (场景)
+layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
+// Binding 1: Storage Image (画布)
+layout(binding = 1, set = 0, rgba8) uniform image2D image;
+
+// 像 Uniform Buffer 一样，我们需要摄像机矩阵来计算射线方向
+layout(binding = 0, set = 1) uniform CameraProperties 
+{
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+} cam;
+
+// Ray Payload: 射线携带的数据 (在不同 Shader 间传递)
+// location = 0 必须与 Miss/ClosestHit Shader 对应
+layout(location = 0) rayPayloadEXT vec3 hitValue;
+
+void main() 
+{
+    // 1. 获取当前像素坐标
+    const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
+    const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
+    vec2 d = inUV * 2.0 - 1.0;
+
+    // 2. 计算射线原点和方向 (从摄像机出发)
+    // 注意：这里需要求逆矩阵，通常建议在 CPU 算好传进来，为了简单我们先在 GPU 算
+    mat4 viewInverse = inverse(cam.view);
+    mat4 projInverse = inverse(cam.proj);
+
+    vec4 origin = viewInverse * vec4(0, 0, 0, 1);
+    vec4 target = projInverse * vec4(d.x, d.y, 1, 1);
+    vec4 direction = viewInverse * vec4(normalize(target.xyz), 0);
+
+    // 3. 初始化 Payload (默认黑色)
+    hitValue = vec3(0.0);
+
+    // 4. 发射射线 (Trace Ray)
+    // 参数详解:
+    // topLevelAS: 顶层加速结构
+    // rayFlags: 射线标志 (这里设为 None)
+    // cullMask: 掩码 (0xFF 表示与所有物体都相交)
+    // sbtRecordOffset: SBT 偏移
+    // sbtRecordStride: SBT 步长
+    // missIndex: Miss Shader 索引
+    // origin: 射线原点
+    // Tmin: 最小距离
+    // direction: 射线方向
+    // Tmax: 最大距离
+    // payload: 携带数据的 location
+    traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin.xyz, 0.001, direction.xyz, 10000.0, 0);
+
+    // 5. 将计算出的颜色写入 Storage Image
+    // 注意：Vulkan 的 Y 轴通常是向下的，可能需要在这里或矩阵里翻转，先不管，画出来再说
+    imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(hitValue.bgr, 1.0));
+}

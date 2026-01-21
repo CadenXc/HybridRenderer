@@ -47,7 +47,7 @@ if(GLSLC_EXECUTABLE)
         add_custom_command(
             OUTPUT ${SPIRV_BINARY}
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-            COMMAND ${GLSLC_EXECUTABLE} ${SHADER_SOURCE} -o ${SPIRV_BINARY}
+            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.4 ${SHADER_SOURCE} -o ${SPIRV_BINARY}
             DEPENDS ${SHADER_SOURCE}
             COMMENT "Compiling ${SHADER_NAME} to SPIR-V..."
         )
