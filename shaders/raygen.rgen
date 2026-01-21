@@ -10,6 +10,7 @@ layout(binding = 0, set = 1) uniform CameraProperties
     mat4 model;
     mat4 view;
     mat4 proj;
+    vec4 lightPos;
 } cam;
 
 // ======================= Payload 定义 =======================
@@ -55,11 +56,9 @@ void main()
 
     if (didHit == 1)
     {
-        // ---------------------------------------------------------
-        // [新增] 阴影计算 (Shadow Ray)
-        // ---------------------------------------------------------
         float shadowFactor = 1.0;
-        vec3 lightPos = vec3(2.0, 5.0, 5.0); // 必须与 closesthit 里的光源位置一致！
+        vec3 lightPos = cam.lightPos.xyz; 
+        
         vec3 L = normalize(lightPos - hitPos);
         float distToLight = length(lightPos - hitPos);
 
@@ -112,6 +111,8 @@ void main()
         // 没打中任何物体，显示背景色
         finalColor = primaryColor;
     }
+
+    finalColor = pow(finalColor, vec3(1.0 / 2.2));
 
     // ======================= 输出结果 =======================
     imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(finalColor.bgr, 1.0));

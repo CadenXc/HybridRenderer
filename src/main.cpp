@@ -152,6 +152,8 @@ struct UniformBufferObject
     glm::mat4 model;
     glm::mat4 view;
     glm::mat4 proj;
+
+    glm::vec4 lightPos;
 };
 
 static std::vector<char> readFile(const std::string& filename) 
@@ -911,7 +913,7 @@ private:
         uboLayoutBinding.binding = 0;
         uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         uboLayoutBinding.descriptorCount = 1;
-        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
         VkDescriptorSetLayoutBinding samplerLayoutBinding{};
         samplerLayoutBinding.binding = 1;
@@ -2014,6 +2016,8 @@ private:
         ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
         ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
         ubo.proj[1][1] *= -1;
+
+        ubo.lightPos = glm::vec4(2.0f * sin(time), 4.0f, 2.0f * cos(time), 1.0f);
 
         memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
     }

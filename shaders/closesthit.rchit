@@ -14,13 +14,21 @@ struct HitPayload
 // 输入 Payload (Location 0)
 layout(location = 0) rayPayloadInEXT HitPayload payload;
 
+layout(binding = 1, set = 1) uniform sampler2D texSampler;
+
+// [新增] 必须和 C++ 及 RayGen 里的定义完全一致
+layout(binding = 0, set = 1) uniform CameraProperties 
+{
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+    vec4 lightPos;
+} cam;
+
 hitAttributeEXT vec2 attribs;
 
 // ======================= 资源绑定 =======================
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-
-// 纹理采样器 (Set 1, Binding 1)
-layout(binding = 1, set = 1) uniform sampler2D texSampler;
 
 struct VertexData
 {
@@ -70,7 +78,8 @@ void main()
     // [可选调试] 如果纹理依然黑，取消下面这行的注释，直接看 UV 是否正确 (红绿渐变)
     // payload.color = vec3(texCoord, 0.0); payload.depth = 1; return;
 
-    vec3 lightPos = vec3(2.0, 5.0, 5.0);
+    vec3 lightPos = cam.lightPos.xyz;
+
     vec3 L = normalize(lightPos - worldPos);
     
     // 简单的漫反射
