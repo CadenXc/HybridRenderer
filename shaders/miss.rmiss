@@ -1,13 +1,27 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 
-// 接收 Payload
-layout(location = 0) rayPayloadInEXT vec3 hitValue;
+// ======================= Payload 定义 =======================
+// 必须与 RayGen 中的结构体完全一致
+struct HitPayload
+{
+    vec3 color;
+    vec3 normal;
+    vec3 worldPos;
+    int  depth;
+};
+
+layout(location = 0) rayPayloadInEXT HitPayload payload;
 
 void main() 
 {
-    // 没有打中物体，返回一个渐变的天空色 (蓝紫色)
-    // 这样我们能一眼看出光追生效了
-    hitValue = vec3(0.0, 0.0, 0.2); 
-    // 或者用红色测试： hitValue = vec3(1.0, 0.0, 0.0);
+    // 返回深蓝色背景
+    payload.color = vec3(1.0, 1.0, 1.0);
+    
+    // 法线设为 0 (或者任何值，因为 depth=0 时 RayGen 不会用到它)
+    payload.normal = vec3(0.0);
+    payload.worldPos = vec3(0.0);
+    
+    // 标记：未击中物体
+    payload.depth = 0; 
 }

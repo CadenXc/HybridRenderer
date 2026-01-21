@@ -525,10 +525,15 @@ private:
         accelerationStructureFeatures.accelerationStructure = VK_TRUE;
         accelerationStructureFeatures.pNext = &rayTracingPipelineFeatures;
 
+        VkPhysicalDeviceScalarBlockLayoutFeatures scalarBlockLayoutFeatures{};
+        scalarBlockLayoutFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES;
+        scalarBlockLayoutFeatures.scalarBlockLayout = VK_TRUE;
+        scalarBlockLayoutFeatures.pNext = &accelerationStructureFeatures;
+
         VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddressFeatures{};
         bufferDeviceAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
         bufferDeviceAddressFeatures.bufferDeviceAddress = VK_TRUE;
-        bufferDeviceAddressFeatures.pNext = &accelerationStructureFeatures;
+        bufferDeviceAddressFeatures.pNext = &scalarBlockLayoutFeatures;
 
         VkPhysicalDeviceFeatures deviceFeatures{};
         deviceFeatures.samplerAnisotropy = VK_TRUE;
@@ -913,7 +918,7 @@ private:
         samplerLayoutBinding.descriptorCount = 1;
         samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         samplerLayoutBinding.pImmutableSamplers = nullptr;
-        samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT| VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
         std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
@@ -1299,7 +1304,8 @@ private:
         VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | 
                                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
-                                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+                                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
         createBuffer(bufferSize, usageFlags, VMA_MEMORY_USAGE_GPU_ONLY, vertexBuffer, vertexBufferAllocation);
 
@@ -1325,7 +1331,8 @@ private:
         VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
                                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT | 
                                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
-                                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+                                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
         createBuffer(bufferSize, usageFlags, VMA_MEMORY_USAGE_GPU_ONLY, indexBuffer, indexBufferAllocation);
 
@@ -1348,7 +1355,24 @@ private:
 		storageImageBinding.descriptorCount = 1;
 		storageImageBinding.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
 
-		std::array<VkDescriptorSetLayoutBinding, 2> bindings = { asLayoutBinding, storageImageBinding };
+        VkDescriptorSetLayoutBinding vertexBufferBinding{};
+        vertexBufferBinding.binding = 2;
+        vertexBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        vertexBufferBinding.descriptorCount = 1;
+        vertexBufferBinding.stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+        VkDescriptorSetLayoutBinding indexBufferBinding{};
+        indexBufferBinding.binding = 3;
+        indexBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        indexBufferBinding.descriptorCount = 1;
+        indexBufferBinding.stageFlags = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+        std::array<VkDescriptorSetLayoutBinding, 4> bindings = { 
+            asLayoutBinding, 
+            storageImageBinding,
+            vertexBufferBinding,
+            indexBufferBinding
+        };
 
 		VkDescriptorSetLayoutCreateInfo layoutInfo{};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -1363,11 +1387,15 @@ private:
 
     void createRayTracingDescriptorSets() 
     {
-        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        std::array<VkDescriptorPoolSize, 3> poolSizes{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
         poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+        poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[2].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * 2;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1420,7 +1448,39 @@ private:
             storageImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             storageImageWrite.pImageInfo = &storageImageInfo;
 
-            std::vector<VkWriteDescriptorSet> descriptorWrites = { asWrite, storageImageWrite };
+            VkDescriptorBufferInfo vertexBufferInfo{};
+            vertexBufferInfo.buffer = vertexBuffer;
+            vertexBufferInfo.offset = 0;
+            vertexBufferInfo.range = VK_WHOLE_SIZE;
+
+            VkWriteDescriptorSet vertexWrite{};
+            vertexWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            vertexWrite.dstSet = rtDescriptorSets[i];
+            vertexWrite.dstBinding = 2;
+            vertexWrite.descriptorCount = 1;
+            vertexWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            vertexWrite.pBufferInfo = &vertexBufferInfo;
+
+            VkDescriptorBufferInfo indexBufferInfo{};
+            indexBufferInfo.buffer = indexBuffer;
+            indexBufferInfo.offset = 0;
+            indexBufferInfo.range = VK_WHOLE_SIZE;
+
+            VkWriteDescriptorSet indexWrite{};
+            indexWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            indexWrite.dstSet = rtDescriptorSets[i];
+            indexWrite.dstBinding = 3;
+            indexWrite.descriptorCount = 1;
+            indexWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            indexWrite.pBufferInfo = &indexBufferInfo;
+
+            std::vector<VkWriteDescriptorSet> descriptorWrites = { 
+                asWrite, 
+                storageImageWrite,
+                vertexWrite,
+                indexWrite
+            };
+
             vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
         }
         
@@ -1507,7 +1567,7 @@ private:
         pipelineInfo.pStages = shaderStages.data();
         pipelineInfo.groupCount = static_cast<uint32_t>(shaderGroups.size());
         pipelineInfo.pGroups = shaderGroups.data();
-        pipelineInfo.maxPipelineRayRecursionDepth = 1;
+        pipelineInfo.maxPipelineRayRecursionDepth = 2;
         pipelineInfo.layout = rayTracingPipelineLayout;
 
         if (vkCreateRayTracingPipelinesKHR(device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &rayTracingPipeline) != VK_SUCCESS) 
