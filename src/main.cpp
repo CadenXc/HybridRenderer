@@ -28,6 +28,7 @@
 #include "tiny_obj_loader.h"
 
 #include "Core/Log.h"
+#include "Core/Timer.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -249,6 +250,14 @@ private:
     VkBuffer indexBuffer;
     VmaAllocation indexBufferAllocation;
 
+    VkAccelerationStructureKHR bottomLevelAS;
+    VkBuffer blasBuffer;
+    VmaAllocation blasBufferAllocation;
+
+    VkAccelerationStructureKHR topLevelAS;
+    VkBuffer tlasBuffer;
+    VmaAllocation tlasBufferAllocation;
+
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VmaAllocation> uniformBuffersAllocation;
     std::vector<void*> uniformBuffersMapped;
@@ -271,6 +280,16 @@ private:
     VmaAllocation colorImageAllocation;
     VkImageView colorImageView;
 
+    VkImage storageImage;
+    VmaAllocation storageImageAllocation;
+    VkImageView storageImageView;
+	VkFormat storageImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+    VkDescriptorSetLayout rtDescriptorSetLayout;
+    VkDescriptorPool rtDescriptorPool;
+    std::vector<VkDescriptorSet> rtDescriptorSets;
+
+private:
     void initWindow() 
     {
         glfwInit();
@@ -314,6 +333,8 @@ private:
         allocatorInfo.pVulkanFunctions = &vulkanFunctions;
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 
+        allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
         if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS) 
         {
             throw std::runtime_error("failed to create VMA allocator!");
@@ -334,6 +355,13 @@ private:
         loadModel();
         createVertexBuffer();
         createIndexBuffer();
+        createBottomLevelAS();
+        createTopLevelAS();
+
+        createStorageImage();
+        createRayTracingDescriptorSetLayout();
+        createRayTracingDescriptorSets();
+
         createUniformBuffers();
         createDescriptorPool();
         createDescriptorSets();
@@ -368,6 +396,20 @@ private:
             vmaUnmapMemory(allocator, uniformBuffersAllocation[i]);
             vmaDestroyBuffer(allocator, uniformBuffers[i], uniformBuffersAllocation[i]);
         }
+
+        // RT Descriptors
+        vkDestroyDescriptorPool(device, rtDescriptorPool, nullptr);
+        vkDestroyDescriptorSetLayout(device, rtDescriptorSetLayout, nullptr);
+
+        // RT Image
+        vkDestroyImageView(device, storageImageView, nullptr);
+        vmaDestroyImage(allocator, storageImage, storageImageAllocation);
+
+        vkDestroyAccelerationStructureKHR(device, topLevelAS, nullptr);
+        vmaDestroyBuffer(allocator, tlasBuffer, tlasBufferAllocation);
+
+        vkDestroyAccelerationStructureKHR(device, bottomLevelAS, nullptr);
+        vmaDestroyBuffer(allocator, blasBuffer, blasBufferAllocation);
 
         vmaDestroyBuffer(allocator, indexBuffer, indexBufferAllocation);
         vmaDestroyBuffer(allocator, vertexBuffer, vertexBufferAllocation);
@@ -691,6 +733,10 @@ private:
         createColorResources();
         createDepthResources();
         createFramebuffers();
+
+		vkDestroyImageView(device, storageImageView, nullptr);
+		vmaDestroyImage(allocator, storageImage, storageImageAllocation);
+		createStorageImage();
     }
 
     void createSwapChain() 
@@ -1095,6 +1141,42 @@ private:
         vmaDestroyBuffer(allocator, stagingBuffer, stagingBufferAllocation);
     }
 
+	void createStorageImage()
+	{
+		createImage(
+			swapChainExtent.width,
+			swapChainExtent.height,
+			1,
+			VK_SAMPLE_COUNT_1_BIT,
+			storageImageFormat,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			storageImage,
+			storageImageAllocation
+		);
+
+		VkImageViewCreateInfo viewInfo{};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = storageImage;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = storageImageFormat;
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		viewInfo.subresourceRange.baseMipLevel = 0;
+		viewInfo.subresourceRange.levelCount = 1;
+		viewInfo.subresourceRange.baseArrayLayer = 0;
+		viewInfo.subresourceRange.layerCount = 1;
+
+		if (vkCreateImageView(device, &viewInfo, nullptr, &storageImageView) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create storage image view!");
+		}
+
+		transitionImageLayout(storageImage, storageImageFormat, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 1);
+
+		CH_INFO("Storage Image created.");
+	}
+
     void createTextureImageView() 
     {
         textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
@@ -1187,7 +1269,6 @@ private:
 
         VkBuffer stagingBuffer;
         VmaAllocation stagingBufferAllocation;
-
         createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, stagingBuffer, stagingBufferAllocation);
 
         void* data;
@@ -1195,7 +1276,12 @@ private:
         memcpy(data, vertices.data(), (size_t)bufferSize);
         vmaUnmapMemory(allocator, stagingBufferAllocation);
 
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY, vertexBuffer, vertexBufferAllocation);
+        VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
+                                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | 
+                                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
+                                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+
+        createBuffer(bufferSize, usageFlags, VMA_MEMORY_USAGE_GPU_ONLY, vertexBuffer, vertexBufferAllocation);
 
         copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
 
@@ -1216,11 +1302,322 @@ private:
         memcpy(data, indices.data(), (size_t)bufferSize);
         vmaUnmapMemory(allocator, stagingBufferAllocation);
 
-        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY, indexBuffer, indexBufferAllocation);
+        VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
+                                VK_BUFFER_USAGE_INDEX_BUFFER_BIT | 
+                                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
+                                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+
+        createBuffer(bufferSize, usageFlags, VMA_MEMORY_USAGE_GPU_ONLY, indexBuffer, indexBufferAllocation);
 
         copyBuffer(stagingBuffer, indexBuffer, bufferSize);
 
         vmaDestroyBuffer(allocator, stagingBuffer, stagingBufferAllocation);
+    }
+
+	void createRayTracingDescriptorSetLayout()
+	{
+		VkDescriptorSetLayoutBinding asLayoutBinding{};
+		asLayoutBinding.binding = 0;
+		asLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+		asLayoutBinding.descriptorCount = 1;
+		asLayoutBinding.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
+		VkDescriptorSetLayoutBinding storageImageBinding{};
+		storageImageBinding.binding = 1;
+		storageImageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		storageImageBinding.descriptorCount = 1;
+		storageImageBinding.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+
+		std::array<VkDescriptorSetLayoutBinding, 2> bindings = { asLayoutBinding, storageImageBinding };
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo{};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+		layoutInfo.pBindings = bindings.data();
+
+		if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &rtDescriptorSetLayout) != VK_SUCCESS)
+		{
+			throw std::runtime_error("failed to create RT descriptor set layout!");
+		}
+	}
+
+    void createRayTracingDescriptorSets() 
+    {
+        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+        poolSizes[0].type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        poolSizes[1].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
+        poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &rtDescriptorPool) != VK_SUCCESS) 
+        {
+            throw std::runtime_error("failed to create RT descriptor pool!");
+        }
+
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, rtDescriptorSetLayout);
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = rtDescriptorPool;
+        allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+        allocInfo.pSetLayouts = layouts.data();
+
+        rtDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        if (vkAllocateDescriptorSets(device, &allocInfo, rtDescriptorSets.data()) != VK_SUCCESS) 
+        {
+            throw std::runtime_error("failed to allocate RT descriptor sets!");
+        }
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) 
+        {
+            VkWriteDescriptorSetAccelerationStructureKHR descriptorAS{};
+            descriptorAS.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+            descriptorAS.accelerationStructureCount = 1;
+            descriptorAS.pAccelerationStructures = &topLevelAS;
+
+            VkWriteDescriptorSet asWrite{};
+            asWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            asWrite.pNext = &descriptorAS;
+            asWrite.dstSet = rtDescriptorSets[i];
+            asWrite.dstBinding = 0;
+            asWrite.descriptorCount = 1;
+            asWrite.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+
+            VkDescriptorImageInfo storageImageInfo{};
+            storageImageInfo.imageView = storageImageView;
+            storageImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkWriteDescriptorSet storageImageWrite{};
+            storageImageWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            storageImageWrite.dstSet = rtDescriptorSets[i];
+            storageImageWrite.dstBinding = 1;
+            storageImageWrite.descriptorCount = 1;
+            storageImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            storageImageWrite.pImageInfo = &storageImageInfo;
+
+            std::vector<VkWriteDescriptorSet> descriptorWrites = { asWrite, storageImageWrite };
+            vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+        }
+        
+        CH_INFO("RT Descriptors created.");
+    }
+
+    VkTransformMatrixKHR toVkMatrix(glm::mat4 model) 
+    {
+        glm::mat4 transposed = glm::transpose(model);
+        VkTransformMatrixKHR outMatrix;
+        memcpy(&outMatrix, &transposed, sizeof(VkTransformMatrixKHR));
+        return outMatrix;
+    }
+
+    uint64_t getAccelerationStructureDeviceAddress(VkAccelerationStructureKHR as) 
+    {
+        VkAccelerationStructureDeviceAddressInfoKHR addressInfo{};
+        addressInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+        addressInfo.accelerationStructure = as;
+        return vkGetAccelerationStructureDeviceAddressKHR(device, &addressInfo);
+    }
+
+    void createBottomLevelAS() 
+    {
+        VkAccelerationStructureGeometryKHR geometry{};
+        geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+        geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+        geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+
+        geometry.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+        geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+        geometry.geometry.triangles.vertexData.deviceAddress = getBufferDeviceAddress(vertexBuffer);
+        geometry.geometry.triangles.maxVertex = static_cast<uint32_t>(vertices.size());
+        geometry.geometry.triangles.vertexStride = sizeof(Vertex);
+        geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
+        geometry.geometry.triangles.indexData.deviceAddress = getBufferDeviceAddress(indexBuffer);
+        
+        VkAccelerationStructureBuildGeometryInfoKHR buildInfo{};
+        buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+        buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        buildInfo.geometryCount = 1;
+        buildInfo.pGeometries = &geometry;
+
+        const uint32_t primitiveCount = static_cast<uint32_t>(indices.size() / 3);
+
+        VkAccelerationStructureBuildSizesInfoKHR buildSizesInfo{};
+        buildSizesInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        
+        vkGetAccelerationStructureBuildSizesKHR(
+            device, 
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, 
+            &buildInfo, 
+            &primitiveCount, 
+            &buildSizesInfo);
+
+        createBuffer(
+            buildSizesInfo.accelerationStructureSize, 
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY,
+            blasBuffer,
+            blasBufferAllocation
+        );
+
+        VkAccelerationStructureCreateInfoKHR createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+        createInfo.buffer = blasBuffer;
+        createInfo.size = buildSizesInfo.accelerationStructureSize;
+        createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        
+        if (vkCreateAccelerationStructureKHR(device, &createInfo, nullptr, &bottomLevelAS) != VK_SUCCESS) 
+        {
+            throw std::runtime_error("failed to create bottom level acceleration structure!");
+        }
+
+        VkBuffer scratchBuffer;
+        VmaAllocation scratchBufferAllocation;
+        createBuffer(
+            buildSizesInfo.buildScratchSize, 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY,
+            scratchBuffer,
+            scratchBufferAllocation
+        );
+        
+        buildInfo.scratchData.deviceAddress = getBufferDeviceAddress(scratchBuffer);
+        buildInfo.dstAccelerationStructure = bottomLevelAS;
+
+        VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo{};
+        buildRangeInfo.primitiveCount = primitiveCount;
+        buildRangeInfo.primitiveOffset = 0;
+        buildRangeInfo.firstVertex = 0;
+        buildRangeInfo.transformOffset = 0;
+        const VkAccelerationStructureBuildRangeInfoKHR* pBuildRangeInfo = &buildRangeInfo;
+
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        vkCmdBuildAccelerationStructuresKHR(
+            commandBuffer, 
+            1, 
+            &buildInfo, 
+            &pBuildRangeInfo);
+        endSingleTimeCommands(commandBuffer);
+
+        vmaDestroyBuffer(allocator, scratchBuffer, scratchBufferAllocation);
+        
+        CH_INFO("BLAS created successfully!");
+    }
+
+    void createTopLevelAS() 
+    {
+        VkAccelerationStructureInstanceKHR instance{};
+        instance.transform = toVkMatrix(glm::mat4(1.0f));
+        instance.instanceCustomIndex = 0;
+        instance.mask = 0xFF;
+        instance.instanceShaderBindingTableRecordOffset = 0;
+        instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+        instance.accelerationStructureReference = getAccelerationStructureDeviceAddress(bottomLevelAS);
+
+        VkBuffer instanceBuffer;
+        VmaAllocation instanceBufferAllocation;
+        
+        VkBufferUsageFlags usageFlags = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
+                                        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+
+        createBuffer(
+            sizeof(VkAccelerationStructureInstanceKHR), 
+            usageFlags,
+            VMA_MEMORY_USAGE_CPU_TO_GPU,
+            instanceBuffer,
+            instanceBufferAllocation
+        );
+
+        void* data;
+        vmaMapMemory(allocator, instanceBufferAllocation, &data);
+        memcpy(data, &instance, sizeof(VkAccelerationStructureInstanceKHR));
+        vmaUnmapMemory(allocator, instanceBufferAllocation);
+
+        VkAccelerationStructureGeometryKHR geometry{};
+        geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+        geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+        geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+        geometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+        geometry.geometry.instances.arrayOfPointers = VK_FALSE;
+        geometry.geometry.instances.data.deviceAddress = getBufferDeviceAddress(instanceBuffer);
+
+        VkAccelerationStructureBuildGeometryInfoKHR buildInfo{};
+        buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+        buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+        buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        buildInfo.geometryCount = 1;
+        buildInfo.pGeometries = &geometry;
+
+        uint32_t primitiveCount = 1;
+
+        VkAccelerationStructureBuildSizesInfoKHR buildSizesInfo{};
+        buildSizesInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        
+        vkGetAccelerationStructureBuildSizesKHR(
+            device, 
+            VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, 
+            &buildInfo, 
+            &primitiveCount, 
+            &buildSizesInfo);
+
+        createBuffer(
+            buildSizesInfo.accelerationStructureSize, 
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY,
+            tlasBuffer,
+            tlasBufferAllocation
+        );
+
+        VkAccelerationStructureCreateInfoKHR createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+        createInfo.buffer = tlasBuffer;
+        createInfo.size = buildSizesInfo.accelerationStructureSize;
+        createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+        
+        if (vkCreateAccelerationStructureKHR(device, &createInfo, nullptr, &topLevelAS) != VK_SUCCESS) 
+        {
+            throw std::runtime_error("failed to create top level acceleration structure!");
+        }
+
+        VkBuffer scratchBuffer;
+        VmaAllocation scratchBufferAllocation;
+        createBuffer(
+            buildSizesInfo.buildScratchSize, 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY,
+            scratchBuffer,
+            scratchBufferAllocation
+        );
+
+        buildInfo.scratchData.deviceAddress = getBufferDeviceAddress(scratchBuffer);
+        buildInfo.dstAccelerationStructure = topLevelAS;
+
+        VkAccelerationStructureBuildRangeInfoKHR buildRangeInfo{};
+        buildRangeInfo.primitiveCount = primitiveCount;
+        buildRangeInfo.primitiveOffset = 0;
+        buildRangeInfo.firstVertex = 0;
+        buildRangeInfo.transformOffset = 0;
+        const VkAccelerationStructureBuildRangeInfoKHR* pBuildRangeInfo = &buildRangeInfo;
+
+        VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+        vkCmdBuildAccelerationStructuresKHR(
+            commandBuffer, 
+            1, 
+            &buildInfo, 
+            &pBuildRangeInfo);
+        endSingleTimeCommands(commandBuffer);
+
+        vmaDestroyBuffer(allocator, scratchBuffer, scratchBufferAllocation);
+        vmaDestroyBuffer(allocator, instanceBuffer, instanceBufferAllocation);
+        
+        CH_INFO("TLAS created successfully!");
     }
 
     void createUniformBuffers() 
@@ -1344,6 +1741,14 @@ private:
                 throw std::runtime_error("failed to create synchronization objects for a frame!");
             }
         }
+    }
+
+    uint64_t getBufferDeviceAddress(VkBuffer buffer) 
+    {
+        VkBufferDeviceAddressInfo bufferDeviceAddressInfo{};
+        bufferDeviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+        bufferDeviceAddressInfo.buffer = buffer;
+        return vkGetBufferDeviceAddress(device, &bufferDeviceAddressInfo);
     }
 
     void updateUniformBuffer(uint32_t currentImage) 
@@ -1715,6 +2120,14 @@ private:
             barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
             sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        }
+        else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_GENERAL) 
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+            
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
         }
         else 
         {
