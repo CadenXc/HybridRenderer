@@ -3,17 +3,42 @@
 
 // ======================= 绑定资源 =======================
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
+
+// [Binding 1] 当前帧输出 (显示到屏幕)
 layout(binding = 1, set = 0, rgba8) uniform image2D image;
+
+// [Binding 2] 历史累积缓冲区 (高精度浮点，用于降噪)
+// 必须与 C++ 中的 VK_FORMAT_R32G32B32A32_SFLOAT 对应
+layout(binding = 2, set = 0, rgba32f) uniform image2D accumImage;
 
 layout(binding = 0, set = 1) uniform CameraProperties 
 {
     mat4 model;
     mat4 view;
     mat4 proj;
-    vec4 lightPos;
+    vec4 lightPos; // .w 存储随机种子
+    int  frameCount; // [新增] 累积帧数计数器 (C++ 传进来)
 } cam;
 
-// ======================= Payload 定义 =======================
+// ======================= 随机数算法 =======================
+uint tea(uint val0, uint val1)
+{
+    uint v0 = val0; uint v1 = val1; uint s0 = 0;
+    for(uint n = 0; n < 16; n++) {
+        s0 += 0x9e3779b9;
+        v0 += ((v1 << 4) + 0xa341316c) ^ (v1 + s0) ^ ((v1 >> 5) + 0xc8013ea4);
+        v1 += ((v0 << 4) + 0xad90777d) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7e95761e);
+    }
+    return v0;
+}
+
+float rnd(inout uint prev)
+{
+    prev = tea(prev, prev * 3 + 12345);
+    return float(prev & 0x00FFFFFF) / float(0x01000000);
+}
+
+// ======================= Payload =======================
 struct HitPayload
 {
     vec3 color;
@@ -26,7 +51,11 @@ layout(location = 0) rayPayloadEXT HitPayload payload;
 
 void main() 
 {
-    // 1. 计算射线参数
+    // 1. 初始化随机种子
+    // 使用 frameCount 作为种子的一部分，确保每帧的噪点模式都不同
+    uint seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, int(cam.lightPos.w));
+
+    // 2. 射线生成
     const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
     const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
     vec2 d = inUV * 2.0 - 1.0;
@@ -38,82 +67,75 @@ void main()
     vec4 target = projInverse * vec4(d.x, d.y, 1, 1);
     vec4 direction = viewInverse * vec4(normalize(target.xyz), 0);
 
-    // ======================= 第一次发射：主光线 =======================
-    // 初始化 Payload
-    payload.color = vec3(0.0);
-    payload.normal = vec3(0.0);
+    // ======================= 路径追踪 (计算当前帧颜色) =======================
     payload.depth = 0;
-
     traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin.xyz, 0.001, direction.xyz, 10000.0, 0);
 
-    // 保存主光线击中结果
-    vec3 primaryColor = payload.color;
-    vec3 hitNormal = payload.normal;
-    vec3 hitPos = payload.worldPos;
-    int  didHit = payload.depth;
+    vec3 newColor = payload.color; // 默认为 Miss 颜色
 
-    vec3 finalColor = vec3(0.0);
-
-    if (didHit == 1)
+    if (payload.depth == 1) // 击中物体
     {
-        float shadowFactor = 1.0;
-        vec3 lightPos = cam.lightPos.xyz; 
+        vec3 hitPos = payload.worldPos;
+        vec3 hitNormal = payload.normal;
+        vec3 albedo = payload.color; // 这里的 payload.color 是 ClosestHit 返回的纹理色
+
+        // --- 软阴影计算 ---
+        float shadowFactor = 0.0;
+        vec3 lightCenter = cam.lightPos.xyz;
+        float lightRadius = 0.5; // 光源半径
+
+        // 随机偏移光源位置
+        vec3 randomOffset = vec3(rnd(seed) - 0.5, rnd(seed) - 0.5, rnd(seed) - 0.5) * 2.0 * lightRadius;
+        vec3 lightPos = lightCenter + randomOffset;
         
         vec3 L = normalize(lightPos - hitPos);
         float distToLight = length(lightPos - hitPos);
 
-        // 偏移原点，防止自我遮挡 (Shadow Acne)
+        // 阴影射线
         vec3 shadowOrigin = hitPos + hitNormal * 0.01;
-
-        // 重置 Payload 状态，准备探测
         payload.depth = 0; 
+        traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, shadowOrigin, 0.01, L, distToLight, 0);
 
-        // 发射阴影射线
-        // flags: TerminateOnFirstHit (只要撞到一个东西就停，不用算最近的，优化性能)
-        traceRayEXT(
-            topLevelAS, 
-            gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 
-            0xFF, 0, 0, 0, 
-            shadowOrigin, 
-            0.01, 
-            L, 
-            distToLight, // 射线长度 = 到光源的距离
-            0
-        );
+        if (payload.depth == 1) shadowFactor = 0.2; // 阴影
+        else shadowFactor = 1.0; // 照亮
 
-        // 如果 depth 变回了 1，说明射线在到达光源前撞到了东西 -> 有阴影
-        if (payload.depth == 1)
-        {
-            shadowFactor = 0.3; // 阴影区域变暗 (0.3 是环境光亮度)
-        }
+        vec3 diffuse = albedo * shadowFactor;
 
-        // 应用阴影
-        primaryColor *= shadowFactor;
-
-        // ---------------------------------------------------------
-        // [原有] 反射计算 (Reflection Ray)
-        // ---------------------------------------------------------
+        // --- 反射计算 (简单版) ---
         vec3 reflectDir = reflect(direction.xyz, hitNormal);
         vec3 reflectOrigin = hitPos + hitNormal * 0.01;
-
         payload.color = vec3(0.0);
         payload.depth = 0;
-
         traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, reflectOrigin, 0.01, reflectDir, 10000.0, 0);
-
-        vec3 reflectionColor = payload.color;
         
-        // 混合：阴影后的本色 + 反射色
-        finalColor = primaryColor * 0.6 + reflectionColor * 0.4;
+        // 混合：60% 漫反射 + 40% 镜面反射
+        newColor = diffuse * 0.6 + payload.color * 0.4;
     }
-    else
+
+    // ======================= 时域累积 (Temporal Accumulation) =======================
+    vec3 accumulatedColor = newColor;
+
+    // 只有当 frameCount > 1 时才进行累积 (第1帧直接使用新颜色)
+    if (cam.frameCount > 1)
     {
-        // 没打中任何物体，显示背景色
-        finalColor = primaryColor;
+        // 1. 读取上一帧的结果 (历史颜色)
+        vec3 historyColor = imageLoad(accumImage, ivec2(gl_LaunchIDEXT.xy)).rgb;
+
+        // 2. 计算混合权重
+        // 随着帧数增加，新的一帧占比越来越小 (1/N)，从而消除噪点
+        // 第1帧: 100% New
+        // 第2帧: 50% New + 50% Hist
+        // 第10帧: 10% New + 90% Hist
+        float weight = 1.0 / float(cam.frameCount);
+        
+        accumulatedColor = mix(historyColor, newColor, weight);
     }
 
-    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+    // 3. 将混合后的颜色存回累积缓冲区 (供下一帧使用)
+    imageStore(accumImage, ivec2(gl_LaunchIDEXT.xy), vec4(accumulatedColor, 1.0));
 
-    // ======================= 输出结果 =======================
-    imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(finalColor.bgr, 1.0));
+    // ======================= 显示输出 =======================
+    // 4. Gamma 校正 (Linear -> sRGB) 并输出到屏幕
+    vec3 displayColor = pow(accumulatedColor, vec3(1.0 / 2.2));
+    imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(displayColor.bgr, 1.0));
 }
