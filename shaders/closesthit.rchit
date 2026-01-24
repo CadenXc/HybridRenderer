@@ -30,23 +30,17 @@ layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 struct VertexData
 {
     vec3 pos;
-    vec3 color;
+    vec3 normal;
+    vec4 tangent;
     vec2 texCoord;
 };
 
-// [修改] Binding 2 -> 3 (因为 Binding 2 现在是 accumImage)
 layout(binding = 3, set = 0, scalar) buffer Vertices { VertexData v[]; } vertices;
-
-// [修改] Binding 3 -> 4
 layout(binding = 4, set = 0, scalar) buffer Indices { uint i[]; } indices;
 
 void main() 
 {
-    // ... (后续代码完全不用变) ...
-    
-    // -----------------------------------------------------------------
     // 1. 获取几何数据
-    // -----------------------------------------------------------------
     uint ind0 = indices.i[3 * gl_PrimitiveID + 0];
     uint ind1 = indices.i[3 * gl_PrimitiveID + 1];
     uint ind2 = indices.i[3 * gl_PrimitiveID + 2];
@@ -56,10 +50,12 @@ void main()
     VertexData v2 = vertices.v[ind2];
 
     const vec3 barycentricCoords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    vec3 worldPos = v0.pos * barycentricCoords.x + v1.pos * barycentricCoords.y + v2.pos * barycentricCoords.z;
-    vec3 edge1 = v1.pos - v0.pos;
-    vec3 edge2 = v2.pos - v0.pos;
-    vec3 worldNormal = normalize(cross(edge1, edge2));
+    vec3 localPos = v0.pos * barycentricCoords.x + v1.pos * barycentricCoords.y + v2.pos * barycentricCoords.z;
+    vec3 worldPos = vec3(cam.model * vec4(localPos, 1.0));
+    
+    // Interpolate normal
+    vec3 normal = v0.normal * barycentricCoords.x + v1.normal * barycentricCoords.y + v2.normal * barycentricCoords.z;
+    vec3 worldNormal = normalize(mat3(transpose(inverse(cam.model))) * normal);
     
     vec2 texCoord = v0.texCoord * barycentricCoords.x + v1.texCoord * barycentricCoords.y + v2.texCoord * barycentricCoords.z;
 

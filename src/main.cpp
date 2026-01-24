@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "Core/EntryPoint.h"
+#include "core/EntryPoint.h"
 
 // ==============================================================================
 // 自定义层：RayTracingLayer

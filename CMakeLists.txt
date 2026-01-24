@@ -45,6 +45,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     VulkanMemoryAllocator
     tinyobjloader
     stb_lib
+    cgltf
     spdlog::spdlog
     # 如果 third_party 里定义了 imgui 和 cgltf 的库目标，请确保在这里添加，例如：
     # imgui 
@@ -66,7 +67,7 @@ if(GLSLC_EXECUTABLE)
         add_custom_command(
             OUTPUT ${SPIRV_BINARY}
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.4 ${SHADER_SOURCE} -o ${SPIRV_BINARY}
+            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 ${SHADER_SOURCE} -o ${SPIRV_BINARY}
             DEPENDS ${SHADER_SOURCE}
             COMMENT "Compiling ${SHADER_NAME} to SPIR-V..."
         )
@@ -100,3 +101,5 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 
     COMMENT "Updating Assets and Shaders..."
 )
+
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})

@@ -39,7 +39,6 @@
 #include <GLFW/glfw3.h>
 
 #ifdef _WIN32
-    #define GLFW_EXPOSE_NATIVE_WIN32
     #include <GLFW/glfw3native.h>
 #endif
 
@@ -47,5 +46,4 @@
 #include "vk_mem_alloc.h" 
 #include "tiny_obj_loader.h" 
 
-#include "Core/Application.h"
-#include "Core/Log.h"
+#include "core/Log.h"
