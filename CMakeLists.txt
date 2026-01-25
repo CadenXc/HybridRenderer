@@ -47,8 +47,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     stb_lib
     cgltf
     spdlog::spdlog
-    # 如果 third_party 里定义了 imgui 和 cgltf 的库目标，请确保在这里添加，例如：
-    # imgui 
+    imgui
 )
 
 # 7. Debugging Environment

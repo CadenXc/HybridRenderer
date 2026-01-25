@@ -17,6 +17,7 @@ namespace Chimera {
         // Input callbacks (to be called from Application)
         void OnCursorPos(double xpos, double ypos);
         void OnMouseButton(int button, int action, int mods);
+        void OnScroll(double xoffset, double yoffset);
         void OnKey(int key, int scancode, int action, int mods);
 
     private:

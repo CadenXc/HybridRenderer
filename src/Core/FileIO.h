@@ -1,0 +1,28 @@
+#pragma once
+
+#include "pch.h"
+
+namespace Chimera {
+    namespace FileIO {
+        /**
+         * Read entire file into a vector of bytes
+         * @param filename Path to the file
+         * @return Vector containing file contents
+         * @throws std::runtime_error if file cannot be opened
+         */
+        inline std::vector<char> ReadFile(const std::string& filename)
+        {
+            std::ifstream file(filename, std::ios::ate | std::ios::binary);
+            if (!file.is_open())
+            {
+                throw std::runtime_error("failed to open file: " + filename);
+            }
+            size_t fileSize = (size_t)file.tellg();
+            std::vector<char> buffer(fileSize);
+            file.seekg(0);
+            file.read(buffer.data(), fileSize);
+            file.close();
+            return buffer;
+        }
+    }
+}

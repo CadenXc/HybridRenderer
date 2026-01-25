@@ -33,6 +33,16 @@ namespace Chimera {
             m_MappedData = allocationResultInfo.pMappedData;
         }
 
+        // 检查内存是否 Coherent（对 Flush 有影响）
+        VmaAllocationInfo allocInfo2;
+        vmaGetAllocationInfo(allocator, m_Allocation, &allocInfo2);
+        m_IsCoherent = (allocInfo2.memoryType & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+
+        // 保存 Device 指针用于 Flush 操作
+        VmaAllocatorInfo allocatorInfo = {};
+        vmaGetAllocatorInfo(allocator, &allocatorInfo);
+        m_Device = allocatorInfo.device;
+
         // 如果包含 Shader Device Address 用途，获取并缓存地址 (用于光线追踪)
         if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
         {
@@ -40,11 +50,7 @@ namespace Chimera {
             deviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
             deviceAddressInfo.buffer = m_Buffer;
             
-            // 注意：我们需要通过 Device 获取函数指针，或者直接调用 loader
-            // 这里假设 vkGetBufferDeviceAddress 已经由 volk 加载
-            VmaAllocatorInfo allocatorInfo = {};
-            vmaGetAllocatorInfo(allocator, &allocatorInfo);
-            m_DeviceAddress = vkGetBufferDeviceAddress(allocatorInfo.device, &deviceAddressInfo);
+            m_DeviceAddress = vkGetBufferDeviceAddress(m_Device, &deviceAddressInfo);
         }
     }
 
@@ -123,6 +129,18 @@ namespace Chimera {
     {
         void* dest = Map();
         memcpy(dest, data, size);
-        // 如果不是 Coherent 内存，这里可能需要 Flush，但 VMA_MEMORY_USAGE_CPU_TO_GPU 通常能保证顺序写入
+        // 对于非 Coherent 内存，需要 Flush 才能保证 GPU 能看到更新
+        if (!m_IsCoherent) {
+            Flush(0, size);
+        }
+    }
+
+    void Buffer::Flush(VkDeviceSize offset, VkDeviceSize size)
+    {
+        if (m_IsCoherent) return;
+
+        // 使用 VMA 的函数代替手动的 vkFlushMappedMemoryRanges
+        // VMA 会自动处理 offset 和 alignment
+        vmaFlushAllocation(m_Allocator, m_Allocation, offset, (size == VK_WHOLE_SIZE) ? m_Size : size);
     }
 }

@@ -89,6 +89,13 @@ namespace Chimera {
         }
     }
 
+    void CameraController::OnScroll(double xoffset, double yoffset)
+    {
+        float speed = 1.0f; // Scroll speed multiplier
+        m_Position += m_Forward * (float)yoffset * speed;
+        UpdateView();
+    }
+
     void CameraController::OnKey(int key, int scancode, int action, int mods)
     {
         bool pressed = (action == GLFW_PRESS || action == GLFW_REPEAT);

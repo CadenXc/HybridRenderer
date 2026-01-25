@@ -2,6 +2,9 @@
 #include "Scene.h"
 #include "tiny_obj_loader.h"
 
+#define CGLTF_IMPLEMENTATION
+#include <cgltf.h>
+
 namespace Chimera {
 
     Scene::Scene(std::shared_ptr<VulkanContext> context)
@@ -29,6 +32,26 @@ namespace Chimera {
     }
 
     void Scene::LoadModel(const std::string& path)
+    {
+        m_Vertices.clear();
+        m_Indices.clear();
+
+        std::string extension = path.substr(path.find_last_of(".") + 1);
+        
+        if (extension == "obj") {
+            LoadObj(path);
+        } else if (extension == "glb" || extension == "gltf") {
+            LoadGLTF(path);
+        } else {
+            throw std::runtime_error("Unsupported model format: " + extension);
+        }
+
+        CreateVertexBuffer();
+        CreateIndexBuffer();
+        BuildBLAS();
+    }
+
+    void Scene::LoadObj(const std::string& path)
     {
         tinyobj::attrib_t attrib;
         std::vector<tinyobj::shape_t> shapes;
@@ -188,6 +211,12 @@ namespace Chimera {
 
     void Scene::BuildBLAS()
     {
+        if (m_BottomLevelAS != VK_NULL_HANDLE)
+        {
+            vkDestroyAccelerationStructureKHR(m_Context->GetDevice(), m_BottomLevelAS, nullptr);
+            m_BottomLevelAS = VK_NULL_HANDLE;
+        }
+
         VkAccelerationStructureGeometryKHR geometry{};
         geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
         geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
@@ -247,5 +276,79 @@ namespace Chimera {
         VkCommandBuffer commandBuffer = BeginSingleTimeCommands();
         vkCmdBuildAccelerationStructuresKHR(commandBuffer, 1, &buildInfo, &pRangeInfo);
         EndSingleTimeCommands(commandBuffer);
+    }
+
+    void Scene::LoadGLTF(const std::string& path)
+    {
+        cgltf_options options = {};
+        cgltf_data* data = NULL;
+        cgltf_result result = cgltf_parse_file(&options, path.c_str(), &data);
+
+        if (result != cgltf_result_success) {
+            throw std::runtime_error("Failed to parse GLTF file: " + path);
+        }
+
+        result = cgltf_load_buffers(&options, data, path.c_str());
+        if (result != cgltf_result_success) {
+            cgltf_free(data);
+            throw std::runtime_error("Failed to load GLTF buffers: " + path);
+        }
+
+        std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
+        for (size_t i = 0; i < data->meshes_count; ++i) {
+            cgltf_mesh* mesh = &data->meshes[i];
+            for (size_t j = 0; j < mesh->primitives_count; ++j) {
+                cgltf_primitive* primitive = &mesh->primitives[j];
+                
+                size_t vertexCount = primitive->attributes[0].data->count; // Assuming POS is present
+                
+                // Temporary buffers for attributes
+                std::vector<glm::vec3> positions(vertexCount);
+                std::vector<glm::vec3> normals(vertexCount);
+                std::vector<glm::vec2> texCoords(vertexCount);
+
+                for (size_t k = 0; k < primitive->attributes_count; ++k) {
+                    cgltf_attribute* attribute = &primitive->attributes[k];
+                    cgltf_accessor* accessor = attribute->data;
+                    
+                    if (attribute->type == cgltf_attribute_type_position) {
+                        for (size_t v = 0; v < accessor->count; ++v) {
+                            cgltf_accessor_read_float(accessor, v, &positions[v].x, 3);
+                        }
+                    } else if (attribute->type == cgltf_attribute_type_normal) {
+                        for (size_t v = 0; v < accessor->count; ++v) {
+                            cgltf_accessor_read_float(accessor, v, &normals[v].x, 3);
+                        }
+                    } else if (attribute->type == cgltf_attribute_type_texcoord) {
+                        for (size_t v = 0; v < accessor->count; ++v) {
+                            cgltf_accessor_read_float(accessor, v, &texCoords[v].x, 2);
+                        }
+                    }
+                }
+
+                // Indices
+                if (primitive->indices) {
+                    cgltf_accessor* indexAccessor = primitive->indices;
+                    for (size_t k = 0; k < indexAccessor->count; ++k) {
+                        uint32_t index = static_cast<uint32_t>(cgltf_accessor_read_index(indexAccessor, k));
+                        
+                        Vertex vertex{};
+                        vertex.pos = positions[index];
+                        vertex.normal = normals[index];
+                        vertex.texCoord = texCoords[index];
+                        vertex.tangent = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+                        if (uniqueVertices.count(vertex) == 0) {
+                            uniqueVertices[vertex] = static_cast<uint32_t>(m_Vertices.size());
+                            m_Vertices.push_back(vertex);
+                        }
+                        m_Indices.push_back(uniqueVertices[vertex]);
+                    }
+                }
+            }
+        }
+
+        cgltf_free(data);
     }
 }

@@ -11,9 +11,20 @@ namespace Chimera {
 		
 		virtual void OnDetach() {}
 
-		virtual void OnUpdate(float ts) {}
-		
-		virtual void OnUIRender() {}
-	};
+				virtual void OnUpdate(float ts) {}
 
-}
+				
+
+				virtual void OnUIRender() {}
+
+		
+
+				virtual void OnResize(uint32_t width, uint32_t height) {}
+
+			};
+
+		
+
+		}
+
+		

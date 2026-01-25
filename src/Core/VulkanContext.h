@@ -35,6 +35,7 @@ namespace Chimera {
         VkPhysicalDevice GetPhysicalDevice() const { return physicalDevice; }
         VkInstance GetInstance() const { return instance; }
         VkQueue GetGraphicsQueue() const { return graphicsQueue; }
+        uint32_t GetGraphicsQueueFamily() const { return graphicsQueueFamily; }
         VkQueue GetPresentQueue() const { return presentQueue; }
         VkSurfaceKHR GetSurface() const { return surface; }
         VmaAllocator GetAllocator() const { return allocator; }
@@ -47,6 +48,7 @@ namespace Chimera {
         void CleanupSwapChain();
         
         VkSwapchainKHR GetSwapChain() const { return swapChain; }
+        uint32_t GetSwapChainImageCount() const { return static_cast<uint32_t>(swapChainImages.size()); }
         VkFormat GetSwapChainImageFormat() const { return swapChainImageFormat; }
         VkExtent2D GetSwapChainExtent() const { return swapChainExtent; }
         const std::vector<VkImage>& GetSwapChainImages() const { return swapChainImages; }
@@ -67,6 +69,7 @@ namespace Chimera {
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
         VkDevice device = VK_NULL_HANDLE;
         VkQueue graphicsQueue = VK_NULL_HANDLE;
+        uint32_t graphicsQueueFamily = 0;
         VkQueue presentQueue = VK_NULL_HANDLE;
         VmaAllocator allocator = VK_NULL_HANDLE;
         VkCommandPool commandPool = VK_NULL_HANDLE;
@@ -79,6 +82,11 @@ namespace Chimera {
         VkFormat swapChainImageFormat;
         VkExtent2D swapChainExtent;
         std::vector<VkImageView> swapChainImageViews;
+
+    public:
+        // Helper for one-time commands
+        VkCommandBuffer BeginSingleTimeCommands();
+        void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
 
     private:
         GLFWwindow* m_Window;

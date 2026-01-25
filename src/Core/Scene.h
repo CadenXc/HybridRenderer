@@ -107,6 +107,8 @@ namespace Chimera {
         const DirectionalLight& GetLight() const { return m_Light; }
 
     private:
+        void LoadObj(const std::string& path);
+        void LoadGLTF(const std::string& path);
         void CreateVertexBuffer();
         void CreateIndexBuffer();
         void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);

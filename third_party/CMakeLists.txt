@@ -44,3 +44,25 @@ if(NOT TARGET cgltf)
     
     target_include_directories(cgltf INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/cgltf)
 endif()
+
+if(NOT TARGET imgui)
+    set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/imgui")
+    
+    file(GLOB IMGUI_SOURCES
+        "${IMGUI_DIR}/*.cpp"
+        "${IMGUI_DIR}/backends/imgui_impl_glfw.cpp"
+        "${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp"
+    )
+
+    add_library(imgui STATIC ${IMGUI_SOURCES})
+
+    target_include_directories(imgui PUBLIC 
+        "${IMGUI_DIR}" 
+        "${IMGUI_DIR}/backends"
+    )
+
+    target_compile_definitions(imgui PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
+
+    # ImGui 需要链接 Vulkan 和 GLFW
+    target_link_libraries(imgui PUBLIC Vulkan::Vulkan glfw volk)
+endif()

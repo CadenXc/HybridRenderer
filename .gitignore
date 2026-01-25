@@ -22,3 +22,6 @@ cmake-build-release/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 资源文件
+assets/
