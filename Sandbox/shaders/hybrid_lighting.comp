@@ -1,0 +1,61 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// G-Buffer Inputs (Set 0)
+layout(binding = 0, set = 0) uniform sampler2D inAlbedo;
+layout(binding = 1, set = 0) uniform sampler2D inNormal;
+layout(binding = 2, set = 0) uniform sampler2D inDepth;
+
+// Output (Set 0)
+layout(binding = 3, set = 0, rgba8) uniform image2D outImage;
+
+// Scene Data (Set 1)
+layout(binding = 0, set = 1) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+    vec4 lightPos;
+    int frameCount;
+} ubo;
+
+void main() {
+    ivec2 pixelCoords = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(outImage);
+    if (pixelCoords.x >= size.x || pixelCoords.y >= size.y) return;
+
+    vec2 uv = (vec2(pixelCoords) + 0.5) / vec2(size);
+    
+    // Read G-Buffer
+    vec4 albedo = texture(inAlbedo, uv);
+    vec3 normal = texture(inNormal, uv).xyz;
+    float depth = texture(inDepth, uv).r;
+
+    if (depth >= 1.0) { // Background
+        imageStore(outImage, pixelCoords, vec4(0.1, 0.1, 0.1, 1.0));
+        return;
+    }
+
+    // Reconstruct World Position from Depth
+    vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    // Note: In Vulkan, Y is flipped in clip space, but uv is usually top-down.
+    // Our projection matrix already handled the flip for rasterization.
+    mat4 invVP = inverse(ubo.proj * ubo.view);
+    vec4 worldPosFull = invVP * ndc;
+    vec3 worldPos = worldPosFull.xyz / worldPosFull.w;
+
+    // Simple Lighting
+    vec3 L = normalize(ubo.lightPos.xyz - worldPos);
+    float diff = max(dot(normal, L), 0.0);
+    
+    // Basic shadow attenuation simulation or just simple diffuse
+    vec3 diffuse = diff * albedo.rgb;
+    vec3 ambient = 0.1 * albedo.rgb;
+    
+    vec3 result = ambient + diffuse;
+
+    // Gamma correction placeholder (if blit doesn't handle it)
+    // result = pow(result, vec3(1.0/2.2));
+
+    imageStore(outImage, pixelCoords, vec4(result, 1.0));
+}

@@ -1,27 +1,27 @@
 [submodule "third_party/stb"]
-	path = third_party/stb
+	path = Chimera/third_party/stb
 	url = https://github.com/nothings/stb.git
 [submodule "third_party/tinyobjloader"]
-	path = third_party/tinyobjloader
+	path = Chimera/third_party/tinyobjloader
 	url = https://github.com/tinyobjloader/tinyobjloader.git
 [submodule "third_party/glfw"]
-	path = third_party/glfw
+	path = Chimera/third_party/glfw
 	url = https://github.com/glfw/glfw.git
 [submodule "third_party/glm"]
-	path = third_party/glm
+	path = Chimera/third_party/glm
 	url = https://github.com/g-truc/glm.git
 [submodule "third_party/volk"]
-	path = third_party/volk
+	path = Chimera/third_party/volk
 	url = https://github.com/zeux/volk.git
 [submodule "third_party/VulkanMemoryAllocator"]
-	path = third_party/VulkanMemoryAllocator
+	path = Chimera/third_party/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
 [submodule "third_party/spdlog"]
-	path = third_party/spdlog
+	path = Chimera/third_party/spdlog
 	url = https://github.com/gabime/spdlog.git
 [submodule "third_party/cgltf"]
-	path = third_party/cgltf
+	path = Chimera/third_party/cgltf
 	url = https://github.com/jkuhlmann/cgltf.git
 [submodule "third_party/imgui"]
-	path = third_party/imgui
+	path = Chimera/third_party/imgui
 	url = https://github.com/ocornut/imgui.git
