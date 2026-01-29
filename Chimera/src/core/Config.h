@@ -6,9 +6,6 @@
 
 namespace Chimera {
     namespace Config {
-        // Window & Rendering Settings
-        constexpr uint32_t WINDOW_WIDTH = 1600;
-        constexpr uint32_t WINDOW_HEIGHT = 900;
         constexpr int MAX_FRAMES_IN_FLIGHT = 3;
 
         // Asset Paths

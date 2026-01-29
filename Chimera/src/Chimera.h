@@ -1,9 +1,5 @@
 ﻿#pragma once
 
-/**
- * Chimera Engine Public API
- * 鍖呭惈姝ゅご鏂囦欢鍗冲彲璁块棶寮曟搸鐨勬墍鏈夋牳蹇冨姛鑳姐€? */
-
 // Core Application
 #include "core/application/Application.h"
 #include "core/application/Layer.h"
@@ -22,8 +18,6 @@
 // Rendering Backend Base
 #include "gfx/vulkan/VulkanContext.h"
 #include "gfx/vulkan/Renderer.h"
-#include "gfx/core/RenderPath.h"
+#include "rendering/core/RenderPath.h"
 
-// Entry Point (鍙€夛細濡傛灉甯屾湜搴旂敤灞傚崟鐙寘鍚紝鍙互娉ㄩ噴鎺?
-// #include "core/application/EntryPoint.h"
 

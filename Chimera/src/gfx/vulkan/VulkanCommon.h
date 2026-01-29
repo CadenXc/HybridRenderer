@@ -51,6 +51,7 @@ namespace Chimera {
         uint32_t height;
         VkFormat format;
         VkImageUsageFlags usage;
+        bool is_external = false;
     };
 
     enum class VertexInputState { Default, Empty, ImGui };

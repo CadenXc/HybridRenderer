@@ -299,40 +299,39 @@ namespace Chimera {
 
     void VulkanContext::CreateAllocator()
     {
-        VmaVulkanFunctions vulkanFunctions = {};
-        vulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
-        vulkanFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
-        vulkanFunctions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
-        vulkanFunctions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
-        vulkanFunctions.vkAllocateMemory = vkAllocateMemory;
-        vulkanFunctions.vkFreeMemory = vkFreeMemory;
-        vulkanFunctions.vkMapMemory = vkMapMemory;
-        vulkanFunctions.vkUnmapMemory = vkUnmapMemory;
-        vulkanFunctions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
-        vulkanFunctions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
-        vulkanFunctions.vkBindBufferMemory = vkBindBufferMemory;
-        vulkanFunctions.vkBindImageMemory = vkBindImageMemory;
-        vulkanFunctions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
-        vulkanFunctions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
-        vulkanFunctions.vkCreateBuffer = vkCreateBuffer;
-        vulkanFunctions.vkDestroyBuffer = vkDestroyBuffer;
-        vulkanFunctions.vkCreateImage = vkCreateImage;
-        vulkanFunctions.vkDestroyImage = vkDestroyImage;
-        vulkanFunctions.vkCmdCopyBuffer = vkCmdCopyBuffer;
-        vulkanFunctions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2;
-        vulkanFunctions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2;
-        vulkanFunctions.vkBindBufferMemory2KHR = vkBindBufferMemory2;
-        vulkanFunctions.vkBindImageMemory2KHR = vkBindImageMemory2;
-        vulkanFunctions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2;
-        vulkanFunctions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
-        vulkanFunctions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
+        m_VmaFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+        m_VmaFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+        m_VmaFunctions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
+        m_VmaFunctions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
+        m_VmaFunctions.vkAllocateMemory = vkAllocateMemory;
+        m_VmaFunctions.vkFreeMemory = vkFreeMemory;
+        m_VmaFunctions.vkMapMemory = vkMapMemory;
+        m_VmaFunctions.vkUnmapMemory = vkUnmapMemory;
+        m_VmaFunctions.vkFlushMappedMemoryRanges = vkFlushMappedMemoryRanges;
+        m_VmaFunctions.vkInvalidateMappedMemoryRanges = vkInvalidateMappedMemoryRanges;
+        m_VmaFunctions.vkBindBufferMemory = vkBindBufferMemory;
+        m_VmaFunctions.vkBindImageMemory = vkBindImageMemory;
+        m_VmaFunctions.vkGetBufferMemoryRequirements = vkGetBufferMemoryRequirements;
+        m_VmaFunctions.vkGetImageMemoryRequirements = vkGetImageMemoryRequirements;
+        m_VmaFunctions.vkCreateBuffer = vkCreateBuffer;
+        m_VmaFunctions.vkDestroyBuffer = vkDestroyBuffer;
+        m_VmaFunctions.vkCreateImage = vkCreateImage;
+        m_VmaFunctions.vkDestroyImage = vkDestroyImage;
+        m_VmaFunctions.vkCmdCopyBuffer = vkCmdCopyBuffer;
+        m_VmaFunctions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2;
+        m_VmaFunctions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2;
+        m_VmaFunctions.vkBindBufferMemory2KHR = vkBindBufferMemory2;
+        m_VmaFunctions.vkBindImageMemory2KHR = vkBindImageMemory2;
+        m_VmaFunctions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2;
+        m_VmaFunctions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
+        m_VmaFunctions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
 
         VmaAllocatorCreateInfo allocatorInfo = {};
         allocatorInfo.physicalDevice = m_PhysicalDevice;
         allocatorInfo.device = m_Device;
         allocatorInfo.instance = m_Instance;
         allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-        allocatorInfo.pVulkanFunctions = &vulkanFunctions;
+        allocatorInfo.pVulkanFunctions = &m_VmaFunctions;
 
         vmaCreateAllocator(&allocatorInfo, &m_Allocator);
     }

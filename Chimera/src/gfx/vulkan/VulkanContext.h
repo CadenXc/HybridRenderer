@@ -94,6 +94,7 @@ namespace Chimera {
 
     private:
         GLFWwindow* m_Window;
+        VmaVulkanFunctions m_VmaFunctions{};
 
         void CreateInstance();
         void SetupDebugMessenger();

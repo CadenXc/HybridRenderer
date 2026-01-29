@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "gfx/core/RenderPath.h"
+#include "rendering/core/RenderPath.h"
 #include "gfx/resources/Image.h"
 
 namespace Chimera {

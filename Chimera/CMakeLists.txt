@@ -43,3 +43,47 @@ target_link_libraries(Chimera PUBLIC
     spdlog::spdlog
     imgui
 )
+
+# 7. Shader Compilation System
+find_program(GLSLC_EXECUTABLE NAMES glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES Bin)
+
+if(GLSLC_EXECUTABLE)
+    set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+    set(SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders_compiled")
+    file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
+
+    file(GLOB_RECURSE GLSL_SOURCE_FILES 
+        "${SHADER_SOURCE_DIR}/*.vert" 
+        "${SHADER_SOURCE_DIR}/*.frag" 
+        "${SHADER_SOURCE_DIR}/*.comp"
+        "${SHADER_SOURCE_DIR}/*.rgen" 
+        "${SHADER_SOURCE_DIR}/*.rchit" 
+        "${SHADER_SOURCE_DIR}/*.rmiss"
+    )
+
+    set(SPIRV_BINARIES "")
+
+    foreach(SHADER_FILE ${GLSL_SOURCE_FILES})
+        file(RELATIVE_PATH REL_PATH "${SHADER_SOURCE_DIR}" "${SHADER_FILE}")
+        get_filename_component(REL_DIR "${REL_PATH}" DIRECTORY)
+        get_filename_component(SHADER_NAME "${SHADER_FILE}" NAME)
+        
+        set(OUTPUT_DIR "${SHADER_BINARY_DIR}/${REL_DIR}")
+        file(MAKE_DIRECTORY "${OUTPUT_DIR}")
+        
+        set(SPIRV_BINARY "${OUTPUT_DIR}/${SHADER_NAME}.spv")
+        
+        add_custom_command(
+            OUTPUT ${SPIRV_BINARY}
+            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 ${SHADER_FILE} -o ${SPIRV_BINARY}
+            DEPENDS ${SHADER_FILE}
+            COMMENT "Compiling Chimera Shader: ${REL_PATH} to SPIR-V..."
+        )
+        list(APPEND SPIRV_BINARIES ${SPIRV_BINARY})
+    endforeach()
+
+    # Create a custom target that Sandbox can depend on
+    add_custom_target(ChimeraShaders ALL DEPENDS ${SPIRV_BINARIES})
+else()
+    message(WARNING "Could not find glslc.exe! Chimera shaders will not be compiled automatically.")
+endif()

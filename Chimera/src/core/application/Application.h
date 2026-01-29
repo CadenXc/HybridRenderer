@@ -1,11 +1,12 @@
-﻿#pragma once
+#pragma once
 
 #include "pch.h"
 #include "gfx/vulkan/VulkanContext.h"
 #include "gfx/vulkan/Renderer.h"
-#include "gfx/core/RenderPath.h"
+#include "rendering/core/RenderPath.h"
 #include "core/scene/Scene.h"
 #include "core/application/Layer.h"
+#include "core/application/ImGuiLayer.h"
 #include "gfx/resources/Buffer.h"
 #include "gfx/resources/Image.h"
 #include "core/scene/CameraController.h"
@@ -17,12 +18,10 @@ namespace Chimera {
 
     class Buffer;
     class Image;
-    // Vertex struct moved to Scene.h
 
     enum class RenderPathType {
         Forward,
-        RayTracing,
-        Hybrid
+        RayTracing
     };
 
     struct ApplicationSpecification
@@ -44,15 +43,12 @@ namespace Chimera {
         void LoadScene(const std::string& path);
         void Close();
 
-        // Expose Context and Renderer to Layers (for now, until we abstract further)
         std::shared_ptr<VulkanContext> GetContext() { return m_Context; }
         std::shared_ptr<Renderer> GetRenderer() { return m_Renderer; }
         RenderPath* GetRenderPath() { return m_RenderPath.get(); }
         RenderPathType GetCurrentRenderPathType() const { return m_CurrentRenderPathType; }
         GLFWwindow* GetWindow() { return m_Window; }
         const ApplicationSpecification& GetSpecification() const { return m_Specification; }
-
-        VkRenderPass GetImGuiRenderPass() const { return m_ImGuiRenderPass; }
 
     private:
         void initWindow();
@@ -62,17 +58,6 @@ namespace Chimera {
 
         void cleanupSwapChain();
         
-        // ImGui
-        void InitImGui();
-        void ShutdownImGui();
-        void BeginImGuiFrame();
-        void EndImGuiFrame(VkCommandBuffer commandBuffer, uint32_t imageIndex);
-        void CreateImGuiRenderPass();
-        void CreateImGuiFramebuffers();
-        void SetDarkThemeColors();
-
-        // Ray Tracing
-
         void drawFrame();
         void updateUniformBuffer(uint32_t currentImage);
         void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
@@ -106,22 +91,15 @@ namespace Chimera {
         bool m_SceneLoadPending = false;
         std::string m_PendingScenePath;
 
-        // ImGui Resources
-        VkDescriptorPool m_ImGuiDescriptorPool = VK_NULL_HANDLE;
-        VkRenderPass m_ImGuiRenderPass = VK_NULL_HANDLE;
-        std::vector<VkFramebuffer> m_ImGuiFramebuffers;
-
         bool m_FramebufferResized = false;
         
         // Layers
         float m_LastFrameTime = 0.0f;
         std::vector<std::shared_ptr<Layer>> m_LayerStack;
+        std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
 
         VkExtent2D m_LastWindowExtent = { 0, 0 };
     };
 
     Application* CreateApplication(int argc, char** argv);
 }
-
-
-

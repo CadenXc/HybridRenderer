@@ -2,9 +2,10 @@
 
 #include "core/application/Layer.h"
 #include "core/application/Application.h"
+#include "ImGuiStyle.h"
 #include <vector>
 #include <string>
-#include <glm/glm.hpp> //    ?GLM
+#include <glm/glm.hpp>
 
 namespace Chimera {
 
@@ -22,34 +23,44 @@ namespace Chimera {
     private:
         void RefreshModelList();
 
-        // UI          
+        // UI Panels         
         void DrawMenuBar();
         void DrawStatsPanel();
-        void DrawHierarchyPanel();
+        void DrawScenePanel();
         void DrawInspectorPanel();
         void DrawResourceBrowserPanel();
+        void DrawDebugPanel();
+        void DrawRenderPathPanel();
         
-        //     XYZ       
+        // Utilities
         void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f);
+        void DrawSeparator();
 
     private:
         Application* m_App;
         
-        //           ?
+        // Model/Scene Management
         std::vector<std::string> m_AvailableModels;
         std::string m_CurrentLoadPath = "assets/models";
         int m_SelectedModelIndex = -1;
 
-        // UI    ?
+        // UI Visibility Flags
         bool m_ShowStats = true;
-        bool m_ShowHierarchy = true;
+        bool m_ShowScene = true;
         bool m_ShowInspector = true;
+        bool m_ShowResourceBrowser = true;
+        bool m_ShowDebug = false;
+        bool m_ShowRenderPathSettings = false;
         bool m_ShowDemoWindow = false;
 
-        //          
+        // Performance Metrics
         std::vector<float> m_FrameTimeHistory;
+        std::vector<float> m_FpsHistory;
         float m_UpdateTimer = 0.0f;
+        float m_AverageFrameTime = 0.0f;
+
+        // ImGui Style
+        bool m_StyleChanged = false;
     };
 
 }
-

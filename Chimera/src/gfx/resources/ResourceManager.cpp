@@ -226,6 +226,7 @@ namespace Chimera {
 
     void ResourceManager::DestroyGraphImage(GraphImage& image)
     {
+        if (image.is_external) return;
         vkDestroyImageView(m_Context->GetDevice(), image.view, nullptr);
         vmaDestroyImage(m_Context->GetAllocator(), image.handle, image.allocation);
     }
