@@ -2,17 +2,17 @@
 #include "pch.h"
 
 namespace Chimera {
-    class VulkanContext;
+	class VulkanContext;
 
-    namespace VulkanUtils {
+	namespace VulkanUtils {
 
-        VkShaderModule LoadShaderModule(const std::string& filename, VkDevice device);
+		VkShaderModule LoadShaderModule(const std::string& filename, VkDevice device);
 
-        void CopyBuffer(
-            std::shared_ptr<VulkanContext> context,
-            VkBuffer srcBuffer,
-            VkBuffer dstBuffer,
-            VkDeviceSize size
-        );
-    }
+		void CopyBuffer(
+			std::shared_ptr<VulkanContext> context,
+			VkBuffer srcBuffer,
+			VkBuffer dstBuffer,
+			VkDeviceSize size
+		);
+	}
 }

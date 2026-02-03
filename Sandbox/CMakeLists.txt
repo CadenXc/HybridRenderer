@@ -10,23 +10,21 @@ add_executable(Sandbox ${SOURCES})
 target_link_libraries(Sandbox PRIVATE Chimera)
 
 if(TARGET ChimeraShaders)
-    add_dependencies(Sandbox ChimeraShaders)
+    # Create a target that ALWAYS runs (ALL) to copy shaders
+    add_custom_target(UpdateShaders ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_BINARY_DIR}/shaders_compiled"
+            "$<TARGET_FILE_DIR:Sandbox>/shaders"
+        COMMENT "Updating Shaders in Sandbox Bin Directory..."
+        DEPENDS ChimeraShaders
+    )
+    add_dependencies(Sandbox UpdateShaders)
 endif()
 
-# Debugging Environment
-set_target_properties(Sandbox PROPERTIES
-    VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:Sandbox>"
-)
-
-# Post-Build: Copy Assets & Shaders
+# Post-Build: Copy Assets (Keep assets as POST_BUILD as they change less often, or move them too if desired. Keeping for now.)
 add_custom_command(TARGET Sandbox POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:Sandbox>/assets"
-
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_BINARY_DIR}/shaders_compiled"
-        "$<TARGET_FILE_DIR:Sandbox>/shaders"
-
-    COMMENT "Updating Assets and Shaders..."
+    COMMENT "Updating Assets..."
 )

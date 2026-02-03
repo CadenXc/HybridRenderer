@@ -15,8 +15,8 @@ layout(location = 0) rayPayloadInEXT HitPayload payload;
 
 void main() 
 {
-    // 返回深蓝色背景
-    payload.color = vec3(1.0, 1.0, 1.0);
+    // 返回浅蓝色背景
+    payload.color = vec3(0.39, 0.58, 0.93);
     
     // 法线设为 0 (或者任何值，因为 depth=0 时 RayGen 不会用到它)
     payload.normal = vec3(0.0);

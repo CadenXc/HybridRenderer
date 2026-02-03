@@ -4,19 +4,32 @@
 #include "core/utilities/Log.h"
 #include "core/utilities/Random.h"
 
+#include <filesystem>
+
 extern Chimera::Application* Chimera::CreateApplication(int argc, char** argv);
 
 int main(int argc, char** argv)
 {
-    Chimera::Log::Init();
-    Chimera::Random::Init();
-    CH_CORE_INFO("Chimera Engine Initialized (via EntryPoint)");
+	Chimera::Log::Init();
+	Chimera::Random::Init();
+	CH_CORE_INFO("Chimera Engine Initialized (via EntryPoint)");
 
-    auto app = Chimera::CreateApplication(argc, argv);
+	// Set working directory to executable directory
+	if (argc > 0)
+	{
+		std::filesystem::path exePath(argv[0]);
+		std::filesystem::path exeDir = exePath.parent_path();
+		if (std::filesystem::exists(exeDir)) {
+			 std::filesystem::current_path(exeDir);
+			 CH_CORE_INFO("Set Working Directory to: {}", exeDir.string());
+		}
+	}
 
-    app->Run();
+	auto app = Chimera::CreateApplication(argc, argv);
 
-    delete app;
+	app->Run();
 
-    return 0;
+	delete app;
+
+	return 0;
 }

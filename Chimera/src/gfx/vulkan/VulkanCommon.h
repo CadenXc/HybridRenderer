@@ -9,213 +9,274 @@
 
 namespace Chimera {
 
-    // Forward declarations
-    class Buffer;
+	// Forward declarations
+	class Buffer;
 
-    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
+	static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 
-    struct ImageDescription 
-    {
-        uint32_t width;
-        uint32_t height;
-        VkFormat format;
-        VkImageUsageFlags usage;
-        VkSampleCountFlagBits samples;
+	struct ImageDescription
+	{
+		uint32_t width;
+		uint32_t height;
+		VkFormat format;
+		VkImageUsageFlags usage;
+		VkSampleCountFlagBits samples;
 
-        bool operator==(const ImageDescription& other) const 
-        {
-            return width == other.width && height == other.height && 
-                   format == other.format && usage == other.usage && 
-                   samples == other.samples;
-        }
-    };
+		bool operator==(const ImageDescription& other) const
+		{
+			return width == other.width && height == other.height &&
+				   format == other.format && usage == other.usage &&
+				   samples == other.samples;
+		}
+	};
 
-    struct BufferDescription 
-    {
-        VkDeviceSize size;
-        VkBufferUsageFlags usage;
-        VmaMemoryUsage memory_usage;
+	struct BufferDescription
+	{
+		VkDeviceSize size;
+		VkBufferUsageFlags usage;
+		VmaMemoryUsage memory_usage;
 
-        bool operator==(const BufferDescription& other) const 
-        {
-            return size == other.size && usage == other.usage && memory_usage == other.memory_usage;
-        }
-    };
+		bool operator==(const BufferDescription& other) const
+		{
+			return size == other.size && usage == other.usage && memory_usage == other.memory_usage;
+		}
+	};
 
-    struct GraphImage 
-    {
-        VkImage handle;
-        VkImageView view;
-        VmaAllocation allocation;
-        uint32_t width;
-        uint32_t height;
-        VkFormat format;
-        VkImageUsageFlags usage;
-        bool is_external = false;
-    };
+	struct GraphImage
+	{
+		VkImage handle;
+		VkImageView view;
+		VmaAllocation allocation;
+		uint32_t width;
+		uint32_t height;
+		VkFormat format;
+		VkImageUsageFlags usage;
+		bool is_external = false;
+	};
 
-    enum class VertexInputState { Default, Empty, ImGui };
-    enum class RasterizationState { CullClockwise, CullCounterClockwise, CullNone };
-    enum class MultisampleState { Off, On };
-    enum class DepthStencilState { Off, On };
-    enum class ColorBlendState { Off, ImGui };
-    enum class DynamicState { None, Viewport, ViewportScissor, DepthBias };
+	enum class VertexInputState
+	{
+		Default, Empty, ImGui
+	};
 
-    struct PushConstantDescription {
-        uint32_t size;
-        VkShaderStageFlags shader_stage;
-    };
-    static const PushConstantDescription PUSHCONSTANTS_NONE = { 0, 0 };
+	enum class RasterizationState
+	{
+		CullClockwise, CullCounterClockwise, CullNone
+	};
 
-    struct SpecializationConstantsDescription {
-        VkShaderStageFlags shader_stage;
-        std::vector<int> specialization_constants;
-    };
+	enum class MultisampleState
+	{
+		Off, On
+	};
 
-    enum class TransientResourceType { Image, Buffer };
-    enum class TransientImageType { AttachmentImage, SampledImage, StorageImage };
+	enum class DepthStencilState
+	{
+		Off, On
+	};
 
-    struct TransientImage {
-        TransientImageType type;
-        uint32_t width;
-        uint32_t height;
-        VkFormat format;
-        uint32_t binding;
-        VkClearValue clear_value;
-        bool multisampled;
-    };
+	enum class ColorBlendState
+	{
+		Off, ImGui
+	};
 
-    struct TransientBuffer {
-        uint32_t stride;
-        uint32_t count;
-    };
+	enum class DynamicState
+	{
+		None, Viewport, ViewportScissor, DepthBias
+	};
 
-    struct TransientResource {
-        TransientResourceType type;
-        const char *name;
-        union {
-            TransientImage image;
-            TransientBuffer buffer;
-        };
-    };
+	struct PushConstantDescription
+	{
+		uint32_t size;
+		VkShaderStageFlags shader_stage;
+	};
+	static const PushConstantDescription PUSHCONSTANTS_NONE = { 0, 0 };
 
-    struct GraphicsPipelineDescription {
-        const char *name;
-        const char *vertex_shader;
-        const char *fragment_shader;
-        VertexInputState vertex_input_state;
-        MultisampleState multisample_state;
-        DepthStencilState depth_stencil_state;
-        DynamicState dynamic_state;
-        PushConstantDescription push_constants;
-        SpecializationConstantsDescription specialization_constants_description;
-    };
+	struct SpecializationConstantsDescription
+	{
+		VkShaderStageFlags shader_stage;
+		std::vector<int> specialization_constants;
+	};
 
-    struct GraphicsPipeline {
-        GraphicsPipelineDescription description;
-        VkPipeline handle;
-        VkPipelineLayout layout;
-    };
+	enum class TransientResourceType
+	{
+		Image, Buffer
+	};
 
-    struct HitShader {
-        const char *closest_hit;
-        const char *any_hit;
-    };
+	enum class TransientImageType
+	{
+		AttachmentImage, SampledImage, StorageImage
+	};
 
-    struct RaytracingPipelineDescription {
-        const char *name;
-        const char *raygen_shader;
-        std::vector<const char *> miss_shaders;
-        std::vector<HitShader> hit_shaders;
-    };
-    
-    struct ShaderBindingTable {
-        VkStridedDeviceAddressRegionKHR strided_device_address_region;
-    };
+	struct TransientImage
+	{
+		TransientImageType type;
+		uint32_t width;
+		uint32_t height;
+		VkFormat format;
+		uint32_t binding;
+		VkClearValue clear_value;
+		bool multisampled;
+	};
 
-    struct RaytracingPipeline {
-        RaytracingPipelineDescription description;
-        uint32_t shader_group_size;
-        ShaderBindingTable raygen_sbt;
-        ShaderBindingTable miss_sbt;
-        ShaderBindingTable hit_sbt;
-        ShaderBindingTable call_sbt;
-        std::shared_ptr<class Buffer> sbt_buffer;
-        VkPipeline handle;
-        VkPipelineLayout layout;
-    };
+	struct TransientBuffer
+	{
+		uint32_t stride;
+		uint32_t count;
+	};
 
-    struct ComputeKernel {
-        const char *shader;
-    };
+	struct TransientResource
+	{
+		TransientResourceType type;
+		const char *name;
+		union
+		{
+			TransientImage image;
+			TransientBuffer buffer;
+		};
+	};
 
-    struct ComputePipelineDescription {
-        std::vector<ComputeKernel> kernels;
-        PushConstantDescription push_constant_description;
-    };
+	struct GraphicsPipelineDescription
+	{
+		const char *name;
+		const char *vertex_shader;
+		const char *fragment_shader;
+		VertexInputState vertex_input_state;
+		RasterizationState rasterization_state;
+		MultisampleState multisample_state;
+		DepthStencilState depth_stencil_state;
+		ColorBlendState color_blend_state;
+		DynamicState dynamic_state;
+		PushConstantDescription push_constants;
+		SpecializationConstantsDescription specialization_constants_description;
+	};
 
-    struct ComputePipeline {
-        VkPipeline handle;
-        VkPipelineLayout layout;
-        PushConstantDescription push_constant_description;
-    };
+	struct GraphicsPipeline
+	{
+		GraphicsPipelineDescription description;
+		VkPipeline handle;
+		VkPipelineLayout layout;
+	};
 
-    class GraphicsExecutionContext;
-    using GraphicsExecutionCallback = std::function<void(GraphicsExecutionContext &)>;
-    using ExecuteGraphicsCallback = std::function<void(std::string, GraphicsExecutionCallback)>;
-    using GraphicsPassCallback = std::function<void(ExecuteGraphicsCallback)>;
+	struct HitShader
+	{
+		const char *closest_hit;
+		const char *any_hit;
+	};
 
-    class RaytracingExecutionContext;
-    using RaytracingExecutionCallback = std::function<void(RaytracingExecutionContext &)>;
-    using ExecuteRaytracingCallback = std::function<void(std::string, RaytracingExecutionCallback)>;
-    using RaytracingPassCallback = std::function<void(ExecuteRaytracingCallback)>;
+	struct RaytracingPipelineDescription
+	{
+		const char *name;
+		const char *raygen_shader;
+		std::vector<const char *> miss_shaders;
+		std::vector<HitShader> hit_shaders;
+	};
+	
+	struct ShaderBindingTable
+	{
+		VkStridedDeviceAddressRegionKHR strided_device_address_region;
+	};
 
-    class ComputeExecutionContext;
-    using ComputePassCallback = std::function<void(ComputeExecutionContext &)>;
+	struct RaytracingPipeline
+	{
+		RaytracingPipelineDescription description;
+		uint32_t shader_group_size;
+		ShaderBindingTable raygen_sbt;
+		ShaderBindingTable miss_sbt;
+		ShaderBindingTable hit_sbt;
+		ShaderBindingTable call_sbt;
+		std::shared_ptr<class Buffer> sbt_buffer;
+		VkPipeline handle;
+		VkPipelineLayout layout;
+	};
 
-    struct GraphicsPass {
-        VkRenderPass handle;
-        std::vector<TransientResource> attachments;
-        std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> framebuffers;
-        GraphicsPassCallback callback;
-    };
+	struct ComputeKernel
+	{
+		const char *shader;
+	};
 
-    struct ImageAccess {
-        VkImageLayout layout;
-        VkAccessFlags access_flags;
-        VkPipelineStageFlags stage_flags;
-    };
+	struct ComputePipelineDescription
+	{
+		std::vector<ComputeKernel> kernels;
+		PushConstantDescription push_constant_description;
+	};
 
-    struct RaytracingPass { RaytracingPassCallback callback; };
-    struct ComputePass { ComputePassCallback callback; };
+	struct ComputePipeline
+	{
+		VkPipeline handle;
+		VkPipelineLayout layout;
+		PushConstantDescription push_constant_description;
+	};
 
-    struct RenderPass {
-        const char *name;
-        VkDescriptorSetLayout descriptor_set_layout;
-        VkDescriptorSet descriptor_set;
-        std::variant<GraphicsPass, RaytracingPass, ComputePass> pass;
-    };
+	class GraphicsExecutionContext;
+	using GraphicsExecutionCallback = std::function<void(GraphicsExecutionContext &)>;
+	using ExecuteGraphicsCallback = std::function<void(std::string, GraphicsExecutionCallback)>;
+	using GraphicsPassCallback = std::function<void(ExecuteGraphicsCallback)>;
 
-    struct ComputePassDescription {
-        ComputePipelineDescription pipeline_description;
-        ComputePassCallback callback;
-    };
+	class RaytracingExecutionContext;
+	using RaytracingExecutionCallback = std::function<void(RaytracingExecutionContext &)>;
+	using ExecuteRaytracingCallback = std::function<void(std::string, RaytracingExecutionCallback)>;
+	using RaytracingPassCallback = std::function<void(ExecuteRaytracingCallback)>;
 
-    struct GraphicsPassDescription {
-        std::vector<GraphicsPipelineDescription> pipeline_descriptions;
-        GraphicsPassCallback callback;
-    };
+	class ComputeExecutionContext;
+	using ComputePassCallback = std::function<void(ComputeExecutionContext &)>;
 
-    struct RaytracingPassDescription {
-        RaytracingPipelineDescription pipeline_description;
-        RaytracingPassCallback callback;
-    };
+	struct GraphicsPass
+	{
+		VkRenderPass handle;
+		std::vector<TransientResource> attachments;
+		std::array<VkFramebuffer, MAX_FRAMES_IN_FLIGHT> framebuffers;
+		GraphicsPassCallback callback;
+	};
 
-    struct RenderPassDescription {
-        const char *name;
-        std::vector<TransientResource> dependencies;
-        std::vector<TransientResource> outputs;
-        std::variant<GraphicsPassDescription, RaytracingPassDescription, ComputePassDescription> description;
-    };
+	struct ImageAccess
+	{
+		VkImageLayout layout;
+		VkAccessFlags access_flags;
+		VkPipelineStageFlags stage_flags;
+	};
+
+	struct RaytracingPass
+	{
+		RaytracingPassCallback callback;
+	};
+
+	struct ComputePass
+	{
+		ComputePassCallback callback;
+	};
+
+	struct RenderPass
+	{
+		const char *name;
+		VkDescriptorSetLayout descriptor_set_layout;
+		VkDescriptorSet descriptor_set;
+		std::variant<GraphicsPass, RaytracingPass, ComputePass> pass;
+	};
+
+	struct ComputePassDescription
+	{
+		ComputePipelineDescription pipeline_description;
+		ComputePassCallback callback;
+	};
+
+	struct GraphicsPassDescription
+	{
+		std::vector<GraphicsPipelineDescription> pipeline_descriptions;
+		GraphicsPassCallback callback;
+	};
+
+	struct RaytracingPassDescription
+	{
+		RaytracingPipelineDescription pipeline_description;
+		RaytracingPassCallback callback;
+	};
+
+	struct RenderPassDescription
+	{
+		const char *name;
+		std::vector<TransientResource> dependencies;
+		std::vector<TransientResource> outputs;
+		std::variant<GraphicsPassDescription, RaytracingPassDescription, ComputePassDescription> description;
+	};
 
 }

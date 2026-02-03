@@ -8,15 +8,21 @@ layout(location = 2) in vec3 fragPos;
 
 layout(location = 0) out vec4 outColor;
 
-layout(binding = 0) uniform UniformBufferObject {
+layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 prevView;
+    mat4 prevProj;
     vec4 lightPos;
+    int frameCount;
 } ubo;
 
 void main() {
-    vec3 color = texture(texSampler, fragTexCoord).rgb;
+    // Current scene might not have valid textures yet, use a default color if needed
+    // But we keep the texture sampling to see if it works
+    vec3 color = vec3(0.8); 
+    // vec3 color = texture(texSampler, fragTexCoord).rgb;
     
     // Ambient
     float ambientStrength = 0.3;
