@@ -1,20 +1,34 @@
 #include "pch.h"
 #include "Renderer/Resources/ResourceManager.h"
 #include "Renderer/Backend/VulkanContext.h"
+#include "Core/Application.h"
+#include "Core/ImGuiLayer.h"
 #include "Utils/VulkanBarrier.h"
 #include <stb_image.h>
 
 namespace Chimera {
 
+    ResourceManager* ResourceManager::s_Instance = nullptr;
+
 	ResourceManager::ResourceManager(std::shared_ptr<VulkanContext> context)
 		: m_Context(context)
 	{
+        s_Instance = this;
 		CreateTextureSampler();
+        m_ResourceFreeQueue.resize(MAX_FRAMES_IN_FLIGHT);
 	}
 
 	ResourceManager::~ResourceManager()
 	{
 		VkDevice device = m_Context->GetDevice();
+
+        // Final clear of all queues
+        for (auto& queue : m_ResourceFreeQueue)
+        {
+            for (auto& func : queue) func();
+            queue.clear();
+        }
+
 		if (m_DescriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
 		if (m_TransientDescriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, m_TransientDescriptorPool, nullptr);
 		
@@ -22,7 +36,23 @@ namespace Chimera {
 			vkDestroyDescriptorSetLayout(device, m_GlobalDescriptorSetLayout, nullptr);
 
 		if (m_TextureSampler != VK_NULL_HANDLE) vkDestroySampler(device, m_TextureSampler, nullptr);
+
+        s_Instance = nullptr;
 	}
+
+    void ResourceManager::SubmitResourceFree(std::function<void()>&& func)
+    {
+        if (s_Instance) {
+            s_Instance->m_ResourceFreeQueue[s_Instance->m_CurrentFrameIndex].emplace_back(std::move(func));
+        }
+    }
+
+    void ResourceManager::ClearResourceFreeQueue(uint32_t frameIndex)
+    {
+        auto& queue = m_ResourceFreeQueue[frameIndex];
+        for (auto& func : queue) func();
+        queue.clear();
+    }
 
 	void ResourceManager::InitGlobalResources()
 	{
@@ -323,12 +353,12 @@ namespace Chimera {
 
 		VulkanUtils::TransitionImageLayout(m_Context, image->GetImage(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
 		
-		VkCommandBuffer cmd = m_Context->BeginSingleTimeCommands();
+		VkCommandBuffer cmd = Application::GetCommandBuffer(true);
 		VkBufferImageCopy region{};
 		region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 		region.imageExtent = { (uint32_t)texWidth, (uint32_t)texHeight, 1 };
 		vkCmdCopyBufferToImage(cmd, stagingBuffer.GetBuffer(), image->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-		m_Context->EndSingleTimeCommands(cmd);
+		Application::FlushCommandBuffer(cmd);
 
 		VulkanUtils::TransitionImageLayout(m_Context, image->GetImage(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
 

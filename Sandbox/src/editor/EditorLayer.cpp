@@ -128,8 +128,16 @@ namespace Chimera {
 
     void EditorLayer::DrawStatsPanel()
     {
-        ImGui::Text("Frame Time: %.3f ms", m_AverageFrameTime);
-        ImGui::Text("FPS: %.1f", m_AverageFPS);
+        ImGui::Text("CPU Frame Time: %.3f ms", m_AverageFrameTime);
+        ImGui::Text("CPU FPS: %.1f", m_AverageFPS);
+        
+        ImGui::Separator();
+        ImGui::Text("GPU Performance (ms):");
+        if (m_App->GetRenderPath()) {
+            m_App->GetRenderPath()->GetRenderGraph().GatherPerformanceStatistics();
+            m_App->GetRenderPath()->GetRenderGraph().DrawPerformanceStatistics();
+        }
+
         ImGui::Separator();
         ImGui::Text("Current Model:");
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "%s", m_ActiveModelPath.empty() ? "None" : m_ActiveModelPath.c_str());
@@ -205,12 +213,16 @@ namespace Chimera {
         if (ImGui::BeginCombo("Viewport Texture", m_DebugViewTexture.c_str())) {
             std::vector<std::string> views = { RS::FINAL_COLOR };
             auto* renderPath = m_App->GetRenderPath();
-            if (renderPath && renderPath->GetType() == RenderPathType::Hybrid) {
-                views.push_back(RS::ALBEDO);
-                views.push_back(RS::NORMAL);
-                views.push_back(RS::MATERIAL);
-                views.push_back(RS::DEPTH);
+            if (renderPath) {
+                std::vector<std::string> colorAtts = renderPath->GetRenderGraph().GetColorAttachments();
+                for (const auto& att : colorAtts) {
+                    if (att != RS::FINAL_COLOR) views.push_back(att);
+                }
+                // Add depth if it exists
+                if (renderPath->GetRenderGraph().ContainsImage(RS::DEPTH))
+                    views.push_back(RS::DEPTH);
             }
+
             for (const auto& v : views) {
                 if (ImGui::Selectable(v.c_str(), m_DebugViewTexture == v)) 
                     m_DebugViewTexture = v;
@@ -241,34 +253,25 @@ namespace Chimera {
             auto& img = renderPath->GetRenderGraph().GetImage(m_DebugViewTexture);
             auto& access = renderPath->GetRenderGraph().GetImageAccess(m_DebugViewTexture);
 
-            if (img.handle == VK_NULL_HANDLE) {
-                ImGui::Text("Image handle is NULL");
-                ImGui::End();
-                ImGui::PopStyleVar();
-                return;
-            }
-
-            /* Temporarily disabled to debug crash
-            if (cmd != VK_NULL_HANDLE && access.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-                VulkanUtils::InsertImageBarrier(cmd, img.handle,
-                    VulkanUtils::IsDepthFormat(img.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
-                    access.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    access.stage_flags, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                    access.access_flags, VK_ACCESS_SHADER_READ_BIT);
+            if (img.handle != VK_NULL_HANDLE) {
+                if (cmd != VK_NULL_HANDLE && access.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                    VulkanUtils::InsertImageBarrier(cmd, img.handle,
+                        VulkanUtils::IsDepthFormat(img.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                        access.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                        access.stage_flags, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                        access.access_flags, VK_ACCESS_SHADER_READ_BIT);
+                    
+                    access.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    access.stage_flags = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                    access.access_flags = VK_ACCESS_SHADER_READ_BIT;
+                }
                 
-                access.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                access.stage_flags = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-                access.access_flags = VK_ACCESS_SHADER_READ_BIT;
+                ImTextureID textureID = m_App->GetImGuiLayer()->GetTextureID(img.view, m_App->GetResourceManager()->GetDefaultSampler());
+                if (textureID)
+                    ImGui::Image(textureID, viewportPanelSize);
+            } else {
+                ImGui::Text("Image handle is NULL");
             }
-            */
-            
-            if (img.view != m_CurrentDebugViewHandle) {
-                m_CurrentDebugViewHandle = img.view;
-                m_CurrentDebugTexID = m_App->GetImGuiLayer()->GetTextureID(img.view, m_App->GetResourceManager()->GetDefaultSampler());
-            }
-
-            if (m_CurrentDebugTexID)
-                ImGui::Image(m_CurrentDebugTexID, viewportPanelSize);
         }
 
         ImGui::End();

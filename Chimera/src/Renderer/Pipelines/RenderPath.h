@@ -25,6 +25,7 @@ namespace Chimera {
 
 		virtual void Init()
 		{
+			m_LastExtent = m_Context->GetSwapChainExtent();
 			RebuildGraph();
 		}
 
@@ -50,7 +51,7 @@ namespace Chimera {
 							VkDescriptorSet globalDescriptorSet, const std::vector<VkImage>& swapChainImages,
 							std::function<void(VkCommandBuffer)> uiDrawCallback = nullptr)
 		{
-			// 1. 检查窗口缩�?
+			// 1. 检查窗口缩�?
 			auto extent = m_Context->GetSwapChainExtent();
 			if (m_LastExtent.width != extent.width || m_LastExtent.height != extent.height)
 			{
@@ -67,7 +68,7 @@ namespace Chimera {
 				m_NeedsRebuild = false;
 			}
 
-			// 3. 执行渲染�?
+			// 3. 执行渲染�?
 			if (m_RenderGraph)
 			{
 				m_RenderGraph->Execute(cmd, currentFrame, imageIndex, uiDrawCallback);

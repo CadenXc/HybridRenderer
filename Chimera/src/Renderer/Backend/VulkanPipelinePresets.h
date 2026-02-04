@@ -57,6 +57,13 @@ namespace Chimera {
 		.vertexAttributeDescriptionCount = static_cast<uint32_t>(IMGUI_VERTEX_ATTRIBUTE_DESCRIPTIONS.size()),
 		.pVertexAttributeDescriptions = IMGUI_VERTEX_ATTRIBUTE_DESCRIPTIONS.data()
 	};
+	inline const VkPipelineVertexInputStateCreateInfo VERTEX_INPUT_STATE_EMPTY {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		.vertexBindingDescriptionCount = 0,
+		.pVertexBindingDescriptions = nullptr,
+		.vertexAttributeDescriptionCount = 0,
+		.pVertexAttributeDescriptions = nullptr
+	};
 	inline const VkPipelineRasterizationStateCreateInfo RASTERIZATION_STATE_DEFAULT {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		.polygonMode = VK_POLYGON_MODE_FILL,

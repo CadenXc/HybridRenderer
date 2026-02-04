@@ -38,7 +38,7 @@ namespace Chimera {
             uint32_t mipLevels = 1
         );
 
-        // [原有] 辅助封装：自动创建临�?CommandBuffer 并提�?(用于初始�?
+        // [原有] 辅助封装：自动创建临�?CommandBuffer 并提�?(用于初始�?
         void TransitionImageLayout(
             std::shared_ptr<VulkanContext> context,
             VkImage image,
@@ -49,6 +49,6 @@ namespace Chimera {
         );
 
         bool IsDepthFormat(VkFormat format);
-        VkImageLayout GetImageLayoutFromResourceType(TransientImageType type, VkFormat format);
+        VkImageLayout GetImageLayoutFromResourceType(TransientResourceType type, VkFormat format);
     }
 }

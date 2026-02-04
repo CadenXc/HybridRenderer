@@ -96,7 +96,7 @@ namespace Chimera::VulkanUtils
         VkPipelineStageFlags sourceStage;
         VkPipelineStageFlags destinationStage;
 
-        // 自动推断 Access Masks �?Stages (简化版)
+        // 自动推断 Access Masks �?Stages (简化版)
         // 1. Undefined -> Transfer Dst (Init)
         if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
             barrier.srcAccessMask = 0;
@@ -175,7 +175,7 @@ namespace Chimera::VulkanUtils
         vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    // [原有] 上下文版�?(Blocking)
+    // [原有] 上下文版�?(Blocking)
     void TransitionImageLayout(
         std::shared_ptr<VulkanContext> context,
         VkImage image,
@@ -190,14 +190,14 @@ namespace Chimera::VulkanUtils
         context->EndSingleTimeCommands(commandBuffer);
     }
 
-    VkImageLayout GetImageLayoutFromResourceType(TransientImageType type, VkFormat format)
+    VkImageLayout GetImageLayoutFromResourceType(TransientResourceType type, VkFormat format)
     {
         if (IsDepthFormat(format)) return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         
         switch (type) {
-            case TransientImageType::AttachmentImage: return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            case TransientImageType::SampledImage:    return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            case TransientImageType::StorageImage:    return VK_IMAGE_LAYOUT_GENERAL;
+            case TransientResourceType::Sampler: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            case TransientResourceType::Storage: return VK_IMAGE_LAYOUT_GENERAL;
+            case TransientResourceType::Image:   return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             default: return VK_IMAGE_LAYOUT_GENERAL;
         }
     }

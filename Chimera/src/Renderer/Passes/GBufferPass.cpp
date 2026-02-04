@@ -33,11 +33,15 @@ namespace Chimera {
         pipelineDesc.fragment_shader = "gbuffer.frag";
         pipelineDesc.push_constants.shader_stage = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         pipelineDesc.push_constants.size = sizeof(GBufferPushConstants);
-        pipelineDesc.rasterization_state = RasterizationState::CullClockwise;
+        
+        pipelineDesc.Rasterization.Cull = CullMode::Back;
+        pipelineDesc.Rasterization.Front = FrontFace::CounterClockwise;
+        
+        pipelineDesc.DepthStencil.DepthTest = true;
+        pipelineDesc.DepthStencil.DepthWrite = true;
+        
         pipelineDesc.dynamic_state = DynamicState::ViewportScissor;
         pipelineDesc.vertex_input_state = VertexInputState::Default;
-        pipelineDesc.depth_stencil_state = DepthStencilState::On;
-        pipelineDesc.multisample_state = MultisampleState::Off;
 
         // 3. Add to Graph
         auto scene = m_Scene; 

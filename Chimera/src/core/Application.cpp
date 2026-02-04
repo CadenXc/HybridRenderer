@@ -47,6 +47,8 @@ namespace Chimera {
         m_ImGuiLayer = std::make_unique<ImGuiLayer>(m_Context);
         m_ImGuiLayer->OnAttach();
 
+        m_SceneRenderer = std::make_unique<SceneRenderer>(m_Context, m_ResourceManager.get(), m_Renderer, m_ImGuiLayer.get());
+
         m_Scene = std::make_shared<Scene>(m_Context, m_ResourceManager.get());
 
         m_RenderPath = std::make_unique<HybridRenderPath>(m_Context, m_Scene, m_ResourceManager.get(), *m_PipelineManager, m_ResourceManager->GetGlobalDescriptorSetLayout());
@@ -87,32 +89,22 @@ namespace Chimera {
 
             m_Window->OnUpdate();
 
-            if (m_RenderPathSwitchPending)
+            // Reference Walnut: Process custom event queue
             {
-                ExecuteRenderPathSwitch(m_PendingRenderPathType);
-                m_RenderPathSwitchPending = false;
-            }
-
-            if (m_SceneLoadPending)
-            {
-                ExecuteLoadScene(m_PendingScenePath);
-                m_SceneLoadPending = false;
-            }
-
-            if (m_ShaderReloadPending)
-            {
-                vkDeviceWaitIdle(m_Context->GetDevice());
-                m_PipelineManager->ClearCache();
-                m_RenderPath->OnSceneUpdated();
-                m_ShaderReloadPending = false;
-                CH_CORE_INFO("Manual shader reload executed.");
+                std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
+                while (!m_EventQueue.empty())
+                {
+                    auto& func = m_EventQueue.front();
+                    func();
+                    m_EventQueue.pop();
+                }
             }
 
             // Camera is now updated via Layer::OnUpdate (e.g. EditorLayer)
             for (auto& layer : m_LayerStack)
                 layer->OnUpdate(timestep);
             
-            // 热重载逻辑使用 Config 设置
+            // Hot reload logic using Config settings
             static float shaderCheckTimer = 0.0f;
             shaderCheckTimer += timestep.GetSeconds();
             if (Config::Settings.EnableHotReload && shaderCheckTimer > Config::Settings.HotReloadCheckInterval)
@@ -135,67 +127,23 @@ namespace Chimera {
     {
         CH_CORE_INFO("Recompiling shaders...");
         int res = std::system("cmake --build ../.. --target UpdateShaders");
-        if (res == 0) m_ShaderReloadPending = true;
+        if (res == 0) RequestShaderReload();
         else CH_CORE_ERROR("Failed to recompile shaders.");
+    }
+
+    void Application::RequestShaderReload()
+    {
+        QueueEvent([this]() {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            m_PipelineManager->ClearCache();
+            m_RenderPath->OnSceneUpdated();
+            CH_CORE_INFO("Manual shader reload executed via Event Queue.");
+        });
     }
 
     void Application::drawFrame()
     {
-        try {
-            VkCommandBuffer cmd = m_Renderer->BeginFrame();
-            if (cmd == VK_NULL_HANDLE) return;
-
-            uint32_t frameIdx = m_Renderer->GetCurrentFrameIndex();
-            uint32_t imageIndex = m_Renderer->GetCurrentImageIndex();
-
-            static glm::mat4 lastView = m_FrameContext.View;
-            static glm::mat4 lastProj = m_FrameContext.Projection;
-
-            UniformBufferObject ubo{};
-            ubo.view = m_FrameContext.View;
-            ubo.proj = m_FrameContext.Projection;
-            ubo.prevView = lastView;
-            ubo.prevProj = lastProj;
-            ubo.cameraPos = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
-            ubo.lightPos = glm::vec4(5.0f, 5.0f, 5.0f, 1.0f);
-            ubo.time = m_FrameContext.Time;
-            ubo.frameCount = (int)m_FrameContext.FrameIndex;
-            m_ResourceManager->UpdateGlobalResources(frameIdx, ubo);
-
-            lastView = m_FrameContext.View;
-            lastProj = m_FrameContext.Projection;
-
-            m_RenderPath->Render(cmd, frameIdx, imageIndex, m_ResourceManager->GetGlobalDescriptorSet(frameIdx), m_Context->GetSwapChainImages(),
-                [&](VkCommandBuffer uiCmd) {
-                    VkImage swapchainImage = m_Context->GetSwapChainImages()[imageIndex];
-                    
-                    // RenderGraph leaves the swapchain in COLOR_ATTACHMENT_OPTIMAL.
-                    // We ensure the transition here for ImGui compatibility.
-                    VulkanUtils::InsertImageBarrier(uiCmd, swapchainImage, 
-                        VK_IMAGE_ASPECT_COLOR_BIT, 
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-
-                    m_ImGuiLayer->Begin();
-                    
-                    for (auto& layer : m_LayerStack)
-                        layer->OnUIRender();
-
-                    m_ImGuiLayer->End(uiCmd, m_Context->GetSwapChainImageViews()[imageIndex], m_Context->GetSwapChainExtent());
-
-                    VulkanUtils::InsertImageBarrier(uiCmd, swapchainImage, 
-                        VK_IMAGE_ASPECT_COLOR_BIT, 
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0);
-                }
-            );
-
-            m_Renderer->EndFrame();
-        } catch (const std::exception& e) {
-            CH_CORE_ERROR("EXCEPTION in drawFrame: {0}", e.what());
-        }
+        m_SceneRenderer->Render(m_Scene.get(), m_RenderPath.get(), m_FrameContext, m_LayerStack);
     }
 
     void Application::ExecuteRenderPathSwitch(RenderPathType type)
@@ -231,6 +179,7 @@ namespace Chimera {
         for (auto& layer : m_LayerStack) layer->OnDetach();
         m_LayerStack.clear();
         m_RenderPath.reset();
+        m_SceneRenderer.reset();
         m_ImGuiLayer.reset();
         m_Scene.reset();
         m_ResourceManager.reset();
@@ -241,8 +190,27 @@ namespace Chimera {
     }
 
     void Application::PushLayer(const std::shared_ptr<Layer>& layer) { m_LayerStack.push_back(layer); layer->OnAttach(); }
-    void Application::SwitchRenderPath(RenderPathType type) { m_PendingRenderPathType = type; m_RenderPathSwitchPending = true; }
-    void Application::LoadScene(const std::string& path) { m_PendingScenePath = path; m_SceneLoadPending = true; }
+    
+    void Application::SwitchRenderPath(RenderPathType type) 
+    { 
+        QueueEvent([this, type]() { ExecuteRenderPathSwitch(type); });
+    }
+
+    void Application::LoadScene(const std::string& path) 
+    { 
+        QueueEvent([this, path]() { ExecuteLoadScene(path); });
+    }
+
+    VkCommandBuffer Application::GetCommandBuffer(bool begin)
+    {
+        return s_Instance->m_Context->BeginSingleTimeCommands();
+    }
+
+    void Application::FlushCommandBuffer(VkCommandBuffer commandBuffer)
+    {
+        s_Instance->m_Context->EndSingleTimeCommands(commandBuffer);
+    }
+
     void Application::Close() { glfwSetWindowShouldClose(m_Window->GetNativeWindow(), GLFW_TRUE); }
     RenderPathType Application::GetCurrentRenderPathType() const { if (m_RenderPath) return m_RenderPath->GetType(); return RenderPathType::Hybrid; }
 

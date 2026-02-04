@@ -47,9 +47,16 @@ namespace Chimera {
 		void DestroyGraphImage(GraphImage& image);
 		void TagImage(GraphImage& image, const char* name);
 
+        static ResourceManager* Get() { return s_Instance; }
+
 		// Textures
 		std::unique_ptr<Image> LoadTexture(const std::string& path);
 		uint32_t AddTexture(std::unique_ptr<Image> texture);
+
+		// Reference Walnut: Deferred resource deletion
+		static void SubmitResourceFree(std::function<void()>&& func);
+		void ClearResourceFreeQueue(uint32_t frameIndex);
+        void UpdateFrameIndex(uint32_t frameIndex) { m_CurrentFrameIndex = frameIndex; }
 
 	private:
 		void CreateDescriptorSetLayout();
@@ -60,6 +67,7 @@ namespace Chimera {
 		void CreateTextureSampler();
 
 	private:
+		static ResourceManager* s_Instance;
 		std::shared_ptr<class VulkanContext> m_Context;
 		
 		VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
@@ -72,6 +80,10 @@ namespace Chimera {
 		
 		std::vector<std::unique_ptr<Image>> m_Textures;
 		VkSampler m_TextureSampler = VK_NULL_HANDLE;
+
+		// One queue per frame in flight (using MaxFramesInFlight from Renderer)
+		std::vector<std::vector<std::function<void()>>> m_ResourceFreeQueue;
+        uint32_t m_CurrentFrameIndex = 0;
 	};
 
 }

@@ -3,6 +3,7 @@
 #include "Core/Layer.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include <imgui.h>
+#include <unordered_map>
 
 namespace Chimera {
 
@@ -19,8 +20,9 @@ namespace Chimera {
 		void Begin();
 		void End(VkCommandBuffer cmd, VkImageView targetView, VkExtent2D extent);
 
-		// �?ImGui 获取纹理句柄
+		// Get texture handle for ImGui with caching
 		ImTextureID GetTextureID(VkImageView view, VkSampler sampler = VK_NULL_HANDLE);
+        void ClearTextureCache();
 
 		virtual void OnEvent(Event& e) override;
 
@@ -34,6 +36,8 @@ namespace Chimera {
 		std::shared_ptr<VulkanContext> m_Context;
 		VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 		bool m_BlockEvents = false;
+
+        std::unordered_map<VkImageView, ImTextureID> m_TextureCache;
 	};
 
 }

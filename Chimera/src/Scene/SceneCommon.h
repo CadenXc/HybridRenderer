@@ -66,7 +66,7 @@ namespace Chimera {
 
     struct Material
     {
-        glm::vec4 baseColor{ 1.0f };
+        glm::vec4 albedo{ 1.0f };
         glm::vec4 emission{ 0.0f };
         float metallic{ 0.0f };
         float roughness{ 0.5f };
@@ -111,7 +111,7 @@ namespace Chimera {
         glm::vec4 color; 
     };
 
-    // 存储 Importer 产出的结�?
+    // 存储 Importer 产出的结�?
     struct ImportedScene
     {
         std::vector<Vertex> Vertices;

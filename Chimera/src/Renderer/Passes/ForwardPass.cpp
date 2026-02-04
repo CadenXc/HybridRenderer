@@ -17,7 +17,7 @@ namespace Chimera {
 
     void ForwardPass::Setup(RenderGraph& graph)
     {
-        // 使用 ForwardColor 而不是保留字
+        // Use ForwardColor
         auto renderOutput = TransientResource::Image(RS::FORWARD_COLOR, VK_FORMAT_B8G8R8A8_UNORM, 0, { {0.1f, 0.1f, 0.1f, 1.0f} });
         auto depth        = TransientResource::Image(RS::DEPTH, VK_FORMAT_D32_SFLOAT, 1, { 1.0f, 0 });
 
@@ -26,9 +26,11 @@ namespace Chimera {
         pipelineDesc.vertex_shader = "shader.vert";
         pipelineDesc.fragment_shader = "shader.frag";
         pipelineDesc.vertex_input_state = VertexInputState::Default;
-        pipelineDesc.rasterization_state = RasterizationState::CullNone;
-        pipelineDesc.multisample_state = MultisampleState::Off;
-        pipelineDesc.depth_stencil_state = DepthStencilState::On;
+        
+        pipelineDesc.Rasterization.Cull = CullMode::None;
+        pipelineDesc.DepthStencil.DepthTest = true;
+        pipelineDesc.DepthStencil.DepthWrite = true;
+        
         pipelineDesc.dynamic_state = DynamicState::ViewportScissor;
         pipelineDesc.push_constants.shader_stage = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         pipelineDesc.push_constants.size = sizeof(ForwardPushConstants);

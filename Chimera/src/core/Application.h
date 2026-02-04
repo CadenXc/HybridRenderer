@@ -1,10 +1,12 @@
 #pragma once
 
 #include "pch.h"
-#include "Scene/EditorCamera.h"
-#include "Renderer/Pipelines/RenderPath.h"
+#include "Renderer/SceneRenderer.h"
 #include <glm/glm.hpp>
 #include <imgui.h>
+#include <queue>
+#include <mutex>
+#include <functional>
 
 namespace Chimera {
 
@@ -18,6 +20,7 @@ namespace Chimera {
 	class ResourceManager;
 	class Window;
 	class PipelineManager;
+	class SceneRenderer;
 	class Event;
 	class WindowResizeEvent;
 	class WindowCloseEvent;
@@ -28,16 +31,6 @@ namespace Chimera {
 		uint32_t Width = 1600;
 		uint32_t Height = 900;
 		bool WindowResizeable = true;
-	};
-
-	struct FrameContext {
-		glm::mat4 View{ 1.0f };
-		glm::mat4 Projection{ 1.0f };
-		glm::vec3 CameraPosition{ 0.0f };
-		float Time{ 0.0f };
-		float DeltaTime{ 0.0f };
-		glm::vec2 ViewportSize{ 1600.0f, 900.0f };
-		uint32_t FrameIndex{ 0 };
 	};
 
 	class Application
@@ -72,8 +65,26 @@ namespace Chimera {
 		void SetFrameContext(const FrameContext& context) { m_FrameContext = context; }
 		const FrameContext& GetFrameContext() const { return m_FrameContext; }
 
-		void RequestShaderReload() { m_ShaderReloadPending = true; }
+		void RequestShaderReload();
 		void RecompileShaders();
+
+        // Static Convenience Accessors (Walnut style)
+        static VkDevice GetDevice() { return s_Instance->m_Context->GetDevice(); }
+        static VkPhysicalDevice GetPhysicalDevice() { return s_Instance->m_Context->GetPhysicalDevice(); }
+        static VmaAllocator GetAllocator() { return s_Instance->m_Context->GetAllocator(); }
+        static VkQueue GetGraphicsQueue() { return s_Instance->m_Context->GetGraphicsQueue(); }
+        static VulkanContext& GetVulkanContext() { return *s_Instance->m_Context; }
+
+        static VkCommandBuffer GetCommandBuffer(bool begin);
+        static void FlushCommandBuffer(VkCommandBuffer commandBuffer);
+
+        // Reference Walnut: Thread-safe event queue for deferred execution
+        template<typename Func>
+        void QueueEvent(Func&& func)
+        {
+            std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
+            m_EventQueue.push(func);
+        }
 
 	private:
 		void initVulkan();
@@ -96,17 +107,14 @@ namespace Chimera {
 		std::shared_ptr<Scene> m_Scene;
 		std::unique_ptr<ResourceManager> m_ResourceManager;
 		std::unique_ptr<PipelineManager> m_PipelineManager;
+		std::unique_ptr<SceneRenderer> m_SceneRenderer;
 
 		std::unique_ptr<RenderPath> m_RenderPath;
 
 		FrameContext m_FrameContext;
 
-		bool m_RenderPathSwitchPending = false;
-		RenderPathType m_PendingRenderPathType = RenderPathType::Hybrid;
-
-		bool m_SceneLoadPending = false;
-		bool m_ShaderReloadPending = false;
-		std::string m_PendingScenePath;
+        std::mutex m_EventQueueMutex;
+        std::queue<std::function<void()>> m_EventQueue;
 
 		bool m_ScreenshotRequested = false;
 		std::string m_ScreenshotFilename;

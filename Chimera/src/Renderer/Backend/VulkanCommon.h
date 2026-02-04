@@ -59,24 +59,54 @@ namespace Chimera {
 		Default, Empty, ImGui
 	};
 
-	enum class RasterizationState
+	enum class PrimitiveTopology
 	{
-		CullClockwise, CullCounterClockwise, CullNone
+		TriangleList, LineList
 	};
 
-	enum class MultisampleState
+	enum class CullMode
 	{
-		Off, On
+		None, Front, Back
 	};
 
-	enum class DepthStencilState
+	enum class FrontFace
 	{
-		Off, On
+		Clockwise, CounterClockwise
 	};
 
-	enum class ColorBlendState
+	enum class DepthCompare
 	{
-		Off, ImGui
+		Less = VK_COMPARE_OP_LESS,
+		LessOrEqual = VK_COMPARE_OP_LESS_OR_EQUAL,
+		Greater = VK_COMPARE_OP_GREATER,
+		GreaterOrEqual = VK_COMPARE_OP_GREATER_OR_EQUAL,
+		Equal = VK_COMPARE_OP_EQUAL,
+		Always = VK_COMPARE_OP_ALWAYS
+	};
+
+	struct RasterizationDescription
+	{
+		PrimitiveTopology Topology = PrimitiveTopology::TriangleList;
+		CullMode Cull = CullMode::Back;
+		FrontFace Front = FrontFace::CounterClockwise;
+		float LineWidth = 1.0f;
+	};
+
+	struct DepthStencilDescription
+	{
+		bool DepthTest = true;
+		bool DepthWrite = true;
+		DepthCompare DepthCompare = DepthCompare::LessOrEqual;
+	};
+
+	struct MultisampleDescription
+	{
+		VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT;
+	};
+
+	struct BlendDescription
+	{
+		bool Enabled = false;
 	};
 
 	enum class DynamicState
@@ -191,13 +221,13 @@ namespace Chimera {
 		std::string name;
 		std::string vertex_shader;
 		std::string fragment_shader;
-		VertexInputState vertex_input_state;
-		RasterizationState rasterization_state;
-		MultisampleState multisample_state;
-		DepthStencilState depth_stencil_state;
-		ColorBlendState color_blend_state;
-		DynamicState dynamic_state;
-		PushConstantDescription push_constants;
+		VertexInputState vertex_input_state = VertexInputState::Default;
+		RasterizationDescription Rasterization;
+		MultisampleDescription Multisample;
+		DepthStencilDescription DepthStencil;
+		BlendDescription Blend;
+		DynamicState dynamic_state = DynamicState::None;
+		PushConstantDescription push_constants = PUSHCONSTANTS_NONE;
 		SpecializationConstantsDescription specialization_constants_description;
 	};
 

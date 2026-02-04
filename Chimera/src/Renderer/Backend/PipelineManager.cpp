@@ -112,6 +112,7 @@ namespace Chimera {
         CH_CORE_INFO("Creating Graphics Pipeline: {0}", description.name);
         const GraphicsPass &graphics_pass = std::get<GraphicsPass>(renderPass.pass);
         auto pipeline = std::make_unique<GraphicsPipeline>(); pipeline->description = description;
+        
         std::vector<VkPipelineShaderStageCreateInfo> shader_stages = {
             CreatePipelineShaderStage(m_Context->GetDevice(), description.vertex_shader, VK_SHADER_STAGE_VERTEX_BIT, m_ShaderTimestamps),
             CreatePipelineShaderStage(m_Context->GetDevice(), description.fragment_shader, VK_SHADER_STAGE_FRAGMENT_BIT, m_ShaderTimestamps)
@@ -119,13 +120,33 @@ namespace Chimera {
         
         VkPipelineVertexInputStateCreateInfo vertex_input = VERTEX_INPUT_STATE_DEFAULT;
         if(description.vertex_input_state == VertexInputState::ImGui) vertex_input = VERTEX_INPUT_STATE_IMGUI;
-        VkPipelineInputAssemblyStateCreateInfo input_assembly { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, nullptr, 0, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, VK_FALSE };
+        else if(description.vertex_input_state == VertexInputState::Empty) vertex_input = VERTEX_INPUT_STATE_EMPTY;
+
+        VkPipelineInputAssemblyStateCreateInfo input_assembly { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+        input_assembly.topology = (description.Rasterization.Topology == PrimitiveTopology::TriangleList) ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST : VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
         
+        // Rasterization
+        VkPipelineRasterizationStateCreateInfo rasterization { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+        rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterization.lineWidth = description.Rasterization.LineWidth;
+        rasterization.cullMode = (description.Rasterization.Cull == CullMode::None) ? VK_CULL_MODE_NONE : 
+                                 (description.Rasterization.Cull == CullMode::Back) ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT;
+        rasterization.frontFace = (description.Rasterization.Front == FrontFace::Clockwise) ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+        // Depth Stencil
+        VkPipelineDepthStencilStateCreateInfo depth_stencil { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+        depth_stencil.depthTestEnable = description.DepthStencil.DepthTest ? VK_TRUE : VK_FALSE;
+        depth_stencil.depthWriteEnable = description.DepthStencil.DepthWrite ? VK_TRUE : VK_FALSE;
+        depth_stencil.depthCompareOp = (VkCompareOp)description.DepthStencil.DepthCompare;
+
+        // Multisample
+        VkPipelineMultisampleStateCreateInfo multisample { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+        multisample.rasterizationSamples = description.Multisample.Samples;
+
         std::vector<VkPushConstantRange> push_ranges;
         if(description.push_constants.size > 0) {
             VkPushConstantRange range{};
             range.stageFlags = description.push_constants.shader_stage;
-            range.offset = 0;
             range.size = description.push_constants.size;
             push_ranges.push_back(range);
         }
@@ -133,8 +154,7 @@ namespace Chimera {
         std::vector<VkDescriptorSetLayout> layouts; layouts.push_back(m_ResourceManager.GetGlobalDescriptorSetLayout());
         if(renderPass.descriptor_set_layout != VK_NULL_HANDLE) layouts.push_back(renderPass.descriptor_set_layout);
         
-        VkPipelineLayoutCreateInfo layout_info{};
-        layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        VkPipelineLayoutCreateInfo layout_info{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
         layout_info.setLayoutCount = (uint32_t)layouts.size();
         layout_info.pSetLayouts = layouts.data();
         layout_info.pushConstantRangeCount = (uint32_t)push_ranges.size();
@@ -143,27 +163,26 @@ namespace Chimera {
         
         VkGraphicsPipelineCreateInfo pipeline_info { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
         pipeline_info.stageCount = 2; pipeline_info.pStages = shader_stages.data(); pipeline_info.pVertexInputState = &vertex_input; pipeline_info.pInputAssemblyState = &input_assembly; pipeline_info.layout = pipeline->layout; pipeline_info.renderPass = graphics_pass.handle;
-        if (description.rasterization_state == RasterizationState::CullClockwise) pipeline_info.pRasterizationState = &RASTERIZATION_STATE_CULL_CLOCKWISE;
-        else if (description.rasterization_state == RasterizationState::CullCounterClockwise) pipeline_info.pRasterizationState = &RASTERIZATION_STATE_CULL_COUNTER_CLOCKWISE;
-        else pipeline_info.pRasterizationState = &RASTERIZATION_STATE_CULL_NONE;
-        VkPipelineMultisampleStateCreateInfo multisample = MULTISAMPLE_STATE_OFF; pipeline_info.pMultisampleState = &multisample;
-        pipeline_info.pDepthStencilState = (description.depth_stencil_state == DepthStencilState::On) ? &DEPTH_STENCIL_STATE_ON : &DEPTH_STENCIL_STATE_OFF;
+        pipeline_info.pRasterizationState = &rasterization;
+        pipeline_info.pMultisampleState = &multisample;
+        pipeline_info.pDepthStencilState = &depth_stencil;
+
         if (description.dynamic_state == DynamicState::ViewportScissor) pipeline_info.pDynamicState = &DYNAMIC_STATE_VIEWPORT_SCISSOR;
-        else if (description.dynamic_state == DynamicState::DepthBias) pipeline_info.pDynamicState = &DYNAMIC_STATE_DEPTH_BIAS;
+        
         std::vector<VkPipelineColorBlendAttachmentState> blend_atts;
-        for(auto& att : graphics_pass.attachments) if(!VulkanUtils::IsDepthFormat(att.image.format)) blend_atts.push_back(COLOR_BLEND_ATTACHMENT_STATE_OFF);
+        for(auto& att : graphics_pass.attachments) {
+            if(!VulkanUtils::IsDepthFormat(att.image.format)) {
+                VkPipelineColorBlendAttachmentState b = COLOR_BLEND_ATTACHMENT_STATE_OFF;
+                if (description.Blend.Enabled) b = COLOR_BLEND_ATTACHMENT_STATE_IMGUI; // Placeholder
+                blend_atts.push_back(b);
+            }
+        }
         VkPipelineColorBlendStateCreateInfo color_blend { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, nullptr, 0, VK_FALSE, VK_LOGIC_OP_COPY, (uint32_t)blend_atts.size(), blend_atts.data() };
         pipeline_info.pColorBlendState = &color_blend;
+        
         VkViewport vp{}; VkRect2D sc{}; VkPipelineViewportStateCreateInfo vp_state { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, nullptr, 0, 1, &vp, 1, &sc };
         pipeline_info.pViewportState = &vp_state;
         
-        VkPipelineRenderingCreateInfo rendering_create_info{ VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
-        std::vector<VkFormat> color_formats; VkFormat depth_format = VK_FORMAT_UNDEFINED;
-        if (graphics_pass.handle == VK_NULL_HANDLE) {
-            for (const auto& att : graphics_pass.attachments) { if (VulkanUtils::IsDepthFormat(att.image.format)) depth_format = att.image.format; else color_formats.push_back(att.image.format); }
-            rendering_create_info.colorAttachmentCount = (uint32_t)color_formats.size(); rendering_create_info.pColorAttachmentFormats = color_formats.data(); rendering_create_info.depthAttachmentFormat = depth_format;
-            pipeline_info.pNext = &rendering_create_info;
-        }
         vkCreateGraphicsPipelines(m_Context->GetDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline->handle);
         for(auto& stage : shader_stages) vkDestroyShaderModule(m_Context->GetDevice(), stage.module, nullptr);
         m_GraphicsCache[description.name] = std::move(pipeline);
@@ -226,9 +245,12 @@ namespace Chimera {
         for (uint32_t i = 0; i < group_count; i++) memcpy(sbt_ptr + i * h_aligned, handles.data() + i * h_size, h_size);
         pipeline->sbt_buffer->Unmap();
         VkDeviceAddress sbt_addr = pipeline->sbt_buffer->GetDeviceAddress();
-        pipeline->raygen_sbt.strided_device_address_region = { sbt_addr, h_aligned, h_aligned };
-        pipeline->miss_sbt.strided_device_address_region = { sbt_addr + h_aligned, h_aligned, (uint32_t)description.miss_shaders.size() * h_aligned };
-        pipeline->hit_sbt.strided_device_address_region = { sbt_addr + (1 + (uint32_t)description.miss_shaders.size()) * h_aligned, h_aligned, (uint32_t)description.hit_shaders.size() * h_aligned };
+        
+        pipeline->raygen_sbt = { sbt_addr, h_aligned, h_aligned };
+        pipeline->miss_sbt   = { sbt_addr + h_aligned, h_aligned, (uint32_t)description.miss_shaders.size() * h_aligned };
+        pipeline->hit_sbt    = { sbt_addr + (1 + (uint32_t)description.miss_shaders.size()) * h_aligned, h_aligned, (uint32_t)description.hit_shaders.size() * h_aligned };
+        pipeline->call_sbt   = { 0, 0, 0 };
+
         m_RaytracingCache[description.name] = std::move(pipeline);
         return *m_RaytracingCache[description.name];
     }

@@ -2,6 +2,7 @@
 
 #include "Core/Layer.h"
 #include "Core/Application.h"
+#include "Scene/EditorCamera.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include <vector>
 #include <string>

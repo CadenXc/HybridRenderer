@@ -32,7 +32,7 @@ namespace Chimera {
 
 	private:
 		VmaAllocator m_Allocator;
-		VkDevice m_Device; //	?Device		?   ?ImageView
+		VkDevice m_Device; 
 
 		VkImage m_Image = VK_NULL_HANDLE;
 		VmaAllocation m_Allocation = VK_NULL_HANDLE;

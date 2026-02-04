@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Renderer/Backend/Renderer.h"
+#include "Renderer/Resources/ResourceManager.h"
 
 // Helper macro for Vulkan error checking
 #define VK_CHECK(result) \
@@ -35,6 +36,7 @@ namespace Chimera {
 		{
 			vkDeviceWaitIdle(m_Context->GetDevice());
 		}
+
 		FreeFrameResources();
 	}
 
@@ -128,6 +130,12 @@ namespace Chimera {
 
 		// 2. Wait for previous frame GPU work to complete
 		VK_CHECK(vkWaitForFences(device, 1, &frameResource.inFlightFence, VK_TRUE, UINT64_MAX));
+
+		// Clean up resources from the last time this frame index was used (using ResourceManager singleton)
+        if (auto* rm = m_Context->GetDevice() ? ResourceManager::Get() : nullptr) {
+            rm->UpdateFrameIndex(m_CurrentFrameIndex);
+            rm->ClearResourceFreeQueue(m_CurrentFrameIndex);
+        }
 
 		// 3. Get next swapchain image
 		VkResult result = vkAcquireNextImageKHR(

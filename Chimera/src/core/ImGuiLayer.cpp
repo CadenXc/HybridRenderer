@@ -25,11 +25,20 @@ namespace Chimera {
 	ImTextureID ImGuiLayer::GetTextureID(VkImageView view, VkSampler sampler)
 	{
 		if (view == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
-			CH_CORE_WARN("ImGuiLayer: Attempted to get TextureID with NULL view or sampler!");
 			return (ImTextureID)0;
 		}
-		return (ImTextureID)ImGui_ImplVulkan_AddTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        if (m_TextureCache.count(view)) return m_TextureCache[view];
+
+		ImTextureID id = (ImTextureID)ImGui_ImplVulkan_AddTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        m_TextureCache[view] = id;
+        return id;
 	}
+
+    void ImGuiLayer::ClearTextureCache()
+    {
+        m_TextureCache.clear();
+    }
 
 	void ImGuiLayer::OnAttach()
 	{
