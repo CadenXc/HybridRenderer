@@ -1,23 +1,20 @@
 #pragma once
 
 // Core Application
-#include "core/application/Application.h"
-#include "core/application/Layer.h"
-#include "core/Config.h"
+#include "Core/Application.h"
+#include "Core/Layer.h"
 
 // Scene System
-#include "core/scene/Scene.h"
-#include "core/scene/CameraController.h"
+#include "Scene/Scene.h"
+#include "Scene/CameraController.h"
 
 // Utilities
-#include "core/utilities/Log.h"
-#include "core/utilities/Timer.h"
-#include "core/utilities/Random.h"
-#include "core/utilities/FileIO.h"
+#include "Core/Log.h"
+#include "Core/Timer.h"
+#include "Core/Random.h"
+#include "Core/FileIO.h"
 
 // Rendering Backend Base
-#include "gfx/vulkan/VulkanContext.h"
-#include "gfx/vulkan/Renderer.h"
-#include "rendering/core/RenderPath.h"
-
-
+#include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Backend/Renderer.h"
+#include "Renderer/Pipelines/RenderPath.h"

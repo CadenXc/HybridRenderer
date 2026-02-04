@@ -1,5 +1,6 @@
 #include "Chimera.h"
-#include "core/application/EntryPoint.h"
+#include "Core/EntryPoint.h"
+#include "Core/EngineConfig.h"
 #include "editor/EditorLayer.h"
 
 class ChimeraApp : public Chimera::Application
@@ -10,6 +11,9 @@ public:
 	{
 		// Push the Editor Layer which contains the UI and logic
 		PushLayer(std::make_shared<Chimera::EditorLayer>(this));
+
+        // Load default model
+        LoadScene(Chimera::Config::ASSET_DIR + "models/fantasy_queen/scene.gltf");
 		
 		CH_INFO("---------------------------------------------");
 		CH_INFO("Welcome to Chimera Hybrid Renderer!");

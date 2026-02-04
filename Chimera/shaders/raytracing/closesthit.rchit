@@ -2,7 +2,7 @@
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_scalar_block_layout : enable
 
-// ======================= Payload 定义 =======================
+// ======================= Payload =======================
 struct HitPayload
 {
     vec3 color;
@@ -12,31 +12,39 @@ struct HitPayload
 };
 
 layout(location = 0) rayPayloadInEXT HitPayload payload;
-layout(binding = 1, set = 1) uniform sampler2D texSampler;
 
-layout(binding = 0, set = 1) uniform CameraProperties 
+// ======================= [Set 0] 全局资源 =======================
+layout(binding = 0, set = 0) uniform CameraProperties 
 {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 prevView;
+    mat4 prevProj;
     vec4 lightPos;
+    int  frameCount;
 } cam;
 
-hitAttributeEXT vec2 attribs;
+layout(binding = 1, set = 0) uniform sampler2D globalTexture;
 
-// ======================= 资源绑定 =======================
-layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
+// ======================= [Set 1] RenderGraph 注入 =======================
+layout(binding = 0, set = 1) uniform accelerationStructureEXT topLevelAS;
 
 struct VertexData
 {
     vec3 pos;
+    float pad1;
     vec3 normal;
+    float pad2;
     vec4 tangent;
     vec2 texCoord;
+    vec2 pad3;
 };
 
-layout(binding = 3, set = 0, scalar) buffer Vertices { VertexData v[]; } vertices;
-layout(binding = 4, set = 0, scalar) buffer Indices { uint i[]; } indices;
+layout(binding = 3, set = 1, scalar) buffer Vertices { VertexData v[]; } vertices;
+layout(binding = 4, set = 1, scalar) buffer Indices { uint i[]; } indices;
+
+hitAttributeEXT vec2 attribs;
 
 void main() 
 {
@@ -53,14 +61,13 @@ void main()
     vec3 localPos = v0.pos * barycentricCoords.x + v1.pos * barycentricCoords.y + v2.pos * barycentricCoords.z;
     vec3 worldPos = vec3(cam.model * vec4(localPos, 1.0));
     
-    // Interpolate normal
     vec3 normal = v0.normal * barycentricCoords.x + v1.normal * barycentricCoords.y + v2.normal * barycentricCoords.z;
     vec3 worldNormal = normalize(mat3(transpose(inverse(cam.model))) * normal);
     
     vec2 texCoord = v0.texCoord * barycentricCoords.x + v1.texCoord * barycentricCoords.y + v2.texCoord * barycentricCoords.z;
 
-    // 使用 textureLod 强制读取 Level 0
-    vec3 albedo = textureLod(texSampler, texCoord, 0.0).rgb;
+    // 使用全局纹理 (Set 0)
+    vec3 albedo = textureLod(globalTexture, texCoord, 0.0).rgb;
 
     vec3 lightPos = cam.lightPos.xyz;
     vec3 L = normalize(lightPos - worldPos);

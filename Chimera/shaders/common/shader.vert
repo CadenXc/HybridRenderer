@@ -10,25 +10,27 @@ layout(location = 1) out vec2 fragTexCoord;
 layout(location = 2) out vec3 fragPos;
 
 layout(set = 0, binding = 0) uniform UniformBufferObject {
-    mat4 model; // Must match C++ struct exactly
     mat4 view;
     mat4 proj;
     mat4 prevView;
     mat4 prevProj;
+    vec4 cameraPos;
     vec4 lightPos;
+    float time;
     int frameCount;
 } ubo;
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
+    mat4 normalMatrix;
+    int materialIndex;
 } push;
 
 void main() {
-    // Use push constant for model matrix as it's updated per-node
     vec4 worldPos = push.model * vec4(inPosition, 1.0);
     gl_Position = ubo.proj * ubo.view * worldPos;
 
-    fragNormal = mat3(transpose(inverse(push.model))) * inNormal;
+    fragNormal = mat3(push.normalMatrix) * inNormal;
     fragTexCoord = inTexCoord;
     fragPos = worldPos.xyz;
 }

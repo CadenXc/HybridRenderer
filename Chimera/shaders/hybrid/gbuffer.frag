@@ -1,4 +1,5 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : enable
 
 layout(location = 0) in vec3 fragNormal;
 layout(location = 1) in vec2 fragTexCoord;
@@ -11,22 +12,39 @@ layout(location = 1) out vec4 outNormal;   // RT1
 layout(location = 2) out vec4 outMaterial; // RT2
 layout(location = 3) out vec4 outMotion;   // RT3
 
+struct Material {
+    vec4 albedo;
+    float roughness;
+    float metallic;
+    int albedoTex;
+    int normalTex;
+};
+
+layout(set = 1, binding = 0) readonly buffer MaterialBuffer {
+    Material materials[];
+} materialBuffer;
+
+layout(set = 1, binding = 1) uniform sampler2D textures[];
+
 void main() {
+    Material mat = materialBuffer.materials[inMaterialIndex];
+    
     // RT0: Albedo
-    // TODO: Sample texture using inMaterialIndex
-    outAlbedo = vec4(0.8, 0.8, 0.8, 1.0); 
+    vec4 baseColor = mat.albedo;
+    if (mat.albedoTex >= 0) {
+        baseColor *= texture(textures[nonuniformEXT(mat.albedoTex)], fragTexCoord);
+    }
+    outAlbedo = baseColor;
 
     // RT1: Normal (World Space)
+    // TODO: Normal mapping
     outNormal = vec4(normalize(fragNormal) * 0.5 + 0.5, 1.0);
 
     // RT2: Material (Roughness, Metallic, AO, Object ID)
-    // We store Material Index in Alpha channel for now
-    float roughness = 0.5;
-    float metallic = 0.0;
-    outMaterial = vec4(roughness, metallic, 1.0, float(inMaterialIndex));
+    outMaterial = vec4(mat.roughness, mat.metallic, 1.0, float(inMaterialIndex) / 255.0);
 
     // RT3: Motion Vectors
-    vec2 curr = (fragCurrPos.xy / fragCurrPos.w) * 0.5 + 0.5;
-    vec2 prev = (fragPrevPos.xy / fragPrevPos.w) * 0.5 + 0.5;
-    outMotion = vec4(curr - prev, 0.0, 1.0);
+    vec2 a = (fragCurrPos.xy / fragCurrPos.w);
+    vec2 b = (fragPrevPos.xy / fragPrevPos.w);
+    outMotion = vec4(a - b, 0.0, 1.0);
 }
