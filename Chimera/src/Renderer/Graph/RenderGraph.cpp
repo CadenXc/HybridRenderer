@@ -111,7 +111,6 @@ namespace Chimera {
     {
         RenderPassDescription desc;
         desc.name = renderPassName;
-        // Mark as dependencies/outputs for lifetime tracking. Use a neutral format for validation.
         desc.dependencies.push_back(TransientResource::Image(srcImageName, VK_FORMAT_R8G8B8A8_UNORM, 0));
         desc.outputs.push_back(TransientResource::Image(dstImageName, VK_FORMAT_R8G8B8A8_UNORM, 0));
         desc.description = BlitPassDescription{};
@@ -141,26 +140,16 @@ namespace Chimera {
         }
 
         // 2. Physical Resource Creation
-        CH_CORE_TRACE("RenderGraph: Building physical resources...");
+        CH_CORE_INFO("RenderGraph: Building physical resources...");
         for (auto& [name, lifetime] : m_ResourceLifetimes) {
             if (name == "RENDER_OUTPUT") continue;
             if (m_Images.count(name)) continue; 
-
-            CH_CORE_TRACE("RenderGraph: Analyzing resource '{0}'", name);
 
             std::string passName = "";
             if (m_Writers.count(name) && !m_Writers[name].empty()) passName = m_Writers[name][0];
             else if (m_Readers.count(name) && !m_Readers[name].empty()) passName = m_Readers[name][0];
 
-            if (passName.empty()) {
-                CH_CORE_WARN("RenderGraph: Resource '{0}' is orphaned!", name);
-                continue;
-            }
-
-            if (m_PassDescriptions.find(passName) == m_PassDescriptions.end()) {
-                CH_CORE_ERROR("RenderGraph: Pass '{0}' not found for resource '{1}'", passName, name);
-                continue;
-            }
+            if (passName.empty()) continue;
 
             auto& passDesc = m_PassDescriptions[passName];
             TransientResource* targetRes = nullptr;
@@ -182,7 +171,7 @@ namespace Chimera {
                     usage |= VK_IMAGE_USAGE_STORAGE_BIT;
                 }
 
-                CH_CORE_TRACE("RenderGraph: Allocation -> {0} ({1}x{2}) Format: {3}", name, w, h, (int)targetRes->image.format);
+                CH_CORE_INFO("  Allocation -> {0} ({1}x{2})", name, w, h);
                 m_Images[name] = m_ResourceManager.CreateGraphImage(w, h, targetRes->image.format, usage, VK_IMAGE_LAYOUT_UNDEFINED, targetRes->image.multisampled ? m_Context.GetMSAASamples() : VK_SAMPLE_COUNT_1_BIT);
                 m_ImageAccess[name] = { VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
             }
@@ -191,7 +180,7 @@ namespace Chimera {
         // 3. Backend Implementation Creation
         for (auto& passName : m_ExecutionOrder) {
             auto& desc = m_PassDescriptions[passName];
-            CH_CORE_TRACE("RenderGraph: Initializing Backend Pass '{0}'", passName);
+            CH_CORE_INFO("RenderGraph: Initializing Backend Pass '{0}'", passName);
             
             if (std::holds_alternative<GraphicsPassDescription>(desc.description)) CreateGraphicsPass(desc);
             else if (std::holds_alternative<RaytracingPassDescription>(desc.description)) CreateRaytracingPass(desc);
@@ -348,7 +337,7 @@ namespace Chimera {
 
         if (isBlitPass) {
             BlitPass& blit = std::get<BlitPass>(renderPass.pass);
-            TransientResource srcRes = TransientResource::Image(blit.srcName, VK_FORMAT_B8G8R8A8_UNORM, 0); // Format doesn't matter for check
+            TransientResource srcRes = TransientResource::Image(blit.srcName, VK_FORMAT_B8G8R8A8_UNORM, 0); 
             TransientResource dstRes = TransientResource::Image(blit.dstName, VK_FORMAT_B8G8R8A8_UNORM, 0);
             processResource(srcRes, false);
             processResource(dstRes, true);
@@ -507,6 +496,7 @@ namespace Chimera {
 
     void RenderGraph::CreatePassDescriptorSet(RenderPass& renderPass, RenderPassDescription& passDescription, VkShaderStageFlags stageFlags) 
     {
+        CH_CORE_INFO("RenderGraph: Creating Descriptor Set for pass '{0}'", renderPass.name);
         std::vector<VkDescriptorSetLayoutBinding> bindings;
         std::vector<VkDescriptorImageInfo> imgInfos;
         std::vector<VkDescriptorBufferInfo> bufInfos;
@@ -531,7 +521,7 @@ namespace Chimera {
                 VkDescriptorSetLayoutBinding b{};
                 b.binding = res.buffer.binding;
                 b.descriptorType = res.buffer.descriptor_type;
-                b.descriptorCount = 1;
+                b.descriptorCount = res.buffer.count;
                 b.stageFlags = stageFlags;
                 bindings.push_back(b);
 
@@ -554,6 +544,37 @@ namespace Chimera {
                 info.pAccelerationStructures = &res.as.handle;
                 asInfos.push_back(info);
             }
+            else if (res.type == TransientResourceType::Sampler || res.type == TransientResourceType::Storage) {
+                VkDescriptorSetLayoutBinding b{};
+                b.binding = res.buffer.binding; 
+                b.descriptorType = (res.type == TransientResourceType::Storage) ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                b.descriptorCount = res.buffer.count; 
+                b.stageFlags = stageFlags;
+                bindings.push_back(b);
+
+                if (res.type == TransientResourceType::Storage) {
+                    VkDescriptorBufferInfo info{};
+                    info.buffer = res.buffer.handle;
+                    info.offset = 0;
+                    info.range = VK_WHOLE_SIZE;
+                    bufInfos.push_back(info);
+                } else {
+                    auto& textures = m_ResourceManager.GetTextures();
+                    for (uint32_t i = 0; i < res.buffer.count; ++i) {
+                        VkDescriptorImageInfo info{};
+                        info.sampler = m_ResourceManager.GetDefaultSampler();
+                        if (!textures.empty() && i < textures.size()) {
+                            info.imageView = textures[i]->GetImageView();
+                        } else if (!textures.empty()) {
+                            info.imageView = textures[0]->GetImageView(); 
+                        } else {
+                            info.imageView = VK_NULL_HANDLE; 
+                        }
+                        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        imgInfos.push_back(info);
+                    }
+                }
+            }
         };
 
         for (auto& res : passDescription.dependencies) processResource(res);
@@ -564,6 +585,8 @@ namespace Chimera {
             renderPass.descriptor_set = VK_NULL_HANDLE;
             return;
         }
+
+        CH_CORE_INFO("  Pass '{0}' -> Bindings: {1}, imgInfos: {2}, bufInfos: {3}, asInfos: {4}", renderPass.name, bindings.size(), imgInfos.size(), bufInfos.size(), asInfos.size());
 
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         layoutInfo.bindingCount = (uint32_t)bindings.size();
@@ -577,20 +600,23 @@ namespace Chimera {
         if (vkAllocateDescriptorSets(m_Context.GetDevice(), &allocInfo, &renderPass.descriptor_set) != VK_SUCCESS) throw std::runtime_error("failed to alloc set");
 
         std::vector<VkWriteDescriptorSet> writes;
-        int iIdx = 0, bIdx = 0, aIdx = 0;
+        size_t iIdx = 0, bIdx = 0, aIdx = 0;
         for (auto& b : bindings) {
             VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             w.dstSet = renderPass.descriptor_set;
             w.dstBinding = b.binding;
-            w.descriptorCount = 1;
+            w.descriptorCount = b.descriptorCount;
             w.descriptorType = b.descriptorType;
 
             if (b.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || b.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-                w.pImageInfo = &imgInfos[iIdx++];
-            } else if (b.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
-                w.pBufferInfo = &bufInfos[bIdx++];
+                if (iIdx < imgInfos.size()) w.pImageInfo = &imgInfos[iIdx];
+                iIdx += b.descriptorCount;
+            } else if (b.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || b.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
+                if (bIdx < bufInfos.size()) w.pBufferInfo = &bufInfos[bIdx];
+                bIdx += b.descriptorCount;
             } else if (b.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
-                w.pNext = &asInfos[aIdx++];
+                if (aIdx < asInfos.size()) w.pNext = &asInfos[aIdx];
+                aIdx += b.descriptorCount;
             }
             writes.push_back(w);
         }

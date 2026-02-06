@@ -1,7 +1,6 @@
 #include "pch.h"
 #include "EditorLayer.h"
 #include "Core/EngineConfig.h"
-#include "Core/ImGuiLayer.h"
 #include "Renderer/Resources/ResourceManager.h"
 #include "Renderer/Backend/Renderer.h"
 #include "Utils/VulkanBarrier.h"
@@ -33,7 +32,7 @@ namespace Chimera {
         m_AverageFrameTime = ts.GetMilliseconds();
         m_AverageFPS = 1.0f / ts.GetSeconds();
 
-        m_EditorCamera.OnUpdate(ts);
+        m_EditorCamera.OnUpdate(ts, m_ViewportHovered, m_ViewportFocused);
 
         // Sync state to Application
         FrameContext context;
@@ -49,7 +48,17 @@ namespace Chimera {
 
     void EditorLayer::OnEvent(Event& e)
     {
-        m_EditorCamera.OnEvent(e);
+        if (e.GetEventType() == EventType::MouseScrolled)
+        {
+            if (m_ViewportHovered)
+                m_EditorCamera.OnEvent(e);
+            else
+                return; // Don't let scroll through if not over viewport
+        }
+        else
+        {
+            m_EditorCamera.OnEvent(e);
+        }
     }
 
     void EditorLayer::OnUIRender()
@@ -57,21 +66,94 @@ namespace Chimera {
         DrawMenuBar();
         
         // Panels
-        ImGui::Begin("Editor", nullptr);
-        
+        ImGui::Begin("Scene");
+        DrawSceneHierarchy();
+        ImGui::End();
+
+        ImGui::Begin("Assets");
+        if (ImGui::CollapsingHeader("Asset Browser", ImGuiTreeNodeFlags_DefaultOpen))
+            DrawModelSelectionPanel();
+        ImGui::End();
+
+        ImGui::Begin("Editor");
         if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen))
             DrawStatsPanel();
 
         if (ImGui::CollapsingHeader("Render Settings", ImGuiTreeNodeFlags_DefaultOpen))
             DrawRenderPathPanel();
-
-        if (ImGui::CollapsingHeader("Asset Browser", ImGuiTreeNodeFlags_DefaultOpen))
-            DrawModelSelectionPanel();
-
         ImGui::End();
 
         DrawSettingsPanel();
         DrawViewport();
+    }
+
+    void EditorLayer::DrawSceneHierarchy()
+    {
+        auto scene = m_App->GetScene();
+        if (!scene) return;
+
+        if (ImGui::Button("Clear Scene")) {
+            m_App->ClearScene();
+            m_SelectedInstanceIndex = -1;
+        }
+
+        ImGui::Separator();
+        
+        const auto& instances = scene->GetInstances();
+        for (int i = 0; i < (int)instances.size(); i++)
+        {
+            ImGui::PushID(i);
+            bool selected = (m_SelectedInstanceIndex == i);
+            std::string label = instances[i].name + "##" + std::to_string(i);
+            if (ImGui::Selectable(label.c_str(), selected))
+            {
+                m_SelectedInstanceIndex = i;
+            }
+            ImGui::PopID();
+        }
+
+        ImGui::Separator();
+        if (m_SelectedInstanceIndex >= 0 && m_SelectedInstanceIndex < (int)instances.size())
+        {
+            auto& instance = instances[m_SelectedInstanceIndex];
+            ImGui::Text("Properties: %s", instance.name.c_str());
+            
+            bool changed = false;
+            glm::vec3 pos = instance.position;
+            glm::vec3 rot = instance.rotation;
+            glm::vec3 scale = instance.scale;
+
+            if (ImGui::DragFloat3("Position", &pos.x, 0.1f)) changed = true;
+            if (ImGui::DragFloat3("Rotation", &rot.x, 0.5f)) changed = true;
+            if (ImGui::DragFloat3("Scale", &scale.x, 0.05f)) changed = true;
+
+            if (ImGui::Button("Reset Transform"))
+            {
+                pos = glm::vec3(0.0f);
+                rot = glm::vec3(0.0f);
+                scale = glm::vec3(1.0f);
+                changed = true;
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Delete Instance"))
+            {
+                scene->RemoveInstance(m_SelectedInstanceIndex);
+                m_SelectedInstanceIndex = -1;
+                changed = false; // Already handled by RemoveInstance
+                
+                if (m_App->GetCurrentRenderPathType() == RenderPathType::RayTracing)
+                    m_App->GetRenderPath()->OnSceneUpdated();
+            }
+
+            if (changed)
+            {
+                scene->UpdateInstanceTRS(m_SelectedInstanceIndex, pos, rot, scale);
+                
+                if (m_App->GetCurrentRenderPathType() == RenderPathType::RayTracing)
+                    m_App->GetRenderPath()->OnSceneUpdated();
+            }
+        }
     }
 
     void EditorLayer::RefreshModelList()
@@ -239,6 +321,9 @@ namespace Chimera {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
         ImGui::Begin("Viewport");
         
+        m_ViewportHovered = ImGui::IsWindowHovered();
+        m_ViewportFocused = ImGui::IsWindowFocused();
+
         ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
         if (std::abs(viewportPanelSize.x - m_ViewportSize.x) > 1.0f || std::abs(viewportPanelSize.y - m_ViewportSize.y) > 1.0f) {
             if (viewportPanelSize.x > 0 && viewportPanelSize.y > 0) {
@@ -266,7 +351,7 @@ namespace Chimera {
                     access.access_flags = VK_ACCESS_SHADER_READ_BIT;
                 }
                 
-                ImTextureID textureID = m_App->GetImGuiLayer()->GetTextureID(img.view, m_App->GetResourceManager()->GetDefaultSampler());
+                ImTextureID textureID = m_App->GetImGuiTextureID(img.view, m_App->GetResourceManager()->GetDefaultSampler());
                 if (textureID)
                     ImGui::Image(textureID, viewportPanelSize);
             } else {
@@ -276,10 +361,6 @@ namespace Chimera {
 
         ImGui::End();
         ImGui::PopStyleVar();
-    }
-
-    void EditorLayer::DrawSceneHierarchy()
-    {
     }
 
 }

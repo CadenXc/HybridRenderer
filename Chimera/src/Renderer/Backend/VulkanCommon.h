@@ -194,7 +194,9 @@ namespace Chimera {
 		static TransientResource Sampler(const std::string& name, uint32_t binding, uint32_t count = 1)
 		{
 			TransientResource res(TransientResourceType::Sampler, name);
-			res.image.binding = binding;
+			res.buffer.binding = binding;
+			res.buffer.count = count;
+			res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			return res;
 		}
 
@@ -203,6 +205,7 @@ namespace Chimera {
 			TransientResource res(TransientResourceType::Storage, name);
 			res.buffer.binding = binding;
 			res.buffer.count = count;
+			res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			return res;
 		}
 
@@ -211,6 +214,7 @@ namespace Chimera {
 			TransientResource res(TransientResourceType::Buffer, name);
 			res.buffer.binding = binding;
 			res.buffer.handle = handle;
+			res.buffer.count = 1;
 			res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			return res;
 		}

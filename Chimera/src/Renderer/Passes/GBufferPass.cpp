@@ -45,10 +45,12 @@ namespace Chimera {
 
         // 3. Add to Graph
         auto scene = m_Scene; 
+        uint32_t texCount = (uint32_t)ResourceManager::Get()->GetTextures().size();
+
         graph.AddGraphicsPass(m_Name,
             { 
-                TransientResource::StorageBuffer("MaterialBuffer", 0, 1), 
-                TransientResource::Sampler("TextureArray", 1, 1) 
+                TransientResource::Buffer("MaterialBuffer", 0, m_Scene->GetMaterialBuffer()), 
+                TransientResource::Sampler("TextureArray", 1, std::max(1u, texCount)) 
             }, 
             { renderOutput, normalOut, materialOut, motionOut, depthOut }, 
             { pipelineDesc }, 
@@ -57,9 +59,7 @@ namespace Chimera {
                 execute("G-Buffer Pipeline",
                     [scene](GraphicsExecutionContext& ctx) 
                     {
-                        if (!scene || !scene->GetVertexBuffer()) {
-                            return;
-                        }
+                        if (!scene) return;
 
                         auto size = ctx.GetDisplaySize();
                         // Negative viewport height to flip Y coordinate correctly in Vulkan
@@ -68,19 +68,28 @@ namespace Chimera {
                         ctx.SetViewport(viewport);
                         ctx.SetScissor(scissor);
 
-                        ctx.BindVertexBuffer(scene->GetVertexBuffer(), 0);
-                        ctx.BindIndexBuffer(scene->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-                        const auto& meshes = scene->GetMeshes();
-                        for (const auto& mesh : meshes)
+                        const auto& instances = scene->GetInstances();
+                        for (const auto& instance : instances)
                         {
-                            GBufferPushConstants pc{};
-                            pc.model = mesh.transform;
-                            pc.normalMatrix = glm::transpose(glm::inverse(mesh.transform));
-                            pc.materialIndex = mesh.materialIndex;
-                            
-                            ctx.PushConstants(pc);
-                            ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, mesh.vertexOffset, 0);
+                            auto model = instance.model;
+                            if (!model) continue;
+
+                            ctx.BindVertexBuffer(model->GetVertexBuffer(), 0);
+                            ctx.BindIndexBuffer(model->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                            const auto& meshes = model->GetMeshes();
+                            for (const auto& mesh : meshes)
+                            {
+                                GBufferPushConstants pc{};
+                                // Combine instance transform and mesh relative transform
+                                glm::mat4 worldTransform = instance.transform * mesh.transform;
+                                pc.model = worldTransform;
+                                pc.normalMatrix = glm::transpose(glm::inverse(worldTransform));
+                                pc.materialIndex = mesh.materialIndex;
+                                
+                                ctx.PushConstants(pc);
+                                ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, mesh.vertexOffset, 0);
+                            }
                         }
                     }
                 );

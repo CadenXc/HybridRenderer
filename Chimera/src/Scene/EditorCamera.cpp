@@ -2,9 +2,9 @@
 #include "EditorCamera.h"
 #include "Core/Input.h"
 #include "Core/Application.h"
-#include "Core/ImGuiLayer.h"
 
 #include <glm/gtx/quaternion.hpp>
+#include <imgui.h>
 
 namespace Chimera {
 
@@ -58,7 +58,7 @@ namespace Chimera {
 		return speed;
 	}
 
-	void EditorCamera::OnUpdate(Timestep ts)
+	void EditorCamera::OnUpdate(Timestep ts, bool isHovered, bool isFocused)
 	{
 		const glm::vec2& mouse = { Input::GetMouseX(), Input::GetMouseY() };
 		glm::vec2 delta = (mouse - m_InitialMousePosition) * 0.003f;
@@ -69,8 +69,8 @@ namespace Chimera {
 		float oldYaw = m_Yaw;
 		float oldDistance = m_Distance;
 
-		// 1. Keyboard Movement (UE Style)
-		if (!Application::Get().GetImGuiLayer()->BlockEvents())
+		// 1. Keyboard Movement (UE Style) - Only if focused
+		if (isFocused)
 		{
 			float moveSpeed = 5.0f * ts.GetSeconds(); 
 			if (Input::IsKeyDown(KeyCode::LeftShift)) moveSpeed *= 2.5f; // Sprint
@@ -89,8 +89,8 @@ namespace Chimera {
 				m_FocalPoint -= glm::vec3(0.0f, 1.0f, 0.0f) * moveSpeed;
 		}
 
-		// 2. Mouse Interaction (Alt + Click)
-		if ((Input::IsKeyDown(KeyCode::LeftAlt) || Input::IsKeyDown(KeyCode::RightAlt)) && !Application::Get().GetImGuiLayer()->BlockEvents())
+		// 2. Mouse Interaction (Alt + Click) - Only if hovered
+		if ((Input::IsKeyDown(KeyCode::LeftAlt) || Input::IsKeyDown(KeyCode::RightAlt)) && isHovered)
 		{
 			if (Input::IsMouseButtonDown(MouseButton::Middle))
 				MousePan(delta);
@@ -114,6 +114,7 @@ namespace Chimera {
 
 	bool EditorCamera::OnMouseScroll(MouseScrolledEvent& e)
 	{
+		// Scroll can happen globally or we can filter it in EditorLayer
 		MouseZoom(e.GetYOffset() * 0.1f);
 		m_IsUpdated = true;
 		UpdateView();

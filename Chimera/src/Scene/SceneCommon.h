@@ -111,6 +111,28 @@ namespace Chimera {
         glm::vec4 color; 
     };
 
+    class Model;
+
+    struct Instance
+    {
+        std::shared_ptr<Model> model;
+        glm::vec3 position{ 0.0f };
+        glm::vec3 rotation{ 0.0f }; // Euler angles in degrees
+        glm::vec3 scale{ 1.0f };
+        
+        glm::mat4 transform{ 1.0f };
+        std::string name;
+        int materialOffset = 0;
+    };
+
+    struct InstanceData
+    {
+        uint64_t vertexAddress;
+        uint64_t indexAddress;
+        int materialIndex;
+        int padding;
+    };
+
     // 存储 Importer 产出的结�?
     struct ImportedScene
     {

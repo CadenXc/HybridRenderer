@@ -58,6 +58,7 @@ namespace Chimera {
 		std::vector<ModelAsset> m_AvailableModels;
 		std::string m_ActiveModelPath = "";
 		int m_SelectedModelIndex = -1;
+		int m_SelectedInstanceIndex = -1;
 
 		// Performance Metrics
 		float m_AverageFrameTime = 0.0f;

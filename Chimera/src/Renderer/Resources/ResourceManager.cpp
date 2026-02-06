@@ -2,7 +2,6 @@
 #include "Renderer/Resources/ResourceManager.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Core/Application.h"
-#include "Core/ImGuiLayer.h"
 #include "Utils/VulkanBarrier.h"
 #include <stb_image.h>
 
@@ -56,19 +55,41 @@ namespace Chimera {
 
 	void ResourceManager::InitGlobalResources()
 	{
+        CH_CORE_INFO("ResourceManager: Initializing global resources...");
 		CreateDescriptorSetLayout();
 		CreateUniformBuffers();
 		CreateDescriptorPool();
 		CreateTransientDescriptorPool();
 		
+        CH_CORE_INFO("ResourceManager: Loading default texture...");
 		auto defaultTexture = LoadTexture("assets/textures/viking_room.png");
 		if (defaultTexture)
 		{
 			VulkanUtils::TransitionImageLayout(m_Context, defaultTexture->GetImage(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 			AddTexture(std::move(defaultTexture));
 		}
+        else
+        {
+            CH_CORE_ERROR("ResourceManager: Failed to load default texture! Creating a fallback 1x1 magenta texture.");
+            auto fallback = std::make_unique<Image>(m_Context->GetAllocator(), m_Context->GetDevice(), 1, 1, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            uint32_t magenta = 0xFFFF00FF;
+            Buffer staging(m_Context->GetAllocator(), 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+            staging.UploadData(&magenta, 4);
+            
+            VulkanUtils::TransitionImageLayout(m_Context, fallback->GetImage(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkCommandBuffer cmd = Application::GetCommandBuffer(true);
+            VkBufferImageCopy region{};
+            region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+            region.imageExtent = { 1, 1, 1 };
+            vkCmdCopyBufferToImage(cmd, staging.GetBuffer(), fallback->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            Application::FlushCommandBuffer(cmd);
+            VulkanUtils::TransitionImageLayout(m_Context, fallback->GetImage(), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            AddTexture(std::move(fallback));
+        }
 
+        CH_CORE_INFO("ResourceManager: Creating global descriptor sets...");
 		CreateDescriptorSets();
+        CH_CORE_INFO("ResourceManager: Global resources initialized.");
 	}
 
 	void ResourceManager::UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo)
@@ -183,7 +204,12 @@ namespace Chimera {
 
 			VkDescriptorImageInfo imageInfo{};
 			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			imageInfo.imageView = m_Textures[0]->GetImageView();
+            if (!m_Textures.empty()) {
+			    imageInfo.imageView = m_Textures[0]->GetImageView();
+            } else {
+                CH_CORE_ERROR("ResourceManager: m_Textures is empty during descriptor set creation!");
+                imageInfo.imageView = VK_NULL_HANDLE;
+            }
 			imageInfo.sampler = m_TextureSampler;
 
 			std::vector<VkWriteDescriptorSet> descriptorWrites(2);

@@ -13,7 +13,7 @@ namespace Chimera {
 
     private:
         std::shared_ptr<Scene> m_Scene;
-        uint32_t& m_FrameCount; // Use reference to stay in sync with RenderPath
+        uint32_t& m_FrameCount;
     };
 
 }

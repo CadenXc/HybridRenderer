@@ -1,15 +1,15 @@
 #include "pch.h"
 #include "SceneRenderer.h"
 #include "Renderer/Backend/Renderer.h"
-#include "Core/ImGuiLayer.h"
+#include "Core/Application.h"
 #include "Core/Layer.h"
 #include "Utils/VulkanBarrier.h"
 #include "Scene/Scene.h"
 
 namespace Chimera {
 
-    SceneRenderer::SceneRenderer(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager, std::shared_ptr<Renderer> renderer, ImGuiLayer* imguiLayer)
-        : m_Context(context), m_ResourceManager(resourceManager), m_Renderer(renderer), m_ImGuiLayer(imguiLayer)
+    SceneRenderer::SceneRenderer(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager, std::shared_ptr<Renderer> renderer)
+        : m_Context(context), m_ResourceManager(resourceManager), m_Renderer(renderer)
     {
     }
 
@@ -54,12 +54,12 @@ namespace Chimera {
                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
-                    m_ImGuiLayer->Begin();
+                    Application::Get().BeginImGui();
                     
                     for (auto& layer : layers)
                         layer->OnUIRender();
 
-                    m_ImGuiLayer->End(uiCmd, m_Context->GetSwapChainImageViews()[imageIndex], m_Context->GetSwapChainExtent());
+                    Application::Get().EndImGui(uiCmd, m_Context->GetSwapChainImageViews()[imageIndex], m_Context->GetSwapChainExtent());
 
                     VulkanUtils::InsertImageBarrier(uiCmd, swapchainImage, 
                         VK_IMAGE_ASPECT_COLOR_BIT, 

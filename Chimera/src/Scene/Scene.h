@@ -2,6 +2,7 @@
 
 #include "pch.h"
 #include "Scene/SceneCommon.h"
+#include "Scene/Model.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Resources/Buffer.h"
 #include "Renderer/Resources/ResourceManager.h"
@@ -17,48 +18,39 @@ namespace Chimera
         Scene(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager);
         ~Scene();
 
-        void LoadModel(const std::string& path);
+        std::shared_ptr<Model> LoadModel(const std::string& path);
+        void AddInstance(std::shared_ptr<Model> model, const glm::mat4& transform = glm::mat4(1.0f), const std::string& name = "Instance");
 
-        const std::vector<Mesh>& GetMeshes() const { return m_Meshes; }
+        const std::vector<Instance>& GetInstances() const { return m_Instances; }
+        void UpdateInstanceTransform(uint32_t index, const glm::mat4& transform);
+        void UpdateInstanceTRS(uint32_t index, const glm::vec3& translation, const glm::vec3& rotation, const glm::vec3& scale);
+        void RemoveInstance(uint32_t index);
         const std::vector<Material>& GetMaterials() const { return m_Materials; }
+        VkBuffer GetMaterialBuffer() const { return m_MaterialBuffer ? m_MaterialBuffer->GetBuffer() : VK_NULL_HANDLE; }
+        VkBuffer GetInstanceDataBuffer() const { return m_InstanceDataBuffer ? m_InstanceDataBuffer->GetBuffer() : VK_NULL_HANDLE; }
         
-        VkBuffer GetVertexBuffer() const { return m_VertexBuffer->GetBuffer(); }
-        VkBuffer GetIndexBuffer() const { return m_IndexBuffer->GetBuffer(); }
-        
-        uint32_t GetVertexCount() const { return (uint32_t)m_VertexCount; }
-        uint32_t GetIndexCount() const { return (uint32_t)m_IndexCount; }
-
-        VkDeviceAddress GetVertexBufferAddress() const { return m_VertexBuffer->GetDeviceAddress(); }
-        VkDeviceAddress GetIndexBufferAddress() const { return m_IndexBuffer->GetDeviceAddress(); }
-
+        std::shared_ptr<VulkanContext> GetContext() const { return m_Context; }
         VkAccelerationStructureKHR GetTLAS() const { return m_TopLevelAS; }
 
         Camera& GetCamera() { return m_Camera; }
         DirectionalLight& GetLight() { return m_Light; }
 
-    private:
-        void CreateVertexBuffer(const std::vector<Vertex>& vertices);
-        void CreateIndexBuffer(const std::vector<uint32_t>& indices);
-        void BuildBLAS();
         void BuildTLAS();
+        void UpdateMaterialBuffer();
 
+    private:
         void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
     private:
         std::shared_ptr<VulkanContext> m_Context;
         ResourceManager* m_ResourceManager = nullptr;
 
-        std::unique_ptr<Buffer> m_VertexBuffer;
-        std::unique_ptr<Buffer> m_IndexBuffer;
-        size_t m_VertexCount = 0;
-        size_t m_IndexCount = 0;
-
-        std::vector<Mesh> m_Meshes;
+        std::vector<std::shared_ptr<Model>> m_Models;
+        std::vector<Instance> m_Instances;
         std::vector<Material> m_Materials;
+        std::unique_ptr<Buffer> m_MaterialBuffer;
+        std::unique_ptr<Buffer> m_InstanceDataBuffer;
 
-        std::vector<std::unique_ptr<Buffer>> m_BLASBuffers;
-        std::vector<VkAccelerationStructureKHR> m_BLASHandles;
-        
         VkAccelerationStructureKHR m_TopLevelAS = VK_NULL_HANDLE;
         std::unique_ptr<Buffer> m_TLASBuffer;
 

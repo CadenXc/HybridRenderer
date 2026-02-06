@@ -12,12 +12,19 @@ layout(location = 1) out vec4 outNormal;   // RT1
 layout(location = 2) out vec4 outMaterial; // RT2
 layout(location = 3) out vec4 outMotion;   // RT3
 
-struct Material {
+struct Material
+{
     vec4 albedo;
-    float roughness;
+    vec4 emission;
     float metallic;
-    int albedoTex;
-    int normalTex;
+    float roughness;
+    float alphaCutoff;
+    int alphaMask;
+    
+    int base_color_texture;
+    int normal_map;
+    int metallic_roughness_map;
+    int emissive_map;
 };
 
 layout(set = 1, binding = 0) readonly buffer MaterialBuffer {
@@ -31,10 +38,10 @@ void main() {
     
     // RT0: Albedo
     vec4 baseColor = mat.albedo;
-    if (mat.albedoTex >= 0) {
-        baseColor *= texture(textures[nonuniformEXT(mat.albedoTex)], fragTexCoord);
+    if (mat.base_color_texture >= 0) {
+        baseColor *= texture(textures[nonuniformEXT(mat.base_color_texture)], fragTexCoord);
     }
-    outAlbedo = baseColor;
+    outAlbedo = vec4(baseColor.rgb + mat.emission.rgb, baseColor.a);
 
     // RT1: Normal (World Space)
     // TODO: Normal mapping

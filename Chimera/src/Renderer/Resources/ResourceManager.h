@@ -52,6 +52,7 @@ namespace Chimera {
 		// Textures
 		std::unique_ptr<Image> LoadTexture(const std::string& path);
 		uint32_t AddTexture(std::unique_ptr<Image> texture);
+		const std::vector<std::unique_ptr<Image>>& GetTextures() const { return m_Textures; }
 
 		// Reference Walnut: Deferred resource deletion
 		static void SubmitResourceFree(std::function<void()>&& func);

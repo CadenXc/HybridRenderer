@@ -2,6 +2,8 @@
 #include "RaytracePass.h"
 #include "Renderer/Graph/RaytracingExecutionContext.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Resources/Buffer.h"
+#include "Renderer/Backend/VulkanContext.h"
 
 namespace Chimera {
 
@@ -33,14 +35,19 @@ namespace Chimera {
         topLevelAS.as.handle = m_Scene->GetTLAS();
 
         auto rtOutput = TransientResource::Image(RS::RT_OUTPUT, VK_FORMAT_R8G8B8A8_UNORM, 1, { {0.0f, 0.0f, 0.0f, 0.0f} }, TransientImageType::StorageImage);
-        auto vb       = TransientResource::Buffer("SceneVB", 3, m_Scene->GetVertexBuffer());
-        auto ib       = TransientResource::Buffer("SceneIB", 4, m_Scene->GetIndexBuffer());
+        
+        // Use buffers from Scene
+        auto instBuf  = TransientResource::Buffer("InstanceDataBuffer", 3, m_Scene->GetInstanceDataBuffer());
+        auto matBuf   = TransientResource::Buffer("MaterialBuffer", 2, m_Scene->GetMaterialBuffer());
+        
+        uint32_t texCount = (uint32_t)ResourceManager::Get()->GetTextures().size();
+        auto texArray = TransientResource::Sampler("TextureArray", 4, std::max(1u, texCount));
 
         auto scene = m_Scene;
         uint32_t& frameCountRef = m_FrameCount; 
 
         graph.AddRaytracingPass(m_Name,
-            { topLevelAS, vb, ib }, 
+            { topLevelAS, instBuf, matBuf, texArray }, 
             { rtOutput },  
             rtPipelineDesc,
             [scene, &frameCountRef](ExecuteRaytracingCallback execute) {

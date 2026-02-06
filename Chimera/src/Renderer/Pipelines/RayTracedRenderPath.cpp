@@ -2,6 +2,7 @@
 #include "RayTracedRenderPath.h"
 #include "Renderer/Passes/RaytracePass.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Resources/Buffer.h"
 #include <imgui.h>
 
 namespace Chimera
@@ -18,12 +19,11 @@ namespace Chimera
 
     void RayTracedRenderPath::SetupGraph(RenderGraph& graph)
     {
+        // RaytracePass now gets its buffers directly from m_Scene
         RaytracePass raytrace(m_Scene, m_FrameCount);
         raytrace.Setup(graph);
 
-        // 使用常量：从 RT_OUTPUT 拷贝�?FINAL_COLOR
         graph.AddBlitPass("RT Viewport Blit", RS::RT_OUTPUT, RS::FINAL_COLOR);
-
         graph.Build();
     }
 

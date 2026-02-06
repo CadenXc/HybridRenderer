@@ -46,13 +46,14 @@ namespace Chimera {
 		void PushLayer(const std::shared_ptr<Layer>& layer);
 		void SwitchRenderPath(RenderPathType type);
 		void LoadScene(const std::string& path);
+		void ClearScene();
 		void Close();
 
 		void RequestScreenshot(const std::string& filename) { m_ScreenshotFilename = filename; m_ScreenshotRequested = true; }
 
 		std::shared_ptr<VulkanContext> GetContext() { return m_Context; }
 		std::shared_ptr<Renderer> GetRenderer() { return m_Renderer; }
-		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer.get(); }
+		
 		RenderPath* GetRenderPath() { return m_RenderPath.get(); }
 		PipelineManager& GetPipelineManager() { return *m_PipelineManager; }
 		RenderPathType GetCurrentRenderPathType() const;
@@ -61,12 +62,20 @@ namespace Chimera {
 		Window& GetWindow() { return *m_Window; }
 		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
+		// ImGui Integration
+		ImTextureID GetImGuiTextureID(VkImageView view, VkSampler sampler = VK_NULL_HANDLE);
+		void ClearImGuiTextureCache();
+
 		// Frame State
 		void SetFrameContext(const FrameContext& context) { m_FrameContext = context; }
 		const FrameContext& GetFrameContext() const { return m_FrameContext; }
 
 		void RequestShaderReload();
 		void RecompileShaders();
+
+		// ImGui Core Methods
+		void BeginImGui();
+		void EndImGui(VkCommandBuffer cmd, VkImageView targetView, VkExtent2D extent);
 
         // Static Convenience Accessors (Walnut style)
         static VkDevice GetDevice() { return s_Instance->m_Context->GetDevice(); }
@@ -92,8 +101,14 @@ namespace Chimera {
 
 		void drawFrame();
 
+		// ImGui Core Methods
+		void InitImGui();
+		void ShutdownImGui();
+		void SetImGuiDarkThemeColors();
+
 		void ExecuteRenderPathSwitch(RenderPathType type);
 		void ExecuteLoadScene(const std::string& path);
+		void ExecuteClearScene();
 
 		bool OnWindowResize(WindowResizeEvent& e);
 		bool OnWindowClose(WindowCloseEvent& e);
@@ -122,7 +137,10 @@ namespace Chimera {
 		// Layers
 		float m_LastFrameTime = 0.0f;
 		std::vector<std::shared_ptr<Layer>> m_LayerStack;
-		std::unique_ptr<ImGuiLayer> m_ImGuiLayer;
+		
+		// ImGui Internal
+		VkDescriptorPool m_ImGuiDescriptorPool = VK_NULL_HANDLE;
+		std::unordered_map<VkImageView, ImTextureID> m_ImGuiTextureCache;
 	};
 
 	Application* CreateApplication(int argc, char** argv);

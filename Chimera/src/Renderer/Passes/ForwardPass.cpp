@@ -42,6 +42,8 @@ namespace Chimera {
             { pipelineDesc },
             [scene](ExecuteGraphicsCallback execute_pipeline) {
                 execute_pipeline("Forward Pipeline", [scene](GraphicsExecutionContext& ctx) {
+                    if (!scene) return;
+
                     auto size = ctx.GetDisplaySize();
                     // Negative viewport height to flip Y coordinate correctly in Vulkan
                     VkViewport viewport{ 0.0f, (float)size.y, (float)size.x, -(float)size.y, 0.0f, 1.0f };
@@ -49,18 +51,26 @@ namespace Chimera {
                     ctx.SetViewport(viewport);
                     ctx.SetScissor(scissor);
 
-                    ctx.BindVertexBuffer(scene->GetVertexBuffer(), 0);
-                    ctx.BindIndexBuffer(scene->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-                    const auto& meshes = scene->GetMeshes();
-                    for (const auto& mesh : meshes)
+                    const auto& instances = scene->GetInstances();
+                    for (const auto& instance : instances)
                     {
-                        ForwardPushConstants push{};
-                        push.model = mesh.transform;
-                        push.normalMatrix = glm::transpose(glm::inverse(mesh.transform));
-                        
-                        ctx.PushConstants(push);
-                        ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, mesh.vertexOffset, 0);
+                        auto model = instance.model;
+                        if (!model) continue;
+
+                        ctx.BindVertexBuffer(model->GetVertexBuffer(), 0);
+                        ctx.BindIndexBuffer(model->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                        const auto& meshes = model->GetMeshes();
+                        for (const auto& mesh : meshes)
+                        {
+                            ForwardPushConstants push{};
+                            glm::mat4 worldTransform = instance.transform * mesh.transform;
+                            push.model = worldTransform;
+                            push.normalMatrix = glm::transpose(glm::inverse(worldTransform));
+                            
+                            ctx.PushConstants(push);
+                            ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, mesh.vertexOffset, 0);
+                        }
                     }
                 });
             }
