@@ -1,20 +1,24 @@
 #include "pch.h"
 #include "GraphicsExecutionContext.h"
+#include "Core/Application.h"
+#include "Renderer/RenderState.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Resources/ResourceManager.h"
 
 namespace Chimera {
 
 	void GraphicsExecutionContext::BindVertexBuffer(VkBuffer buffer, VkDeviceSize offset) {
+		if (buffer == VK_NULL_HANDLE) return;
 		vkCmdBindVertexBuffers(m_CommandBuffer, 0, 1, &buffer, &offset);
 	}
 
 	void GraphicsExecutionContext::BindIndexBuffer(VkBuffer buffer, VkDeviceSize offset, VkIndexType type) {
+		if (buffer == VK_NULL_HANDLE) return;
 		vkCmdBindIndexBuffer(m_CommandBuffer, buffer, offset, type);
 	}
 
 	void GraphicsExecutionContext::BindGlobalSet(uint32_t slot, uint32_t frameIndex) {
-		VkDescriptorSet set = m_ResourceManager.GetGlobalDescriptorSet(frameIndex);
+		VkDescriptorSet set = Application::Get().GetRenderState()->GetDescriptorSet(frameIndex);
 		vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Pipeline.layout, slot, 1, &set, 0, nullptr);
 	}
 

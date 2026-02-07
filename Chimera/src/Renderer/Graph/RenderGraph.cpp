@@ -5,732 +5,686 @@
 #include "ComputeExecutionContext.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Backend/PipelineManager.h"
+#include "Renderer/Backend/ShaderMetadata.h"
 #include "Renderer/Resources/ResourceManager.h"
+#include "Renderer/RenderState.h"
 #include "Renderer/Backend/VulkanCommon.h"
 #include "Utils/VulkanBarrier.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Core/Application.h"
 #include <deque>
 #include <imgui.h>
 
 namespace Chimera {
 
-    RenderGraph::RenderGraph(VulkanContext& context, ResourceManager& resourceManager, PipelineManager& pipelineManager)
-        : m_Context(context), m_ResourceManager(resourceManager), m_PipelineManager(pipelineManager) 
+    static void ResolveBindings(std::vector<TransientResource>& resources, const std::string& layoutName) {
+        if (layoutName.empty()) return;
+        const auto& layout = ShaderLibrary::GetLayout(layoutName);
+        for (auto& res : resources) {
+            if (layout.HasResource(res.name)) {
+                const auto& meta = layout.GetResource(res.name);
+                switch (res.type) {
+                    case TransientResourceType::Image: res.image.binding = meta.binding; break;
+                    case TransientResourceType::Buffer: res.buffer.binding = meta.binding; break;
+                    case TransientResourceType::Sampler: 
+                        res.buffer.binding = meta.binding; 
+                        res.buffer.count = meta.count; 
+                        break;
+                    case TransientResourceType::Storage: res.buffer.binding = meta.binding; break;
+                    case TransientResourceType::AccelerationStructure: res.as.binding = meta.binding; break;
+                }
+            }
+        }
+    }
+
+    void RenderGraph::AddGraphicsPass(const GraphicsPassSpecification& spec) {
+        AddGraphicsPass(spec.Name, spec.Dependencies, spec.Outputs, spec.Pipelines, spec.Callback, spec.ShaderLayout);
+    }
+
+    void RenderGraph::AddRaytracingPass(const RaytracingPassSpecification& spec) {
+        AddRaytracingPass(spec.Name, spec.Dependencies, spec.Outputs, spec.Pipeline, spec.Callback, spec.ShaderLayout);
+    }
+
+    void RenderGraph::AddComputePass(const ComputePassSpecification& spec) {
+        AddComputePass(spec.Name, spec.Dependencies, spec.Outputs, spec.Pipeline, spec.Callback, spec.ShaderLayout);
+    }
+
+    RenderGraph::RenderGraph(VulkanContext& context, ResourceManager& resourceManager, PipelineManager& pipelineManager, uint32_t width, uint32_t height)
+        : m_Context(context), m_ResourceManager(resourceManager), m_PipelineManager(pipelineManager), m_Width(width), m_Height(height)
     {
         VkQueryPoolCreateInfo queryPoolInfo{};
         queryPoolInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
         queryPoolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
         queryPoolInfo.queryCount = 128; 
-
         if (vkCreateQueryPool(m_Context.GetDevice(), &queryPoolInfo, nullptr, &m_TimestampQueryPool) != VK_SUCCESS) {
             CH_CORE_ERROR("RenderGraph: Failed to create timestamp query pool!");
         }
     }
 
-    RenderGraph::~RenderGraph() 
-    {
-        DestroyResources();
-        if (m_TimestampQueryPool != VK_NULL_HANDLE) {
-            vkDestroyQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, nullptr);
-        }
+    RenderGraph::~RenderGraph() {
+        DestroyResources(true); 
+        if (m_TimestampQueryPool != VK_NULL_HANDLE) vkDestroyQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, nullptr);
     }
 
-    void RenderGraph::DestroyResources() 
-    {
+    void RenderGraph::DestroyResources(bool forceAll) {
         vkDeviceWaitIdle(m_Context.GetDevice());
-
-        for (auto& [name, image] : m_Images) {
-            if (!image.is_external) {
-                m_ResourceManager.DestroyGraphImage(image);
+        
+        auto it = m_Images.begin();
+        while (it != m_Images.end()) {
+            if (forceAll || !it->second.is_external) {
+                if (!it->second.is_external && it->second.handle != VK_NULL_HANDLE) {
+                    m_ResourceManager.DestroyGraphImage(it->second);
+                }
+                it = m_Images.erase(it);
+            } else {
+                ++it;
             }
         }
-        m_Images.clear();
 
-        for (auto& [name, renderPass] : m_Passes) {
+        m_ImageAccess.clear(); 
+        for (auto& pair : m_Passes) {
+            RenderPass& renderPass = pair.second;
+            if (renderPass.descriptor_set_layout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(m_Context.GetDevice(), renderPass.descriptor_set_layout, nullptr);
+            }
+
             if (std::holds_alternative<GraphicsPass>(renderPass.pass)) {
                 auto& graphicsPass = std::get<GraphicsPass>(renderPass.pass);
                 vkDestroyRenderPass(m_Context.GetDevice(), graphicsPass.handle, nullptr);
-                for (auto framebuffer : graphicsPass.framebuffers) {
-                    vkDestroyFramebuffer(m_Context.GetDevice(), framebuffer, nullptr);
-                }
+                for (auto framebuffer : graphicsPass.framebuffers) vkDestroyFramebuffer(m_Context.GetDevice(), framebuffer, nullptr);
             }
         }
         m_Passes.clear();
-
-        if (m_SharedMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(m_Context.GetDevice(), m_SharedMemory, nullptr);
-            m_SharedMemory = VK_NULL_HANDLE;
+        m_GraphicsPipelines.clear();
+        m_RaytracingPipelines.clear();
+        m_ComputePipelines.clear();
+        m_SamplerArrays.clear();
+        if (m_SharedMemory != VK_NULL_HANDLE) { 
+            vkFreeMemory(m_Context.GetDevice(), m_SharedMemory, nullptr); 
+            m_SharedMemory = VK_NULL_HANDLE; 
         }
     }
 
     void RenderGraph::AddGraphicsPass(const std::string& renderPassName, std::vector<TransientResource> dependencies,
         std::vector<TransientResource> outputs, std::vector<GraphicsPipelineDescription> pipelines,
-        GraphicsPassCallback callback) 
+        GraphicsPassCallback callback, const std::string& shaderLayoutName) 
     {
         RenderPassDescription desc;
         desc.name = renderPassName;
         desc.dependencies = dependencies;
         desc.outputs = outputs;
         desc.description = GraphicsPassDescription{ pipelines, callback };
-        m_PassDescriptions[renderPassName] = desc;
+        
+        ResolveBindings(desc.dependencies, shaderLayoutName);
+        ResolveBindings(desc.outputs, shaderLayoutName);
 
+        m_PassDescriptions[renderPassName] = desc;
         for (auto& res : dependencies) m_Readers[res.name].push_back(renderPassName);
         for (auto& res : outputs) m_Writers[res.name].push_back(renderPassName);
     }
 
     void RenderGraph::AddRaytracingPass(const std::string& renderPassName, std::vector<TransientResource> dependencies,
         std::vector<TransientResource> outputs, RaytracingPipelineDescription pipeline,
-        RaytracingPassCallback callback) 
+        RaytracingPassCallback callback, const std::string& shaderLayoutName) 
     {
         RenderPassDescription desc;
         desc.name = renderPassName;
         desc.dependencies = dependencies;
         desc.outputs = outputs;
         desc.description = RaytracingPassDescription{ pipeline, callback };
-        m_PassDescriptions[renderPassName] = desc;
 
+        ResolveBindings(desc.dependencies, shaderLayoutName);
+        ResolveBindings(desc.outputs, shaderLayoutName);
+
+        m_PassDescriptions[renderPassName] = desc;
         for (auto& res : dependencies) m_Readers[res.name].push_back(renderPassName);
         for (auto& res : outputs) m_Writers[res.name].push_back(renderPassName);
     }
 
     void RenderGraph::AddComputePass(const std::string& renderPassName, std::vector<TransientResource> dependencies,
-        std::vector<TransientResource> outputs, ComputePipelineDescription pipeline, ComputePassCallback callback) 
+        std::vector<TransientResource> outputs, ComputePipelineDescription pipeline,
+        ComputePassCallback callback, const std::string& shaderLayoutName) 
     {
         RenderPassDescription desc;
         desc.name = renderPassName;
         desc.dependencies = dependencies;
         desc.outputs = outputs;
         desc.description = ComputePassDescription{ pipeline, callback };
-        m_PassDescriptions[renderPassName] = desc;
 
+        ResolveBindings(desc.dependencies, shaderLayoutName);
+        ResolveBindings(desc.outputs, shaderLayoutName);
+
+        m_PassDescriptions[renderPassName] = desc;
         for (auto& res : dependencies) m_Readers[res.name].push_back(renderPassName);
         for (auto& res : outputs) m_Writers[res.name].push_back(renderPassName);
     }
 
-    void RenderGraph::AddBlitPass(const std::string& renderPassName, const std::string& srcImageName, const std::string& dstImageName) 
-    {
+    void RenderGraph::AddBlitPass(const std::string& renderPassName, const std::string& srcImageName, const std::string& dstImageName, VkFormat srcFormat, VkFormat dstFormat) {
         RenderPassDescription desc;
         desc.name = renderPassName;
-        desc.dependencies.push_back(TransientResource::Image(srcImageName, VK_FORMAT_R8G8B8A8_UNORM, 0));
-        desc.outputs.push_back(TransientResource::Image(dstImageName, VK_FORMAT_R8G8B8A8_UNORM, 0));
+        desc.dependencies = { TransientResource::Image(srcImageName, srcFormat != VK_FORMAT_UNDEFINED ? srcFormat : GetImageFormat(srcImageName)) };
+        desc.outputs = { TransientResource::Image(dstImageName, dstFormat != VK_FORMAT_UNDEFINED ? dstFormat : GetImageFormat(dstImageName)) };
+        
         desc.description = BlitPassDescription{};
-        m_PassDescriptions[renderPassName] = desc;
 
-        m_Passes[renderPassName] = RenderPass{ .name = renderPassName, .pass = BlitPass{ srcImageName, dstImageName } };
-        m_Readers[srcImageName].push_back(renderPassName);
-        m_Writers[dstImageName].push_back(renderPassName);
+        m_PassDescriptions[renderPassName] = desc;
+        for (auto& res : desc.dependencies) m_Readers[res.name].push_back(renderPassName);
+        for (auto& res : desc.outputs) m_Writers[res.name].push_back(renderPassName);
     }
 
-    void RenderGraph::Build() 
-    {
-        FindExecutionOrder();
+    void RenderGraph::Build() {
+        if (m_Width == 0 || m_Height == 0) {
+            auto extent = m_Context.GetSwapChainExtent();
+            m_Width = extent.width;
+            m_Height = extent.height;
+        }
+        // CH_CORE_INFO("RenderGraph: Building with final dimensions {}x{}", m_Width, m_Height);
 
-        // 1. Calculate Lifetimes
-        for (uint32_t i = 0; i < m_ExecutionOrder.size(); ++i) {
-            auto& passName = m_ExecutionOrder[i];
-            auto& desc = m_PassDescriptions[passName];
+        // Clear layout history on every build to handle path switching correctly
+        m_ImageAccess.clear();
+
+        FindExecutionOrder();
+        for (auto& name : m_ExecutionOrder) {
+            auto& desc = m_PassDescriptions[name];
             for (auto& res : desc.dependencies) {
-                m_ResourceLifetimes[res.name].first_pass = std::min(m_ResourceLifetimes[res.name].first_pass, i);
-                m_ResourceLifetimes[res.name].last_pass = std::max(m_ResourceLifetimes[res.name].last_pass, i);
+                if (res.type == TransientResourceType::Image && !ContainsImage(res.name)) {
+                    VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                    if (res.image.type == TransientImageType::StorageImage) usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+                    m_Images[res.name] = m_ResourceManager.CreateGraphImage(m_Width, m_Height, res.image.format, usage, VK_IMAGE_LAYOUT_UNDEFINED, VK_SAMPLE_COUNT_1_BIT);
+                }
             }
             for (auto& res : desc.outputs) {
-                m_ResourceLifetimes[res.name].first_pass = std::min(m_ResourceLifetimes[res.name].first_pass, i);
-                m_ResourceLifetimes[res.name].last_pass = std::max(m_ResourceLifetimes[res.name].last_pass, i);
-            }
-        }
+                if (res.type == TransientResourceType::Image && !ContainsImage(res.name)) {
+                    if (m_Images.count(res.name) && m_Images[res.name].is_external) continue;
 
-        // 2. Physical Resource Creation
-        CH_CORE_INFO("RenderGraph: Building physical resources...");
-        for (auto& [name, lifetime] : m_ResourceLifetimes) {
-            if (name == "RENDER_OUTPUT") continue;
-            if (m_Images.count(name)) continue; 
-
-            std::string passName = "";
-            if (m_Writers.count(name) && !m_Writers[name].empty()) passName = m_Writers[name][0];
-            else if (m_Readers.count(name) && !m_Readers[name].empty()) passName = m_Readers[name][0];
-
-            if (passName.empty()) continue;
-
-            auto& passDesc = m_PassDescriptions[passName];
-            TransientResource* targetRes = nullptr;
-            for (auto& res : passDesc.dependencies) if (res.name == name) targetRes = &res;
-            for (auto& res : passDesc.outputs) if (res.name == name) targetRes = &res;
-
-            if (targetRes && targetRes->type == TransientResourceType::Image) {
-                uint32_t w = targetRes->image.width;
-                uint32_t h = targetRes->image.height;
-                if (w == 0 || h == 0) {
-                    w = m_Context.GetSwapChainExtent().width;
-                    h = m_Context.GetSwapChainExtent().height;
+                    VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                    if (res.image.type == TransientImageType::StorageImage) usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+                    else if (res.image.type == TransientImageType::AttachmentImage) {
+                        if (VulkanUtils::IsDepthFormat(res.image.format)) usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+                        else usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+                    }
+                    m_Images[res.name] = m_ResourceManager.CreateGraphImage(m_Width, m_Height, res.image.format, usage, VK_IMAGE_LAYOUT_UNDEFINED, VK_SAMPLE_COUNT_1_BIT);
                 }
-
-                VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-                if (targetRes->image.type == TransientImageType::AttachmentImage) {
-                    usage |= VulkanUtils::IsDepthFormat(targetRes->image.format) ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-                } else if (targetRes->image.type == TransientImageType::StorageImage) {
-                    usage |= VK_IMAGE_USAGE_STORAGE_BIT;
-                }
-
-                CH_CORE_INFO("  Allocation -> {0} ({1}x{2})", name, w, h);
-                m_Images[name] = m_ResourceManager.CreateGraphImage(w, h, targetRes->image.format, usage, VK_IMAGE_LAYOUT_UNDEFINED, targetRes->image.multisampled ? m_Context.GetMSAASamples() : VK_SAMPLE_COUNT_1_BIT);
-                m_ImageAccess[name] = { VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
             }
-        }
-
-        // 3. Backend Implementation Creation
-        for (auto& passName : m_ExecutionOrder) {
-            auto& desc = m_PassDescriptions[passName];
-            CH_CORE_INFO("RenderGraph: Initializing Backend Pass '{0}'", passName);
-            
             if (std::holds_alternative<GraphicsPassDescription>(desc.description)) CreateGraphicsPass(desc);
             else if (std::holds_alternative<RaytracingPassDescription>(desc.description)) CreateRaytracingPass(desc);
             else if (std::holds_alternative<ComputePassDescription>(desc.description)) CreateComputePass(desc);
+            else if (std::holds_alternative<BlitPassDescription>(desc.description)) {
+                BlitPass blit;
+                blit.srcName = desc.dependencies[0].name;
+                blit.dstName = desc.outputs[0].name;
+                m_Passes[name] = { name, VK_NULL_HANDLE, VK_NULL_HANDLE, blit };
+            }
         }
     }
 
-    void RenderGraph::Execute(VkCommandBuffer commandBuffer, uint32_t resourceIdx, uint32_t imageIdx, std::function<void(VkCommandBuffer)> uiDrawCallback) 
-    {
-        if (m_ExecutionOrder.empty()) {
-            if (uiDrawCallback) uiDrawCallback(commandBuffer);
-            return;
-        }
-
-        VkImage swapImage = m_Context.GetSwapChainImages()[imageIdx];
-        VulkanUtils::InsertImageBarrier(commandBuffer, swapImage, 
-            VK_IMAGE_ASPECT_COLOR_BIT, 
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0, VK_ACCESS_TRANSFER_WRITE_BIT);
+    void RenderGraph::Execute(VkCommandBuffer commandBuffer, uint32_t resourceIdx, uint32_t imageIdx, std::function<void(VkCommandBuffer)> uiDrawCallback) {
+        if (m_ExecutionOrder.empty()) return;
         
-        VkClearColorValue clearColor = { 0.1f, 0.1f, 0.1f, 1.0f };
-        VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-        vkCmdClearColorImage(commandBuffer, swapImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &range);
+        vkCmdResetQueryPool(commandBuffer, m_TimestampQueryPool, 0, (uint32_t)m_ExecutionOrder.size() * 2);
+        m_QueryPoolReset = true;
 
-        VulkanUtils::InsertImageBarrier(commandBuffer, swapImage, 
-            VK_IMAGE_ASPECT_COLOR_BIT, 
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-
-        if (m_TimestampQueryPool != VK_NULL_HANDLE) {
-            vkCmdResetQueryPool(commandBuffer, m_TimestampQueryPool, 0, 128);
-        }
-
-        for (int i = 0; i < (int)m_ExecutionOrder.size(); ++i) {
-            std::string& passName = m_ExecutionOrder[i];
-            RenderPass& renderPass = m_Passes[passName];
+        uint32_t queryIdx = 0;
+        for (const auto& passName : m_ExecutionOrder) {
+            auto& renderPass = m_Passes[passName];
+            InsertBarriers(commandBuffer, renderPass, imageIdx);
             
-            if (std::holds_alternative<GraphicsPass>(renderPass.pass)) {
-                if (m_TimestampQueryPool != VK_NULL_HANDLE) vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, m_TimestampQueryPool, (i * 2));
-                InsertBarriers(commandBuffer, renderPass, imageIdx);
-                ExecuteGraphicsPass(commandBuffer, resourceIdx, imageIdx, renderPass);
-                if (m_TimestampQueryPool != VK_NULL_HANDLE) vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, m_TimestampQueryPool, (i * 2) + 1);
-            } else if (std::holds_alternative<RaytracingPass>(renderPass.pass)) {
-                if (m_TimestampQueryPool != VK_NULL_HANDLE) vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, m_TimestampQueryPool, (i * 2));
-                InsertBarriers(commandBuffer, renderPass, imageIdx);
-                ExecuteRaytracingPass(commandBuffer, resourceIdx, renderPass);
-                if (m_TimestampQueryPool != VK_NULL_HANDLE) vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR, m_TimestampQueryPool, (i * 2) + 1);
-            } else if (std::holds_alternative<ComputePass>(renderPass.pass)) {
-                if (m_TimestampQueryPool != VK_NULL_HANDLE) vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, m_TimestampQueryPool, (i * 2));
-                InsertBarriers(commandBuffer, renderPass, imageIdx);
-                ExecuteComputePass(commandBuffer, resourceIdx, renderPass);
-                if (m_TimestampQueryPool != VK_NULL_HANDLE) vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, m_TimestampQueryPool, (i * 2) + 1);
-            } else if (std::holds_alternative<BlitPass>(renderPass.pass)) {
-                InsertBarriers(commandBuffer, renderPass, imageIdx);
-                BlitPass& blit = std::get<BlitPass>(renderPass.pass);
-                
-                VkImage srcImg = m_Images[blit.srcName].handle;
-                VkImage dstImg = (blit.dstName == "RENDER_OUTPUT") ? m_Context.GetSwapChainImages()[imageIdx] : m_Images[blit.dstName].handle;
-                
-                uint32_t srcW = m_Images[blit.srcName].width;
-                uint32_t srcH = m_Images[blit.srcName].height;
-                uint32_t dstW = (blit.dstName == "RENDER_OUTPUT") ? m_Context.GetSwapChainExtent().width : m_Images[blit.dstName].width;
-                uint32_t dstH = (blit.dstName == "RENDER_OUTPUT") ? m_Context.GetSwapChainExtent().height : m_Images[blit.dstName].height;
+            vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_TimestampQueryPool, queryIdx++);
 
-                if (srcImg != VK_NULL_HANDLE && dstImg != VK_NULL_HANDLE) {
-                    VkImageBlit blitRegion{};
-                    blitRegion.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-                    blitRegion.srcOffsets[0] = { 0, 0, 0 };
-                    blitRegion.srcOffsets[1] = { (int32_t)srcW, (int32_t)srcH, 1 };
-                    
-                    blitRegion.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-                    blitRegion.dstOffsets[0] = { 0, 0, 0 };
-                    blitRegion.dstOffsets[1] = { (int32_t)dstW, (int32_t)dstH, 1 };
-
-                    vkCmdBlitImage(commandBuffer, srcImg, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blitRegion, VK_FILTER_LINEAR);
-                    
-                    if (blit.dstName == "RENDER_OUTPUT") {
-                        VulkanUtils::InsertImageBarrier(commandBuffer, dstImg, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-                    }
-                }
+            if (std::holds_alternative<GraphicsPass>(renderPass.pass)) ExecuteGraphicsPass(commandBuffer, resourceIdx, imageIdx, renderPass);
+            else if (std::holds_alternative<RaytracingPass>(renderPass.pass)) ExecuteRaytracingPass(commandBuffer, resourceIdx, renderPass);
+            else if (std::holds_alternative<ComputePass>(renderPass.pass)) ExecuteComputePass(commandBuffer, resourceIdx, renderPass);
+            else if (std::holds_alternative<BlitPass>(renderPass.pass)) {
+                auto& blit = std::get<BlitPass>(renderPass.pass);
+                BlitImage(commandBuffer, blit.srcName, blit.dstName, imageIdx);
             }
+
+            vkCmdWriteTimestamp(commandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_TimestampQueryPool, queryIdx++);
         }
-        if (uiDrawCallback) uiDrawCallback(commandBuffer);
-    }
 
-    void RenderGraph::InsertBarriers(VkCommandBuffer commandBuffer, RenderPass& renderPass, uint32_t imageIdx) {
-        RenderPassDescription& passDescription = m_PassDescriptions[renderPass.name];
-        bool isGraphicsPass = std::holds_alternative<GraphicsPass>(renderPass.pass);
-        bool isComputePass = std::holds_alternative<ComputePass>(renderPass.pass);
-        bool isRaytracingPass = std::holds_alternative<RaytracingPass>(renderPass.pass);
-        bool isBlitPass = std::holds_alternative<BlitPass>(renderPass.pass);
-
-        auto getRequiredLayout = [&](const TransientResource& resource, bool isOutput) {
-            if (isOutput) {
-                if (VulkanUtils::IsDepthFormat(resource.image.format)) return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            }
+        if (uiDrawCallback) {
+            VkImage swapchainImage = m_Context.GetSwapChainImages()[imageIdx];
+            ImageAccess current = m_ImageAccess["RENDER_OUTPUT"];
             
-            switch (resource.type) {
-                case TransientResourceType::Sampler: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                case TransientResourceType::Storage: return VK_IMAGE_LAYOUT_GENERAL;
-                case TransientResourceType::Image:   return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                default: return VK_IMAGE_LAYOUT_GENERAL;
-            }
-        };
+            VulkanUtils::InsertImageBarrier(commandBuffer, swapchainImage, VK_IMAGE_ASPECT_COLOR_BIT,
+                current.layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                current.stage_flags, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                current.access_flags, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
-        auto processResource = [&](const TransientResource& resource, bool isOutput) {
-            if (resource.type != TransientResourceType::Image) return;
-            
-            ImageAccess currentAccess;
-            VkImage imgHandle = VK_NULL_HANDLE;
-
-            if (resource.name == "RENDER_OUTPUT") {
-                currentAccess = { VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
-                imgHandle = m_Context.GetSwapChainImages()[imageIdx];
-            } else {
-                if (m_ImageAccess.find(resource.name) == m_ImageAccess.end()) return;
-                currentAccess = m_ImageAccess[resource.name];
-                imgHandle = m_Images[resource.name].handle;
-            }
-
-            VkImageLayout dstLayout = getRequiredLayout(resource, isOutput);
-            
-            if (isBlitPass) {
-                BlitPass& blit = std::get<BlitPass>(renderPass.pass);
-                if (resource.name == blit.srcName) dstLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-                else if (resource.name == blit.dstName) dstLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            }
-
-            if (currentAccess.layout != dstLayout) {
-                VkImageAspectFlags aspectFlags = VulkanUtils::IsDepthFormat(resource.image.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-                
-                VkPipelineStageFlags dstStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-                VkAccessFlags dstAccess = isOutput ? VK_ACCESS_SHADER_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT;
-
-                if (isGraphicsPass) {
-                    dstStage = isOutput ? VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-                    if (isOutput) dstAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-                } else if (isRaytracingPass) {
-                    dstStage = VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
-                } else if (isComputePass) {
-                    dstStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-                }
-
-                if (dstLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) { dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT; dstAccess = VK_ACCESS_TRANSFER_READ_BIT; }
-                if (dstLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) { dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT; dstAccess = VK_ACCESS_TRANSFER_WRITE_BIT; }
-
-                VulkanUtils::InsertImageBarrier(commandBuffer, imgHandle, aspectFlags, currentAccess.layout, dstLayout, currentAccess.stage_flags, dstStage, currentAccess.access_flags, dstAccess);
-                m_ImageAccess[resource.name] = { dstLayout, dstAccess, dstStage };
-            }
-        };
-
-        if (isBlitPass) {
-            BlitPass& blit = std::get<BlitPass>(renderPass.pass);
-            TransientResource srcRes = TransientResource::Image(blit.srcName, VK_FORMAT_B8G8R8A8_UNORM, 0); 
-            TransientResource dstRes = TransientResource::Image(blit.dstName, VK_FORMAT_B8G8R8A8_UNORM, 0);
-            processResource(srcRes, false);
-            processResource(dstRes, true);
-        } else {
-            for (auto& res : passDescription.dependencies) processResource(res, false);
-            for (auto& res : passDescription.outputs) processResource(res, true);
+            uiDrawCallback(commandBuffer);
         }
     }
 
-    void RenderGraph::ExecuteGraphicsPass(VkCommandBuffer commandBuffer, uint32_t resourceIdx, uint32_t imageIdx, RenderPass& renderPass) 
-    {
-        GraphicsPass& graphicsPass = std::get<GraphicsPass>(renderPass.pass);
-        bool writesToRenderOutput = false;
-        for (auto& attachment : graphicsPass.attachments) { if (attachment.name == "RENDER_OUTPUT") { writesToRenderOutput = true; break; } }
-        
-        uint32_t fbIdx = writesToRenderOutput ? imageIdx : 0;
-        VkFramebuffer framebuffer = graphicsPass.framebuffers[fbIdx];
-        uint32_t passWidth = graphicsPass.attachments[0].image.width; 
-        uint32_t passHeight = graphicsPass.attachments[0].image.height;
-        if (passWidth == 0 || passHeight == 0) {
-            passWidth = m_Context.GetSwapChainExtent().width;
-            passHeight = m_Context.GetSwapChainExtent().height;
-        }
+    void RenderGraph::GatherPerformanceStatistics() {
+        if (!m_QueryPoolReset) return;
+        uint32_t count = (uint32_t)m_ExecutionOrder.size() * 2;
+        if (count == 0) return;
 
-        VkRenderPassBeginInfo renderPassBeginInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-        renderPassBeginInfo.renderPass = graphicsPass.handle;
-        renderPassBeginInfo.framebuffer = framebuffer;
-        renderPassBeginInfo.renderArea.extent = { passWidth, passHeight };
-
-        std::vector<VkClearValue> clearValues;
-        for (TransientResource& attachment : graphicsPass.attachments) clearValues.emplace_back(attachment.image.clear_value);
-        renderPassBeginInfo.clearValueCount = (uint32_t)clearValues.size();
-        renderPassBeginInfo.pClearValues = clearValues.data();
-
-        vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-        graphicsPass.callback([&](std::string pipelineName, GraphicsExecutionCallback executePipeline) {
-            GraphicsPipeline* pipeline = m_GraphicsPipelines[pipelineName];
-            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->handle);
-            GraphicsExecutionContext executionContext(commandBuffer, m_Context, m_ResourceManager, *pipeline);
-            executionContext.BindGlobalSet(0, resourceIdx);
-            if (renderPass.descriptor_set != VK_NULL_HANDLE) executionContext.BindPassSet(1, renderPass.descriptor_set);
-            executePipeline(executionContext);
-        });
-        vkCmdEndRenderPass(commandBuffer);
-    }
-
-    void RenderGraph::ExecuteRaytracingPass(VkCommandBuffer commandBuffer, uint32_t resourceIdx, RenderPass& renderPass) 
-    {
-        RaytracingPass& raytracingPass = std::get<RaytracingPass>(renderPass.pass);
-        raytracingPass.callback([&](std::string pipelineName, RaytracingExecutionCallback executePipeline) {
-            RaytracingPipeline* pipeline = m_RaytracingPipelines[pipelineName];
-            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline->handle);
-            RaytracingExecutionContext executionContext(commandBuffer, m_Context, m_ResourceManager, *pipeline);
-            executionContext.BindGlobalSet(0, resourceIdx);
-            if (renderPass.descriptor_set != VK_NULL_HANDLE) executionContext.BindPassSet(1, renderPass.descriptor_set);
-            executePipeline(executionContext);
-        });
-    }
-
-    void RenderGraph::ExecuteComputePass(VkCommandBuffer commandBuffer, uint32_t resourceIdx, RenderPass& renderPass) 
-    {
-        ComputePass& computePass = std::get<ComputePass>(renderPass.pass);
-        ComputeExecutionContext executionContext(commandBuffer, renderPass, *this, m_ResourceManager, resourceIdx);
-        computePass.callback(executionContext);
-    }
-
-    void RenderGraph::FindExecutionOrder() 
-    {
-        std::string finalTarget = m_Writers.count("FinalColor") ? "FinalColor" : (m_Writers.count("RENDER_OUTPUT") ? "RENDER_OUTPUT" : "");
-        if (finalTarget.empty()) return;
-
-        m_ExecutionOrder.clear();
-        std::deque<std::string> stack;
-        for (const auto& passName : m_Writers[finalTarget]) {
-            m_ExecutionOrder.push_back(passName);
-            stack.push_back(passName);
-        }
-
-        std::unordered_set<std::string> visited;
-        while (!stack.empty()) {
-            std::string currentPass = stack.front();
-            stack.pop_front();
-            if (visited.count(currentPass)) continue;
-            visited.insert(currentPass);
-
-            for (auto& dep : m_PassDescriptions[currentPass].dependencies) {
-                for (auto& writerPass : m_Writers[dep.name]) {
-                    if (!visited.count(writerPass)) {
-                        m_ExecutionOrder.push_back(writerPass);
-                        stack.push_back(writerPass);
-                    }
-                }
-            }
-        }
-        std::reverse(m_ExecutionOrder.begin(), m_ExecutionOrder.end());
-        
-        std::vector<std::string> uniqueOrder;
-        std::unordered_set<std::string> seen;
-        for (auto& p : m_ExecutionOrder) if (seen.find(p) == seen.end()) { uniqueOrder.push_back(p); seen.insert(p); }
-        m_ExecutionOrder = uniqueOrder;
-    }
-
-    void RenderGraph::CreateGraphicsPass(RenderPassDescription& passDescription) {
-        GraphicsPassDescription& graphicsPassDescription = std::get<GraphicsPassDescription>(passDescription.description);
-        RenderPass renderPass{ .name = passDescription.name, .pass = GraphicsPass { .callback = graphicsPassDescription.callback } };
-        GraphicsPass& graphicsPass = std::get<GraphicsPass>(renderPass.pass);
-        std::vector<VkAttachmentDescription> attachments; std::vector<VkAttachmentReference> colorRefs; VkAttachmentReference depthRef{ VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_UNDEFINED }; bool isMultisampled = false;
-        ParseGraphicsAttachments(passDescription, graphicsPass, attachments, colorRefs, depthRef, isMultisampled);
-        VkSubpassDescription subpass{ 0, VK_PIPELINE_BIND_POINT_GRAPHICS, 0, nullptr, (uint32_t)colorRefs.size(), colorRefs.data(), nullptr, (depthRef.attachment == VK_ATTACHMENT_UNUSED) ? nullptr : &depthRef, 0, nullptr };
-        VkSubpassDependency dependency{ VK_SUBPASS_EXTERNAL, 0, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0 };
-        VkRenderPassCreateInfo rpInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO, nullptr, 0, (uint32_t)attachments.size(), attachments.data(), 1, &subpass, 1, &dependency };
-        if (vkCreateRenderPass(m_Context.GetDevice(), &rpInfo, nullptr, &graphicsPass.handle) != VK_SUCCESS) throw std::runtime_error("failed to create render pass");
-        CreatePassDescriptorSet(renderPass, passDescription, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-        for (auto& pd : graphicsPassDescription.pipeline_descriptions) m_GraphicsPipelines[pd.name] = &m_PipelineManager.GetGraphicsPipeline(renderPass, pd);
-        CreateFramebuffers(renderPass); m_Passes[renderPass.name] = renderPass;
-    }
-
-    void RenderGraph::CreateRaytracingPass(RenderPassDescription& passDescription) {
-        RaytracingPassDescription& rtDesc = std::get<RaytracingPassDescription>(passDescription.description);
-        RenderPass renderPass{ .name = passDescription.name, .pass = RaytracingPass { .callback = rtDesc.callback } };
-        CreatePassDescriptorSet(renderPass, passDescription, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
-        m_RaytracingPipelines[rtDesc.pipeline_description.name] = &m_PipelineManager.GetRaytracingPipeline(renderPass, rtDesc.pipeline_description);
-        m_Passes[renderPass.name] = renderPass;
-    }
-
-    void RenderGraph::CreateComputePass(RenderPassDescription& passDescription) {
-        ComputePassDescription& compDesc = std::get<ComputePassDescription>(passDescription.description);
-        RenderPass renderPass{ .name = passDescription.name, .pass = ComputePass { .callback = compDesc.callback } };
-        CreatePassDescriptorSet(renderPass, passDescription, VK_SHADER_STAGE_COMPUTE_BIT);
-        for (auto& kernel : compDesc.pipeline_description.kernels) m_ComputePipelines[kernel.shader] = &m_PipelineManager.GetComputePipeline(renderPass, compDesc.pipeline_description.push_constant_description, kernel);
-        m_Passes[renderPass.name] = renderPass;
-    }
-
-    void RenderGraph::CreateFramebuffers(RenderPass& renderPass) {
-        if (!std::holds_alternative<GraphicsPass>(renderPass.pass)) return;
-        GraphicsPass& graphicsPass = std::get<GraphicsPass>(renderPass.pass);
-        bool writesToRenderOutput = false;
-        for (auto& attachment : graphicsPass.attachments) { if (attachment.name == "RENDER_OUTPUT") { writesToRenderOutput = true; break; } }
-        uint32_t framebufferCount = writesToRenderOutput ? m_Context.GetSwapChainImageCount() : 1;
-        graphicsPass.framebuffers.resize(framebufferCount);
-        for (uint32_t i = 0; i < framebufferCount; i++) {
-            std::vector<VkImageView> imageViews; bool isMultisampledPass = false;
-            for (TransientResource& attachment : graphicsPass.attachments) {
-                if (attachment.name == "RENDER_OUTPUT") {
-                    if (attachment.image.multisampled) { imageViews.emplace_back(m_Images[renderPass.name + "_MSAA"].view); isMultisampledPass = true; }
-                    else imageViews.emplace_back(m_Context.GetSwapChainImageViews()[i]);
-                } else imageViews.emplace_back(m_Images[attachment.name].view);
-            }
-            if (isMultisampledPass) imageViews.emplace_back(m_Context.GetSwapChainImageViews()[i]);
-            uint32_t passWidth = graphicsPass.attachments[0].image.width; uint32_t passHeight = graphicsPass.attachments[0].image.height;
-            if (passWidth == 0 || passHeight == 0) { passWidth = m_Context.GetSwapChainExtent().width; passHeight = m_Context.GetSwapChainExtent().height; }
-            VkFramebufferCreateInfo framebufferInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO, nullptr, 0, graphicsPass.handle, (uint32_t)imageViews.size(), imageViews.data(), passWidth, passHeight, 1 };
-            if (vkCreateFramebuffer(m_Context.GetDevice(), &framebufferInfo, nullptr, &graphicsPass.framebuffers[i]) != VK_SUCCESS) throw std::runtime_error("failed to create framebuffer");
-        }
-    }
-
-    void RenderGraph::CreatePassDescriptorSet(RenderPass& renderPass, RenderPassDescription& passDescription, VkShaderStageFlags stageFlags) 
-    {
-        CH_CORE_INFO("RenderGraph: Creating Descriptor Set for pass '{0}'", renderPass.name);
-        std::vector<VkDescriptorSetLayoutBinding> bindings;
-        std::vector<VkDescriptorImageInfo> imgInfos;
-        std::vector<VkDescriptorBufferInfo> bufInfos;
-        std::vector<VkWriteDescriptorSetAccelerationStructureKHR> asInfos;
-
-        auto processResource = [&](TransientResource& res) {
-            if (res.type == TransientResourceType::Image && res.image.type != TransientImageType::AttachmentImage) {
-                VkDescriptorSetLayoutBinding b{};
-                b.binding = res.image.binding;
-                b.descriptorType = (res.image.type == TransientImageType::StorageImage) ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                b.descriptorCount = 1;
-                b.stageFlags = stageFlags;
-                bindings.push_back(b);
-
-                VkDescriptorImageInfo info{};
-                info.sampler = m_ResourceManager.GetDefaultSampler();
-                info.imageView = m_Images[res.name].view;
-                info.imageLayout = (res.image.type == TransientImageType::StorageImage) ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                imgInfos.push_back(info);
-            } 
-            else if (res.type == TransientResourceType::Buffer) {
-                VkDescriptorSetLayoutBinding b{};
-                b.binding = res.buffer.binding;
-                b.descriptorType = res.buffer.descriptor_type;
-                b.descriptorCount = res.buffer.count;
-                b.stageFlags = stageFlags;
-                bindings.push_back(b);
-
-                VkDescriptorBufferInfo info{};
-                info.buffer = res.buffer.handle;
-                info.offset = 0;
-                info.range = VK_WHOLE_SIZE;
-                bufInfos.push_back(info);
-            } 
-            else if (res.type == TransientResourceType::AccelerationStructure) {
-                VkDescriptorSetLayoutBinding b{};
-                b.binding = res.as.binding;
-                b.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-                b.descriptorCount = 1;
-                b.stageFlags = stageFlags;
-                bindings.push_back(b);
-
-                VkWriteDescriptorSetAccelerationStructureKHR info{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
-                info.accelerationStructureCount = 1;
-                info.pAccelerationStructures = &res.as.handle;
-                asInfos.push_back(info);
-            }
-            else if (res.type == TransientResourceType::Sampler || res.type == TransientResourceType::Storage) {
-                VkDescriptorSetLayoutBinding b{};
-                b.binding = res.buffer.binding; 
-                b.descriptorType = (res.type == TransientResourceType::Storage) ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                b.descriptorCount = res.buffer.count; 
-                b.stageFlags = stageFlags;
-                bindings.push_back(b);
-
-                if (res.type == TransientResourceType::Storage) {
-                    VkDescriptorBufferInfo info{};
-                    info.buffer = res.buffer.handle;
-                    info.offset = 0;
-                    info.range = VK_WHOLE_SIZE;
-                    bufInfos.push_back(info);
-                } else {
-                    auto& textures = m_ResourceManager.GetTextures();
-                    for (uint32_t i = 0; i < res.buffer.count; ++i) {
-                        VkDescriptorImageInfo info{};
-                        info.sampler = m_ResourceManager.GetDefaultSampler();
-                        if (!textures.empty() && i < textures.size()) {
-                            info.imageView = textures[i]->GetImageView();
-                        } else if (!textures.empty()) {
-                            info.imageView = textures[0]->GetImageView(); 
-                        } else {
-                            info.imageView = VK_NULL_HANDLE; 
-                        }
-                        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        imgInfos.push_back(info);
-                    }
-                }
-            }
-        };
-
-        for (auto& res : passDescription.dependencies) processResource(res);
-        for (auto& res : passDescription.outputs) processResource(res);
-
-        if (bindings.empty()) {
-            renderPass.descriptor_set_layout = VK_NULL_HANDLE;
-            renderPass.descriptor_set = VK_NULL_HANDLE;
-            return;
-        }
-
-        CH_CORE_INFO("  Pass '{0}' -> Bindings: {1}, imgInfos: {2}, bufInfos: {3}, asInfos: {4}", renderPass.name, bindings.size(), imgInfos.size(), bufInfos.size(), asInfos.size());
-
-        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutInfo.bindingCount = (uint32_t)bindings.size();
-        layoutInfo.pBindings = bindings.data();
-        if (vkCreateDescriptorSetLayout(m_Context.GetDevice(), &layoutInfo, nullptr, &renderPass.descriptor_set_layout) != VK_SUCCESS) throw std::runtime_error("failed to create layout");
-
-        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        allocInfo.descriptorPool = m_ResourceManager.GetTransientDescriptorPool();
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &renderPass.descriptor_set_layout;
-        if (vkAllocateDescriptorSets(m_Context.GetDevice(), &allocInfo, &renderPass.descriptor_set) != VK_SUCCESS) throw std::runtime_error("failed to alloc set");
-
-        std::vector<VkWriteDescriptorSet> writes;
-        size_t iIdx = 0, bIdx = 0, aIdx = 0;
-        for (auto& b : bindings) {
-            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            w.dstSet = renderPass.descriptor_set;
-            w.dstBinding = b.binding;
-            w.descriptorCount = b.descriptorCount;
-            w.descriptorType = b.descriptorType;
-
-            if (b.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || b.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-                if (iIdx < imgInfos.size()) w.pImageInfo = &imgInfos[iIdx];
-                iIdx += b.descriptorCount;
-            } else if (b.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || b.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
-                if (bIdx < bufInfos.size()) w.pBufferInfo = &bufInfos[bIdx];
-                bIdx += b.descriptorCount;
-            } else if (b.descriptorType == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
-                if (aIdx < asInfos.size()) w.pNext = &asInfos[aIdx];
-                aIdx += b.descriptorCount;
-            }
-            writes.push_back(w);
-        }
-        vkUpdateDescriptorSets(m_Context.GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
-    }
-
-    void RenderGraph::ParseGraphicsAttachments(RenderPassDescription& passDescription, GraphicsPass& graphicsPass, 
-        std::vector<VkAttachmentDescription>& attachments, std::vector<VkAttachmentReference>& colorRefs, 
-        VkAttachmentReference& depthRef, bool& isMultisampled) 
-    {
-        uint32_t colorCount = 0;
-        uint32_t totalCount = 0;
-        isMultisampled = false;
-
-        for (TransientResource& output : passDescription.outputs) {
-            if (output.type == TransientResourceType::Image && output.image.type == TransientImageType::AttachmentImage) {
-                if (!VulkanUtils::IsDepthFormat(output.image.format)) colorCount++;
-                if (output.image.multisampled) isMultisampled = true;
-                totalCount++;
-            }
-        }
-
-        attachments.resize(totalCount);
-        colorRefs.resize(colorCount);
-        graphicsPass.attachments.resize(totalCount);
-
-        for (TransientResource& output : passDescription.outputs) {
-            if (output.type != TransientResourceType::Image || output.image.type != TransientImageType::AttachmentImage) continue;
-
-            uint32_t binding = output.image.binding;
-            bool isRenderOutput = (output.name == "RENDER_OUTPUT");
-            VkImageLayout layout = VulkanUtils::GetImageLayoutFromResourceType(output.type, output.image.format);
-            
-            graphicsPass.attachments[binding] = output;
-
-            VkAttachmentDescription& attDesc = attachments[binding];
-            attDesc.flags = 0;
-            attDesc.format = isRenderOutput ? m_Context.GetSwapChainImageFormat() : output.image.format;
-            attDesc.samples = output.image.multisampled ? m_Context.GetMSAASamples() : VK_SAMPLE_COUNT_1_BIT;
-            attDesc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-            attDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            attDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            attDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            attDesc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            attDesc.finalLayout = isRenderOutput ? (output.image.multisampled ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) : layout;
-
-            if (VulkanUtils::IsDepthFormat(output.image.format)) {
-                depthRef = { binding, layout };
-            } else {
-                colorRefs[binding] = { binding, layout };
-            }
-        }
-    }
-
-    bool RenderGraph::ContainsImage(std::string imageName) { return m_Images.count(imageName); }
-    VkFormat RenderGraph::GetImageFormat(std::string imageName) { return m_Images[imageName].format; }
-    std::vector<std::string> RenderGraph::GetColorAttachments() {
-        std::vector<std::string> colorAttachmentNames;
-        for (auto& [name, image] : m_Images) if (!VulkanUtils::IsDepthFormat(image.format) && !name.ends_with("_MSAA")) colorAttachmentNames.emplace_back(name);
-        return colorAttachmentNames;
-    }
-
-    void RenderGraph::RegisterExternalResource(const std::string& name, const ImageDescription& description) { m_Images[name] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, description.width, description.height, description.format, description.usage, true }; }
-    void RenderGraph::SetExternalResource(const std::string& name, VkImage handle, VkImageView view, VkImageLayout currentLayout, VkAccessFlags currentAccess, VkPipelineStageFlags currentStage) { m_Images[name].handle = handle; m_Images[name].view = view; m_ImageAccess[name] = { currentLayout, currentAccess, currentStage }; }
-
-    void RenderGraph::GatherPerformanceStatistics() 
-    {
-        if (m_TimestampQueryPool == VK_NULL_HANDLE || m_ExecutionOrder.empty()) return;
-
-        uint32_t queryCount = (uint32_t)m_ExecutionOrder.size() * 2;
-        std::vector<uint64_t> timestamps(queryCount);
-        VkResult result = vkGetQueryPoolResults(m_Context.GetDevice(), m_TimestampQueryPool, 0, queryCount, 
-            timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        std::vector<uint64_t> timestamps(count);
+        // Non-blocking query retrieval
+        VkResult result = vkGetQueryPoolResults(m_Context.GetDevice(), m_TimestampQueryPool, 0, count, 
+            sizeof(uint64_t) * count, timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
 
         if (result == VK_SUCCESS) {
             float timestampPeriod = m_Context.GetDeviceProperties().limits.timestampPeriod;
             for (uint32_t i = 0; i < m_ExecutionOrder.size(); ++i) {
                 uint64_t start = timestamps[i * 2];
                 uint64_t end = timestamps[i * 2 + 1];
-                if (end > start) {
-                    double duration = (end - start) * (double)timestampPeriod / 1000000.0; // ms
+                if (end >= start) {
+                    double duration = (end - start) * (double)timestampPeriod / 1000000.0; 
                     m_PassTimestamps[m_ExecutionOrder[i]] = duration;
                 }
             }
         }
     }
 
-    void RenderGraph::DrawPerformanceStatistics() 
-    {
-        if (ImGui::BeginTable("RenderPassStats", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Pass Name");
-            ImGui::TableSetupColumn("Time (ms)");
+    void RenderGraph::DrawPerformanceStatistics() {
+        if (m_ExecutionOrder.empty()) {
+            ImGui::Text("Render Graph is empty.");
+            return;
+        }
+
+        double totalTime = 0.0;
+        for (const auto& passName : m_ExecutionOrder) totalTime += m_PassTimestamps[passName];
+
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Total GPU Time: %.4f ms", totalTime);
+        ImGui::Separator();
+
+        if (ImGui::BeginTable("PassTimestamps", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable)) {
+            ImGui::TableSetupColumn("Pass Name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("GPU Time", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("Weight", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableHeadersRow();
 
-            double totalTime = 0.0;
             for (const auto& passName : m_ExecutionOrder) {
-                if (m_PassTimestamps.count(passName)) {
-                    double time = m_PassTimestamps[passName];
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("%s", passName.c_str());
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%.4f", time);
-                    totalTime += time;
-                }
+                double time = m_PassTimestamps[passName];
+                float fraction = (totalTime > 0.0) ? (float)(time / totalTime) : 0.0f;
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("%s", passName.c_str());
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("%.3f ms", time);
+
+                ImGui::TableSetColumnIndex(2);
+                char label[32];
+                sprintf(label, "%.1f%%", fraction * 100.0f);
+                
+                // Color mapping: Red for heavy passes, Green for light ones
+                ImVec4 color = ImVec4(fraction * 2.0f, 1.0f - fraction, 0.2f, 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
+                ImGui::ProgressBar(fraction, ImVec2(-1, 0), label);
+                ImGui::PopStyleColor();
             }
-            
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Total GPU Time");
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "%.4f ms", totalTime);
 
             ImGui::EndTable();
         }
+    }
+
+    void RenderGraph::FindExecutionOrder() {
+        m_ExecutionOrder.clear();
+        std::unordered_map<std::string, uint32_t> inDegree;
+        for (auto& pair : m_PassDescriptions) {
+            const std::string& name = pair.first;
+            RenderPassDescription& desc = pair.second;
+            inDegree[name] = 0;
+            for (auto& dep : desc.dependencies) {
+                if (m_Writers.count(dep.name)) {
+                    for (auto& writer : m_Writers[dep.name]) {
+                        if (writer != name) inDegree[name]++;
+                    }
+                }
+            }
+        }
+        std::deque<std::string> queue;
+        for (auto& pair : inDegree) if (pair.second == 0) queue.push_back(pair.first);
+        while (!queue.empty()) {
+            std::string u = queue.front(); queue.pop_front();
+            m_ExecutionOrder.push_back(u);
+            for (auto& out : m_PassDescriptions[u].outputs) {
+                if (m_Readers.count(out.name)) {
+                    for (auto& v : m_Readers[out.name]) {
+                        if (--inDegree[v] == 0) queue.push_back(v);
+                    }
+                }
+            }
+        }
+    }
+
+    static ImageAccess GetUsageState(const RenderPass& renderPass, const TransientResource& res, bool isOutput) {
+        bool isGraphics = std::holds_alternative<GraphicsPass>(renderPass.pass);
+        bool isRaytracing = std::holds_alternative<RaytracingPass>(renderPass.pass);
+        bool isCompute = std::holds_alternative<ComputePass>(renderPass.pass);
+        bool isBlit = std::holds_alternative<BlitPass>(renderPass.pass);
+
+        if (isBlit) {
+            return isOutput ? 
+                ImageAccess{ VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_TRANSFER_BIT } :
+                ImageAccess{ VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_TRANSFER_BIT };
+        }
+
+        if (isOutput) {
+            if (res.name == "RENDER_OUTPUT") return { VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+            if (isGraphics) {
+                if (VulkanUtils::IsDepthFormat(res.image.format)) return { VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT };
+                return { VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+            }
+            return { VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_WRITE_BIT, (VkPipelineStageFlags)(isCompute ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR) };
+        }
+
+        // Default Input states
+        if (res.image.type == TransientImageType::StorageImage) return { VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_SHADER_READ_BIT, (VkPipelineStageFlags)(isCompute ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : (isRaytracing ? VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)) };
+        return { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT, (VkPipelineStageFlags)(isGraphics ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : (isCompute ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR)) };
+    }
+
+    void RenderGraph::InsertBarriers(VkCommandBuffer commandBuffer, RenderPass& renderPass, uint32_t imageIdx) {
+        auto& passDescription = m_PassDescriptions[renderPass.name];
+        auto process = [&](const TransientResource& resource, bool isOutput) {
+            if (resource.type == TransientResourceType::Image) {
+                VkImage handle = (resource.name == "RENDER_OUTPUT") ? m_Context.GetSwapChainImages()[imageIdx] : m_Images[resource.name].handle;
+                
+                ImageAccess current = { VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
+                if (m_ImageAccess.count(resource.name)) current = m_ImageAccess[resource.name];
+                
+                if (resource.name == "RENDER_OUTPUT" && !isOutput) {
+                    current.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+                    current.access_flags = 0;
+                    current.stage_flags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                }
+
+                ImageAccess next = GetUsageState(renderPass, resource, isOutput);
+
+                VulkanUtils::InsertImageBarrier(commandBuffer, handle, VulkanUtils::IsDepthFormat(resource.image.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT, current.layout, next.layout, current.stage_flags, next.stage_flags, current.access_flags, next.access_flags);
+                if (resource.name != "RENDER_OUTPUT") m_ImageAccess[resource.name] = next;
+            }
+        };
+        for (const auto& resource : passDescription.dependencies) process(resource, false);
+        for (const auto& resource : passDescription.outputs) process(resource, true);
+    }
+
+    void RenderGraph::CreatePassDescriptorSet(RenderPass& renderPass, RenderPassDescription& passDescription, VkShaderStageFlags stageFlags) {
+        std::vector<VkDescriptorSetLayoutBinding> bindings;
+        std::vector<TransientResource> all = passDescription.dependencies;
+        for (auto& out : passDescription.outputs) if (out.type != TransientResourceType::Image || out.image.type != TransientImageType::AttachmentImage) all.push_back(out);
+        std::deque<VkDescriptorImageInfo> imgInfos; std::deque<VkDescriptorBufferInfo> bufInfos; std::deque<VkWriteDescriptorSetAccelerationStructureKHR> asInfos; 
+        for (auto& res : all) {
+            VkDescriptorSetLayoutBinding b{}; b.binding = (res.type == TransientResourceType::Image) ? res.image.binding : res.buffer.binding;
+            if (res.type == TransientResourceType::AccelerationStructure) b.binding = res.as.binding;
+            b.descriptorCount = (res.type == TransientResourceType::Sampler) ? res.buffer.count : 1;
+            b.stageFlags = stageFlags;
+            switch (res.type) {
+                case TransientResourceType::Image: b.descriptorType = (res.image.type == TransientImageType::StorageImage) ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
+                case TransientResourceType::Buffer: case TransientResourceType::Storage: b.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
+                case TransientResourceType::Sampler: b.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
+                case TransientResourceType::AccelerationStructure: b.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR; break;
+            }
+            bindings.push_back(b);
+        }
+        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO }; layoutInfo.bindingCount = (uint32_t)bindings.size(); layoutInfo.pBindings = bindings.data(); vkCreateDescriptorSetLayout(m_Context.GetDevice(), &layoutInfo, nullptr, &renderPass.descriptor_set_layout);
+        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO }; allocInfo.descriptorPool = m_ResourceManager.GetTransientDescriptorPool(); allocInfo.descriptorSetCount = 1; allocInfo.pSetLayouts = &renderPass.descriptor_set_layout; 
+        vkAllocateDescriptorSets(m_Context.GetDevice(), &allocInfo, &renderPass.descriptor_set);
+        std::vector<VkWriteDescriptorSet> writes;
+        for (auto& res : all) {
+            VkWriteDescriptorSet w = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET }; w.dstSet = renderPass.descriptor_set; w.dstBinding = (res.type == TransientResourceType::Image) ? res.image.binding : res.buffer.binding; if (res.type == TransientResourceType::AccelerationStructure) w.dstBinding = res.as.binding; w.descriptorCount = (res.type == TransientResourceType::Sampler) ? res.buffer.count : 1;
+            if (res.type == TransientResourceType::Image) {
+                VkDescriptorImageInfo info{}; info.imageView = m_Images[res.name].view; info.imageLayout = (res.image.type == TransientImageType::StorageImage) ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; info.sampler = m_ResourceManager.GetDefaultSampler();
+                imgInfos.push_back(info); w.descriptorType = (res.image.type == TransientImageType::StorageImage) ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w.pImageInfo = &imgInfos.back();
+            } else if (res.type == TransientResourceType::Sampler) {
+                const auto& textures = m_ResourceManager.GetTextures(); std::vector<VkDescriptorImageInfo> infos(res.buffer.count);
+                auto defaultTex = m_ResourceManager.GetDefaultTexture();
+                for(uint32_t i=0; i<res.buffer.count; ++i) { 
+                    infos[i].sampler = m_ResourceManager.GetDefaultSampler(); 
+                    auto* tex = (i < textures.size() && textures[i]) ? textures[i].get() : defaultTex;
+                    infos[i].imageView = tex->GetImageView(); 
+                    infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; 
+                }
+                m_SamplerArrays.push_back(infos); w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w.pImageInfo = m_SamplerArrays.back().data();
+            } else if (res.type == TransientResourceType::Buffer || res.type == TransientResourceType::Storage) {
+                VkDescriptorBufferInfo info{}; info.buffer = res.buffer.handle; info.offset = 0; info.range = VK_WHOLE_SIZE;
+                bufInfos.push_back(info); w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w.pBufferInfo = &bufInfos.back();
+            } else if (res.type == TransientResourceType::AccelerationStructure) {
+                VkWriteDescriptorSetAccelerationStructureKHR as{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR }; as.accelerationStructureCount = 1; as.pAccelerationStructures = &res.as.handle;
+                asInfos.push_back(as); w.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR; w.pNext = &asInfos.back();
+            }
+            writes.push_back(w);
+        }
+        vkUpdateDescriptorSets(m_Context.GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
+    }
+
+    void RenderGraph::CreateGraphicsPass(RenderPassDescription& passDescription) {
+        GraphicsPassDescription& graphicsPassDescription = std::get<GraphicsPassDescription>(passDescription.description);
+        GraphicsPass graphicsPass; graphicsPass.callback = graphicsPassDescription.callback;
+        std::vector<VkAttachmentDescription> attachments; std::vector<VkAttachmentReference> colorRefs; VkAttachmentReference depthRef{ VK_ATTACHMENT_UNUSED, VK_IMAGE_LAYOUT_UNDEFINED }; bool isMultisampled = false;
+        ParseGraphicsAttachments(passDescription, graphicsPass, attachments, colorRefs, depthRef, isMultisampled);
+        VkRenderPassCreateInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO }; renderPassInfo.attachmentCount = (uint32_t)attachments.size(); renderPassInfo.pAttachments = attachments.data();
+        VkSubpassDescription subpass{}; subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; subpass.colorAttachmentCount = (uint32_t)colorRefs.size(); subpass.pColorAttachments = colorRefs.data(); subpass.pDepthStencilAttachment = (depthRef.attachment != VK_ATTACHMENT_UNUSED) ? &depthRef : nullptr;
+        VkSubpassDependency dependency{}; dependency.srcSubpass = VK_SUBPASS_EXTERNAL; dependency.dstSubpass = 0; dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT; dependency.srcAccessMask = 0; dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT; dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        renderPassInfo.subpassCount = 1; renderPassInfo.pSubpasses = &subpass; renderPassInfo.dependencyCount = 1; renderPassInfo.pDependencies = &dependency;
+        vkCreateRenderPass(m_Context.GetDevice(), &renderPassInfo, nullptr, &graphicsPass.handle);
+        m_Passes[passDescription.name] = { passDescription.name, VK_NULL_HANDLE, VK_NULL_HANDLE, graphicsPass };
+        RenderPass& passRef = m_Passes[passDescription.name];
+        CreatePassDescriptorSet(passRef, passDescription, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        m_GraphicsPipelines[passDescription.name] = &m_PipelineManager.GetGraphicsPipeline(passRef, graphicsPassDescription.pipeline_descriptions[0]);
+        CreateFramebuffers(passRef);
+    }
+
+    void RenderGraph::ParseGraphicsAttachments(RenderPassDescription& passDescription, GraphicsPass& graphicsPass,
+        std::vector<VkAttachmentDescription>& attachments, std::vector<VkAttachmentReference>& colorRefs,
+        VkAttachmentReference& depthRef, bool& isMultisampled)
+    {
+        for (auto& res : passDescription.outputs) {
+            if (res.type == TransientResourceType::Image && res.image.type == TransientImageType::AttachmentImage) {
+                VkAttachmentDescription att{};
+                att.format = res.image.format;
+                att.samples = VK_SAMPLE_COUNT_1_BIT;
+                att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                
+                if (VulkanUtils::IsDepthFormat(res.image.format)) {
+                    att.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    depthRef.attachment = (uint32_t)attachments.size();
+                    depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                } else {
+                    att.finalLayout = (res.name == "RENDER_OUTPUT") ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    VkAttachmentReference ref{};
+                    ref.attachment = (uint32_t)attachments.size();
+                    ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    colorRefs.push_back(ref);
+                }
+                attachments.push_back(att);
+                graphicsPass.attachments.push_back(res);
+            }
+        }
+    }
+
+    void RenderGraph::CreateRaytracingPass(RenderPassDescription& passDescription) {
+        RaytracingPassDescription& rtPassDescription = std::get<RaytracingPassDescription>(passDescription.description);
+        RaytracingPass rtPass; rtPass.callback = rtPassDescription.callback;
+        m_Passes[passDescription.name] = { passDescription.name, VK_NULL_HANDLE, VK_NULL_HANDLE, rtPass };
+        RenderPass& passRef = m_Passes[passDescription.name];
+        CreatePassDescriptorSet(passRef, passDescription, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR);
+        m_RaytracingPipelines[passDescription.name] = &m_PipelineManager.GetRaytracingPipeline(passRef, rtPassDescription.pipeline_description);
+    }
+
+    void RenderGraph::CreateComputePass(RenderPassDescription& passDescription) {
+        ComputePassDescription& computePassDescription = std::get<ComputePassDescription>(passDescription.description);
+        ComputePass computePass; computePass.callback = computePassDescription.callback;
+        m_Passes[passDescription.name] = { passDescription.name, VK_NULL_HANDLE, VK_NULL_HANDLE, computePass };
+        RenderPass& passRef = m_Passes[passDescription.name];
+        CreatePassDescriptorSet(passRef, passDescription, VK_SHADER_STAGE_COMPUTE_BIT);
+        m_ComputePipelines[passDescription.name] = &m_PipelineManager.GetComputePipeline(passRef, computePassDescription.pipeline_description.push_constant_description, computePassDescription.pipeline_description.kernels[0]);
+    }
+
+    void RenderGraph::CreateFramebuffers(RenderPass& renderPass) {
+        GraphicsPass& graphicsPass = std::get<GraphicsPass>(renderPass.pass);
+        graphicsPass.framebuffers.resize(MAX_FRAMES_IN_FLIGHT);
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            std::vector<VkImageView> attachments;
+            for (auto& res : graphicsPass.attachments) {
+                if (res.name == "RENDER_OUTPUT") attachments.push_back(m_Context.GetSwapChainImageViews()[i]);
+                else attachments.push_back(m_Images[res.name].view);
+            }
+            VkFramebufferCreateInfo framebufferInfo{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO }; framebufferInfo.renderPass = graphicsPass.handle; framebufferInfo.attachmentCount = (uint32_t)attachments.size(); framebufferInfo.pAttachments = attachments.data(); framebufferInfo.width = m_Width; framebufferInfo.height = m_Height; framebufferInfo.layers = 1;
+            vkCreateFramebuffer(m_Context.GetDevice(), &framebufferInfo, nullptr, &graphicsPass.framebuffers[i]);
+        }
+    }
+
+    void RenderGraph::ExecuteGraphicsPass(VkCommandBuffer commandBuffer, uint32_t resourceIdx, uint32_t imageIdx, RenderPass& renderPass) {
+        GraphicsPass& graphicsPass = std::get<GraphicsPass>(renderPass.pass);
+        VkRenderPassBeginInfo renderPassInfo{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO }; renderPassInfo.renderPass = graphicsPass.handle; renderPassInfo.framebuffer = graphicsPass.framebuffers[imageIdx]; renderPassInfo.renderArea.offset = { 0, 0 }; renderPassInfo.renderArea.extent = { m_Width, m_Height };
+        std::vector<VkClearValue> clearValues;
+        for (auto& att : graphicsPass.attachments) {
+            if (VulkanUtils::IsDepthFormat(att.image.format)) clearValues.push_back({ { 1.0f, 0 } });
+            else clearValues.push_back(att.image.clear_value);
+        }
+        renderPassInfo.clearValueCount = (uint32_t)clearValues.size(); renderPassInfo.pClearValues = clearValues.data();
+        vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        
+        auto& pipeline = *m_GraphicsPipelines[renderPass.name];
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle);
+
+        VkDescriptorSet globalSet = Application::Get().GetRenderState()->GetDescriptorSet(resourceIdx);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &globalSet, 0, nullptr);
+        if (renderPass.descriptor_set != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 1, 1, &renderPass.descriptor_set, 0, nullptr);
+        }
+
+        ExecuteGraphicsCallback execute = [&](std::string name, GraphicsExecutionCallback cb) {
+            GraphicsExecutionContext ctx(commandBuffer, m_Context, m_ResourceManager, pipeline);
+            cb(ctx);
+        };
+        
+        graphicsPass.callback(execute);
+        vkCmdEndRenderPass(commandBuffer);
+    }
+
+    void RenderGraph::ExecuteRaytracingPass(VkCommandBuffer commandBuffer, uint32_t resourceIdx, RenderPass& renderPass) {
+        RaytracingPass& rtPass = std::get<RaytracingPass>(renderPass.pass);
+        
+        auto& pipeline = *m_RaytracingPipelines[renderPass.name];
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline.handle);
+
+        VkDescriptorSet globalSet = Application::Get().GetRenderState()->GetDescriptorSet(resourceIdx);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline.layout, 0, 1, &globalSet, 0, nullptr);
+        if (renderPass.descriptor_set != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipeline.layout, 1, 1, &renderPass.descriptor_set, 0, nullptr);
+        }
+
+        ExecuteRaytracingCallback execute = [&](std::string name, RaytracingExecutionCallback cb) {
+            RaytracingExecutionContext ctx(commandBuffer, m_Context, m_ResourceManager, pipeline);
+            cb(ctx);
+        };
+        
+        rtPass.callback(execute);
+    }
+
+    void RenderGraph::ExecuteComputePass(VkCommandBuffer commandBuffer, uint32_t resourceIdx, RenderPass& renderPass) {
+        ComputePass& computePass = std::get<ComputePass>(renderPass.pass);
+        auto& pipeline = *m_ComputePipelines[renderPass.name];
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.handle);
+        
+        VkDescriptorSet globalSet = Application::Get().GetRenderState()->GetDescriptorSet(resourceIdx);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout, 0, 1, &globalSet, 0, nullptr);
+        if (renderPass.descriptor_set != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout, 1, 1, &renderPass.descriptor_set, 0, nullptr);
+        }
+
+        ComputeExecutionContext ctx(commandBuffer, renderPass, *this, m_ResourceManager, resourceIdx);
+        computePass.callback(ctx);
+    }
+
+    void RenderGraph::BlitImage(VkCommandBuffer commandBuffer, std::string srcImageName, std::string dstImageName, uint32_t imageIdx) {
+        VkExtent2D swExtent = m_Context.GetSwapChainExtent();
+        
+        GraphImage srcGImg = (srcImageName == "RENDER_OUTPUT") ? GraphImage{m_Context.GetSwapChainImages()[imageIdx], m_Context.GetSwapChainImageViews()[imageIdx], VK_NULL_HANDLE, swExtent.width, swExtent.height, m_Context.GetSwapChainImageFormat()} : m_Images[srcImageName];
+        GraphImage dstGImg = (dstImageName == "RENDER_OUTPUT") ? GraphImage{m_Context.GetSwapChainImages()[imageIdx], m_Context.GetSwapChainImageViews()[imageIdx], VK_NULL_HANDLE, swExtent.width, swExtent.height, m_Context.GetSwapChainImageFormat()} : m_Images[dstImageName];
+
+        if (srcGImg.handle == VK_NULL_HANDLE || dstGImg.handle == VK_NULL_HANDLE) return;
+
+        // Transition layouts for Blit (RenderGraph's automatic barrier might have set them to something else)
+        VulkanUtils::InsertImageBarrier(commandBuffer, srcGImg.handle, 
+            VulkanUtils::IsDepthFormat(srcGImg.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, VK_ACCESS_TRANSFER_READ_BIT);
+
+        VulkanUtils::InsertImageBarrier(commandBuffer, dstGImg.handle,
+            VulkanUtils::IsDepthFormat(dstGImg.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT);
+
+        bool isDepth = VulkanUtils::IsDepthFormat(srcGImg.format);
+        VkImageAspectFlags aspect = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+        // Clamp blit offsets to the SMALLEST of (graph dimensions, src physical, dst physical)
+        int32_t blitW = (int32_t)std::min({ m_Width, srcGImg.width, dstGImg.width });
+        int32_t blitH = (int32_t)std::min({ m_Height, srcGImg.height, dstGImg.height });
+
+        if (blitW <= 0 || blitH <= 0) return;
+
+        VkImageBlit blit{};
+        blit.srcOffsets[0] = { 0, 0, 0 };
+        blit.srcOffsets[1] = { blitW, blitH, 1 };
+        blit.srcSubresource = { aspect, 0, 0, 1 };
+        
+        blit.dstOffsets[0] = { 0, 0, 0 };
+        blit.dstOffsets[1] = { blitW, blitH, 1 };
+        blit.dstSubresource = { aspect, 0, 0, 1 };
+
+        vkCmdBlitImage(commandBuffer, srcGImg.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstGImg.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, isDepth ? VK_FILTER_NEAREST : VK_FILTER_LINEAR);
+
+        // Update state in RenderGraph's memory so subsequent passes (or UI) know the new layout
+        if (srcImageName != "RENDER_OUTPUT") m_ImageAccess[srcImageName] = { VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_TRANSFER_BIT };
+        if (dstImageName != "RENDER_OUTPUT") m_ImageAccess[dstImageName] = { VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_TRANSFER_BIT };
+        else m_ImageAccess["RENDER_OUTPUT"] = { VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT, (VkPipelineStageFlags)VK_PIPELINE_STAGE_TRANSFER_BIT };
+    }
+
+    VkFormat RenderGraph::GetImageFormat(std::string imageName) { if (imageName == "RENDER_OUTPUT") return m_Context.GetSwapChainImageFormat(); if (m_Images.count(imageName)) return m_Images[imageName].format; return VK_FORMAT_UNDEFINED; }
+    bool RenderGraph::ContainsImage(std::string imageName) { return m_Images.count(imageName) > 0; }
+
+    std::vector<std::string> RenderGraph::GetColorAttachments() {
+        std::vector<std::string> results;
+        for (auto& pair : m_Images) {
+            if (!VulkanUtils::IsDepthFormat(pair.second.format)) results.push_back(pair.first);
+        }
+        return results;
+    }
+
+    void RenderGraph::RegisterExternalResource(const std::string& name, const ImageDescription& description) {
+        GraphImage img;
+        img.format = description.format;
+        img.is_external = true;
+        m_Images[name] = img;
+    }
+
+    void RenderGraph::SetExternalResource(const std::string& name, VkImage handle, VkImageView view, VkImageLayout currentLayout, VkAccessFlags currentAccess, VkPipelineStageFlags currentStage) {
+        if (!m_Images.count(name)) {
+            GraphImage img;
+            img.is_external = true;
+            m_Images[name] = img;
+        }
+        auto& img = m_Images[name];
+        img.handle = handle;
+        img.view = view;
+        m_ImageAccess[name] = { currentLayout, currentAccess, currentStage };
+    }
+
+    void RenderGraph::SetExternalResource(const std::string& name, VkImage handle, VkImageView view, VkImageLayout currentLayout, const ImageDescription& description) {
+        if (!m_Images.count(name)) {
+            GraphImage img;
+            img.is_external = true;
+            img.format = description.format;
+            m_Images[name] = img;
+        }
+        auto& img = m_Images[name];
+        img.handle = handle;
+        img.view = view;
+        img.format = description.format;
+        m_ImageAccess[name] = { currentLayout, 0, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT };
     }
 }

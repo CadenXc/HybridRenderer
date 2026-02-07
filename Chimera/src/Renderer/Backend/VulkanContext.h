@@ -1,25 +1,10 @@
 #pragma once
 #include "pch.h"
+#include "Swapchain.h"
+#include "VulkanInstance.h"
+#include "VulkanDevice.h"
 
 namespace Chimera {
-
-	struct QueueFamilyIndices
-	{
-		std::optional<uint32_t> graphicsFamily;
-		std::optional<uint32_t> presentFamily;
-
-		bool isComplete()
-		{
-			return graphicsFamily.has_value() && presentFamily.has_value();
-		}
-	};
-
-	struct SwapChainSupportDetails
-	{
-		VkSurfaceCapabilitiesKHR capabilities;
-		std::vector<VkSurfaceFormatKHR> formats;
-		std::vector<VkPresentModeKHR> presentModes;
-	};
 
 	class VulkanContext
 	{
@@ -31,89 +16,46 @@ namespace Chimera {
 		VulkanContext& operator=(const VulkanContext&) = delete;
 
 		GLFWwindow* GetWindow() const { return m_Window; }
-		VkDevice GetDevice() const { return m_Device; }
-		VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
-		VkInstance GetInstance() const { return m_Instance; }
-		VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
-		uint32_t GetGraphicsQueueFamily() const { return m_GraphicsQueueFamily; }
-		VkQueue GetPresentQueue() const { return m_PresentQueue; }
+		VkDevice GetDevice() const { return m_Device->GetHandle(); }
+		VkPhysicalDevice GetPhysicalDevice() const { return m_Device->GetPhysicalDevice(); }
+		VkInstance GetInstance() const { return m_Instance->GetHandle(); }
+		VkQueue GetGraphicsQueue() const { return m_Device->GetGraphicsQueue(); }
+		uint32_t GetGraphicsQueueFamily() const { return m_Device->GetGraphicsQueueFamily(); }
+		VkQueue GetPresentQueue() const { return m_Device->GetPresentQueue(); }
 		VkSurfaceKHR GetSurface() const { return m_Surface; }
-		VmaAllocator GetAllocator() const { return m_Allocator; }
+		VmaAllocator GetAllocator() const { return m_Device->GetAllocator(); }
 		VkCommandPool GetCommandPool() const { return m_CommandPool; }
-		VkSampleCountFlagBits GetMSAASamples() const { return m_MSAASamples; }
-		const VkPhysicalDeviceProperties& GetDeviceProperties() const { return m_DeviceProperties; }
-		const VkPhysicalDeviceRayTracingPipelinePropertiesKHR& GetRayTracingProperties() const { return m_RayTracingProperties; }
+		VkSampleCountFlagBits GetMSAASamples() const { return m_Device->GetMaxUsableSampleCount(); }
+		const VkPhysicalDeviceProperties& GetDeviceProperties() const { return m_Device->GetProperties(); }
+		const VkPhysicalDeviceRayTracingPipelinePropertiesKHR& GetRayTracingProperties() const { return m_Device->GetRTProperties(); }
+		bool IsRayTracingSupported() const { return m_Device->IsRayTracingSupported(); }
 
-		// Swapchain
-		void CreateSwapChain();
-		void RecreateSwapChain();
-		void CleanupSwapChain();
+		// Swapchain Access
+		std::shared_ptr<Swapchain> GetSwapchain() const { return m_Swapchain; }
+		void RecreateSwapChain() { m_Swapchain->Recreate(); }
 		
-		VkSwapchainKHR GetSwapChain() const { return m_SwapChain; }
-		uint32_t GetSwapChainImageCount() const { return static_cast<uint32_t>(m_SwapChainImages.size()); }
-		VkFormat GetSwapChainImageFormat() const { return m_SwapChainImageFormat; }
-		VkExtent2D GetSwapChainExtent() const { return m_SwapChainExtent; }
-		const std::vector<VkImage>& GetSwapChainImages() const { return m_SwapChainImages; }
-		const std::vector<VkImageView>& GetSwapChainImageViews() const { return m_SwapChainImageViews; }
+		VkSwapchainKHR GetSwapChain() const { return m_Swapchain->GetHandle(); }
+		uint32_t GetSwapChainImageCount() const { return m_Swapchain->GetImageCount(); }
+		VkFormat GetSwapChainImageFormat() const { return m_Swapchain->GetFormat(); }
+		VkExtent2D GetSwapChainExtent() const { return m_Swapchain->GetExtent(); }
+		const std::vector<VkImage>& GetSwapChainImages() const { return m_Swapchain->GetImages(); }
+		const std::vector<VkImageView>& GetSwapChainImageViews() const { return m_Swapchain->GetImageViews(); }
 
 		VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
 
-		SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device);
-		QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device);
-
-		uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-		VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+		uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) { return m_Device->FindMemoryType(typeFilter, properties); }
+		VkFormat findSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features) { return m_Device->FindSupportedFormat(candidates, tiling, features); }
 
 	private:
-		VkInstance m_Instance = VK_NULL_HANDLE;
-		VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
-		VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
-		VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
-		VkDevice m_Device = VK_NULL_HANDLE;
-		VkPhysicalDeviceProperties m_DeviceProperties{};
-		VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RayTracingProperties{};
-		VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
-		uint32_t m_GraphicsQueueFamily = 0;
-		VkQueue m_PresentQueue = VK_NULL_HANDLE;
-		VmaAllocator m_Allocator = VK_NULL_HANDLE;
-		VkCommandPool m_CommandPool = VK_NULL_HANDLE;
-
-		VkSampleCountFlagBits m_MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-
-		// Swapchain
-		VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
-		std::vector<VkImage> m_SwapChainImages;
-		VkFormat m_SwapChainImageFormat;
-		VkExtent2D m_SwapChainExtent;
-		std::vector<VkImageView> m_SwapChainImageViews;
-
-	public:
-		// Helper for one-time commands
-		VkCommandBuffer BeginSingleTimeCommands();
-		void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
+		void CreateSurface();
+		void CreateCommandPool();
 
 	private:
 		GLFWwindow* m_Window;
-		VmaVulkanFunctions m_VmaFunctions{};
-
-		void CreateInstance();
-		void SetupDebugMessenger();
-		void CreateSurface();
-		void PickPhysicalDevice();
-		void CreateLogicalDevice();
-		void CreateAllocator();
-		void CreateCommandPool();
-
-		void CreateImageViews();
-		VkSurfaceFormatKHR ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
-		VkPresentModeKHR ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
-		VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
-
-		bool CheckValidationLayerSupport();
-		bool CheckDeviceExtensionSupport(VkPhysicalDevice device);
-		int RateDeviceSuitability(VkPhysicalDevice device);
-		std::vector<const char*> GetRequiredExtensions();
-		VkSampleCountFlagBits getMaxUsableSampleCount();
+		std::unique_ptr<VulkanInstance> m_Instance;
+		VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
+		std::unique_ptr<VulkanDevice> m_Device;
+		std::shared_ptr<Swapchain> m_Swapchain;
+		VkCommandPool m_CommandPool = VK_NULL_HANDLE;
 	};
 }
-

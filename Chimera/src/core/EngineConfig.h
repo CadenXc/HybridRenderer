@@ -8,19 +8,43 @@ namespace Chimera {
     {
     public:
         // 基础路径配置
-        inline static const std::string SHADER_DIR = "shaders/";
-        inline static const std::string ASSET_DIR  = "assets/";
+        inline static std::string SHADER_DIR = "shaders/";
+        inline static std::string ASSET_DIR  = "assets/";
         
-        // 源码路径（用于热重载�?
-        // 运行目录: build/Sandbox/Debug/
-        // 目标路径: Chimera/shaders/
-        inline static const std::string SHADER_SOURCE_DIR = "../../../Chimera/shaders";
+        // 源码路径（用于热重载）
+        inline static std::string SHADER_SOURCE_DIR = "../../../Chimera/shaders";
+
+        static void Init() {
+            std::filesystem::path currentPath = std::filesystem::current_path();
+            std::filesystem::path root = currentPath;
+            bool found = false;
+            for (int i = 0; i < 5; ++i) {
+                if (std::filesystem::exists(root / "Chimera") && std::filesystem::exists(root / "scripts")) {
+                    found = true;
+                    break;
+                }
+                if (root.has_parent_path()) root = root.parent_path();
+                else break;
+            }
+
+            if (found) {
+                SHADER_SOURCE_DIR = (root / "Chimera" / "shaders").string();
+            }
+        }
 
         // 全局引擎设置
         struct EngineSettings {
             float ClearColor[4] = { 0.1f, 0.1f, 0.1f, 1.0f };
             bool EnableHotReload = true;
             float HotReloadCheckInterval = 1.0f;
+
+            // Debug Settings
+            int DisplayMode = 0; // 0: Final, 1: Shadow, 2: AO, 3: Reflect
+
+            // Light Settings
+            float LightPosition[3] = { 5.0f, 5.0f, 5.0f };
+            float LightColor[3] = { 1.0f, 1.0f, 1.0f };
+            float LightIntensity = 10.0f;
         };
 
         inline static EngineSettings Settings;

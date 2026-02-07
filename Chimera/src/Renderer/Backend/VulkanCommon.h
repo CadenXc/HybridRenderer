@@ -9,7 +9,6 @@
 
 namespace Chimera {
 
-	// Forward declarations
 	class Buffer;
 
 	static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
@@ -54,28 +53,11 @@ namespace Chimera {
 		bool is_external = false;
 	};
 
-	enum class VertexInputState
-	{
-		Default, Empty, ImGui
-	};
-
-	enum class PrimitiveTopology
-	{
-		TriangleList, LineList
-	};
-
-	enum class CullMode
-	{
-		None, Front, Back
-	};
-
-	enum class FrontFace
-	{
-		Clockwise, CounterClockwise
-	};
-
-	enum class DepthCompare
-	{
+	enum class VertexInputState { Default, Empty, ImGui };
+	enum class PrimitiveTopology { TriangleList, LineList };
+	enum class CullMode { None, Front, Back };
+	enum class FrontFace { Clockwise, CounterClockwise };
+	enum class DepthCompare {
 		Less = VK_COMPARE_OP_LESS,
 		LessOrEqual = VK_COMPARE_OP_LESS_OR_EQUAL,
 		Greater = VK_COMPARE_OP_GREATER,
@@ -99,43 +81,17 @@ namespace Chimera {
 		DepthCompare DepthCompare = DepthCompare::LessOrEqual;
 	};
 
-	struct MultisampleDescription
-	{
-		VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT;
-	};
+	struct MultisampleDescription { VkSampleCountFlagBits Samples = VK_SAMPLE_COUNT_1_BIT; };
+	struct BlendDescription { bool Enabled = false; };
+	enum class DynamicState { None, Viewport, ViewportScissor, DepthBias };
 
-	struct BlendDescription
-	{
-		bool Enabled = false;
-	};
-
-	enum class DynamicState
-	{
-		None, Viewport, ViewportScissor, DepthBias
-	};
-
-	struct PushConstantDescription
-	{
-		VkShaderStageFlags shader_stage;
-		uint32_t size;
-	};
+	struct PushConstantDescription { VkShaderStageFlags shader_stage; uint32_t size; };
 	static const PushConstantDescription PUSHCONSTANTS_NONE = { 0, 0 };
 
-	struct SpecializationConstantsDescription
-	{
-		VkShaderStageFlags shader_stage;
-		std::vector<int> specialization_constants;
-	};
+	struct SpecializationConstantsDescription { VkShaderStageFlags shader_stage; std::vector<int> specialization_constants; };
 
-	enum class TransientResourceType
-	{
-		Image, Buffer, AccelerationStructure, Sampler, Storage
-	};
-
-	enum class TransientImageType
-	{
-		AttachmentImage, SampledImage, StorageImage
-	};
+	enum class TransientResourceType { Image, Buffer, AccelerationStructure, Sampler, Storage };
+	enum class TransientImageType { AttachmentImage, SampledImage, StorageImage };
 
 	struct TransientImage
 	{
@@ -158,11 +114,7 @@ namespace Chimera {
 		VkBuffer handle = VK_NULL_HANDLE;
 	};
 
-	struct TransientAccelerationStructure
-	{
-		uint32_t binding;
-		VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-	};
+	struct TransientAccelerationStructure { uint32_t binding; VkAccelerationStructureKHR handle = VK_NULL_HANDLE; };
 
 	struct TransientResource
 	{
@@ -178,46 +130,48 @@ namespace Chimera {
 		TransientResource() : type(TransientResourceType::Image), name("") { memset(&image, 0, sizeof(image)); image.descriptor_type_override = VK_DESCRIPTOR_TYPE_MAX_ENUM; }
 		TransientResource(TransientResourceType t, const std::string& n) : type(t), name(n) { memset(&image, 0, sizeof(image)); image.descriptor_type_override = VK_DESCRIPTOR_TYPE_MAX_ENUM; }
 
-		static TransientResource Image(const std::string& name, VkFormat format, uint32_t binding, VkClearValue clear = { {0.0f, 0.0f, 0.0f, 0.0f} }, TransientImageType type = TransientImageType::AttachmentImage)
+		static TransientResource Image(const std::string& name, VkFormat format, uint32_t binding = 0xFFFFFFFF, VkClearValue clear = { {0.0f, 0.0f, 0.0f, 0.0f} }, TransientImageType type = TransientImageType::AttachmentImage)
 		{
 			TransientResource res(TransientResourceType::Image, name);
-			res.image.type = type;
-			res.image.format = format;
-			res.image.binding = binding;
-			res.image.clear_value = clear;
-			res.image.width = 0; 
-			res.image.height = 0;
-			res.image.multisampled = false;
+			res.image.type = type; res.image.format = format; res.image.binding = binding; res.image.clear_value = clear;
+			res.image.width = 0; res.image.height = 0; res.image.multisampled = false;
 			return res;
 		}
 
-		static TransientResource Sampler(const std::string& name, uint32_t binding, uint32_t count = 1)
+		static TransientResource Sampler(const std::string& name, uint32_t binding = 0xFFFFFFFF, uint32_t count = 1)
 		{
 			TransientResource res(TransientResourceType::Sampler, name);
-			res.buffer.binding = binding;
-			res.buffer.count = count;
-			res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			res.buffer.binding = binding; res.buffer.count = count; res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			return res;
 		}
 
-		static TransientResource StorageBuffer(const std::string& name, uint32_t binding, uint32_t count = 1)
+		static TransientResource StorageBuffer(const std::string& name, uint32_t binding = 0xFFFFFFFF, uint32_t count = 1)
 		{
 			TransientResource res(TransientResourceType::Storage, name);
-			res.buffer.binding = binding;
-			res.buffer.count = count;
-			res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			res.buffer.binding = binding; res.buffer.count = count; res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			return res;
 		}
 
-		static TransientResource Buffer(const std::string& name, uint32_t binding, VkBuffer handle = VK_NULL_HANDLE)
+		static TransientResource Buffer(const std::string& name, VkBuffer handle = VK_NULL_HANDLE)
 		{
 			TransientResource res(TransientResourceType::Buffer, name);
-			res.buffer.binding = binding;
-			res.buffer.handle = handle;
-			res.buffer.count = 1;
-			res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			res.buffer.binding = 0xFFFFFFFF; res.buffer.handle = handle; res.buffer.count = 1; res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			return res;
 		}
+
+        static TransientResource Buffer(const std::string& name, uint32_t binding, VkBuffer handle = VK_NULL_HANDLE)
+		{
+			TransientResource res(TransientResourceType::Buffer, name);
+			res.buffer.binding = binding; res.buffer.handle = handle; res.buffer.count = 1; res.buffer.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			return res;
+		}
+
+        static TransientResource AccelerationStructure(const std::string& name, VkAccelerationStructureKHR handle = VK_NULL_HANDLE)
+        {
+            TransientResource res(TransientResourceType::AccelerationStructure, name);
+            res.as.binding = 0xFFFFFFFF; res.as.handle = handle;
+            return res;
+        }
 	};
 
 	struct GraphicsPipelineDescription
@@ -235,18 +189,9 @@ namespace Chimera {
 		SpecializationConstantsDescription specialization_constants_description;
 	};
 
-	struct GraphicsPipeline
-	{
-		GraphicsPipelineDescription description;
-		VkPipeline handle;
-		VkPipelineLayout layout;
-	};
+	struct GraphicsPipeline { GraphicsPipelineDescription description; VkPipeline handle; VkPipelineLayout layout; };
 
-	struct HitShader
-	{
-		std::string closest_hit;
-		std::string any_hit;
-	};
+	struct HitShader { std::string closest_hit; std::string any_hit; };
 
 	struct RaytracingPipelineDescription
 	{
@@ -257,54 +202,66 @@ namespace Chimera {
 		PushConstantDescription push_constants;
 	};
 	
-	struct ShaderBindingTable
-	{
-		VkStridedDeviceAddressRegionKHR strided_device_address_region;
-	};
+	struct ShaderBindingTable { VkStridedDeviceAddressRegionKHR strided_device_address_region; };
 
 	struct RaytracingPipeline
 	{
 		RaytracingPipelineDescription description;
 		uint32_t shader_group_size;
-		ShaderBindingTable raygen_sbt;
-		ShaderBindingTable miss_sbt;
-		ShaderBindingTable hit_sbt;
-		ShaderBindingTable call_sbt;
+		ShaderBindingTable raygen_sbt; ShaderBindingTable miss_sbt; ShaderBindingTable hit_sbt; ShaderBindingTable call_sbt;
 		std::shared_ptr<class Buffer> sbt_buffer;
-		VkPipeline handle;
-		VkPipelineLayout layout;
+		VkPipeline handle; VkPipelineLayout layout;
 	};
 
-	struct ComputeKernel
-	{
-		std::string shader;
-	};
+	struct ComputeKernel { std::string shader; };
+	struct ComputePipelineDescription { std::vector<ComputeKernel> kernels; PushConstantDescription push_constant_description; };
+	struct ComputePipeline { VkPipeline handle; VkPipelineLayout layout; PushConstantDescription push_constant_description; };
 
-	struct ComputePipelineDescription
-	{
-		std::vector<ComputeKernel> kernels;
-		PushConstantDescription push_constant_description;
-	};
+    // --- Forward Declarations for Callbacks ---
+    class GraphicsExecutionContext;
+	class RaytracingExecutionContext;
+	class ComputeExecutionContext;
 
-	struct ComputePipeline
-	{
-		VkPipeline handle;
-		VkPipelineLayout layout;
-		PushConstantDescription push_constant_description;
-	};
-
-	class GraphicsExecutionContext;
 	using GraphicsExecutionCallback = std::function<void(GraphicsExecutionContext &)>;
 	using ExecuteGraphicsCallback = std::function<void(std::string, GraphicsExecutionCallback)>;
 	using GraphicsPassCallback = std::function<void(ExecuteGraphicsCallback)>;
 
-	class RaytracingExecutionContext;
 	using RaytracingExecutionCallback = std::function<void(RaytracingExecutionContext &)>;
 	using ExecuteRaytracingCallback = std::function<void(std::string, RaytracingExecutionCallback)>;
 	using RaytracingPassCallback = std::function<void(ExecuteRaytracingCallback)>;
 
-	class ComputeExecutionContext;
 	using ComputePassCallback = std::function<void(ComputeExecutionContext &)>;
+
+    // --- Specifications (Moved after callback definitions) ---
+	struct GraphicsPassSpecification
+	{
+		std::string Name;
+		std::vector<TransientResource> Dependencies;
+		std::vector<TransientResource> Outputs;
+		std::vector<GraphicsPipelineDescription> Pipelines;
+		GraphicsPassCallback Callback;
+		std::string ShaderLayout = "";
+	};
+
+	struct RaytracingPassSpecification
+	{
+		std::string Name;
+		std::vector<TransientResource> Dependencies;
+		std::vector<TransientResource> Outputs;
+		RaytracingPipelineDescription Pipeline;
+		RaytracingPassCallback Callback;
+		std::string ShaderLayout = "";
+	};
+
+    struct ComputePassSpecification
+    {
+        std::string Name;
+        std::vector<TransientResource> Dependencies;
+        std::vector<TransientResource> Outputs;
+        ComputePipelineDescription Pipeline;
+        ComputePassCallback Callback;
+        std::string ShaderLayout = "";
+    };
 
 	struct GraphicsPass
 	{
@@ -314,28 +271,13 @@ namespace Chimera {
 		GraphicsPassCallback callback;
 	};
 
-	struct ImageAccess
-	{
-		VkImageLayout layout;
-		VkAccessFlags access_flags;
-		VkPipelineStageFlags stage_flags;
-	};
+	enum class ResourceUsage { ColorAttachment, DepthAttachment, ShaderRead, StorageRead, StorageWrite, TransferSrc, TransferDst, Present };
 
-	struct RaytracingPass
-	{
-		RaytracingPassCallback callback;
-	};
+	struct ImageAccess { VkImageLayout layout; VkAccessFlags access_flags; VkPipelineStageFlags stage_flags; };
 
-	struct ComputePass
-	{
-		ComputePassCallback callback;
-	};
-
-	struct BlitPass
-	{
-		std::string srcName;
-		std::string dstName;
-	};
+	struct RaytracingPass { RaytracingPassCallback callback; };
+	struct ComputePass { ComputePassCallback callback; };
+	struct BlitPass { std::string srcName; std::string dstName; };
 
 	struct RenderPass
 	{
@@ -345,24 +287,9 @@ namespace Chimera {
 		std::variant<GraphicsPass, RaytracingPass, ComputePass, BlitPass> pass;
 	};
 
-	struct ComputePassDescription
-	{
-		ComputePipelineDescription pipeline_description;
-		ComputePassCallback callback;
-	};
-
-	struct GraphicsPassDescription
-	{
-		std::vector<GraphicsPipelineDescription> pipeline_descriptions;
-		GraphicsPassCallback callback;
-	};
-
-	struct RaytracingPassDescription
-	{
-		RaytracingPipelineDescription pipeline_description;
-		RaytracingPassCallback callback;
-	};
-
+	struct ComputePassDescription { ComputePipelineDescription pipeline_description; ComputePassCallback callback; };
+	struct GraphicsPassDescription { std::vector<GraphicsPipelineDescription> pipeline_descriptions; GraphicsPassCallback callback; };
+	struct RaytracingPassDescription { RaytracingPipelineDescription pipeline_description; RaytracingPassCallback callback; };
 	struct BlitPassDescription {};
 
 	struct RenderPassDescription

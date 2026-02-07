@@ -5,17 +5,23 @@
 #include "Core/Layer.h"
 #include "Utils/VulkanBarrier.h"
 #include "Scene/Scene.h"
+#include "Core/EngineConfig.h"
+#include "Core/ImGuiLayer.h"
+#include "Renderer/RenderState.h"
 
 namespace Chimera {
 
-    SceneRenderer::SceneRenderer(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager, std::shared_ptr<Renderer> renderer)
-        : m_Context(context), m_ResourceManager(resourceManager), m_Renderer(renderer)
+    SceneRenderer::SceneRenderer(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager, std::shared_ptr<Renderer> renderer, std::shared_ptr<ImGuiLayer> imguiLayer)
+        : m_Context(context), m_ResourceManager(resourceManager), m_Renderer(renderer), m_ImGuiLayer(imguiLayer)
     {
     }
 
     void SceneRenderer::Render(Scene* scene, RenderPath* renderPath, const FrameContext& context, const std::vector<std::shared_ptr<Layer>>& layers)
     {
         if (!renderPath) return;
+        if (context.ViewportSize.x <= 0.0f || context.ViewportSize.y <= 0.0f) return;
+
+        renderPath->Update();
 
         try {
             VkCommandBuffer cmd = m_Renderer->BeginFrame();
@@ -24,54 +30,49 @@ namespace Chimera {
             uint32_t frameIdx = m_Renderer->GetCurrentFrameIndex();
             uint32_t imageIndex = m_Renderer->GetCurrentImageIndex();
 
-            // 1. Update Global Resources
-            UniformBufferObject ubo{};
-            ubo.view = context.View;
-            ubo.proj = context.Projection;
-            ubo.prevView = m_LastView;
-            ubo.prevProj = m_LastProj;
-            ubo.cameraPos = glm::vec4(context.CameraPosition, 1.0f);
-            ubo.lightPos = glm::vec4(5.0f, 5.0f, 5.0f, 1.0f); // TODO: From scene
-            ubo.time = context.Time;
-            ubo.frameCount = (int)context.FrameIndex;
+            GlobalFrameData frameData{};
+            frameData.view = context.View;
+            frameData.proj = context.Projection;
+            frameData.viewInverse = glm::inverse(context.View);
+            frameData.projInverse = glm::inverse(context.Projection);
+            frameData.viewProjInverse = glm::inverse(context.Projection * context.View);
+            frameData.prevView = m_LastView;
+            frameData.prevProj = m_LastProj;
             
-            m_ResourceManager->UpdateGlobalResources(frameIdx, ubo);
+            frameData.directionalLight.direction = glm::vec4(glm::normalize(glm::vec3(Config::Settings.LightPosition[0], Config::Settings.LightPosition[1], Config::Settings.LightPosition[2])), 0.0f);
+            frameData.directionalLight.color = glm::vec4(Config::Settings.LightColor[0], Config::Settings.LightColor[1], Config::Settings.LightColor[2], 1.0f);
+            frameData.directionalLight.intensity = glm::vec4(Config::Settings.LightIntensity);
+            
+            frameData.displaySize = context.ViewportSize;
+            frameData.displaySizeInverse = 1.0f / context.ViewportSize;
+            frameData.frameIndex = context.FrameIndex;
+            frameData.frameCount = renderPath->GetFrameCount(); 
+            frameData.displayMode = (uint32_t)Config::Settings.DisplayMode;
+            frameData.cameraPos = glm::vec4(context.CameraPosition, 1.0f);
+            
+            Application::Get().GetRenderState()->Update(frameIdx, frameData);
 
             m_LastView = context.View;
             m_LastProj = context.Projection;
 
             // 2. Execute Render Path
-            renderPath->Render(cmd, frameIdx, imageIndex, m_ResourceManager->GetGlobalDescriptorSet(frameIdx), m_Context->GetSwapChainImages(),
+            renderPath->Render(cmd, frameIdx, imageIndex, Application::Get().GetRenderState()->GetDescriptorSet(frameIdx), m_Context->GetSwapChainImages(),
                 [&](VkCommandBuffer uiCmd) {
-                    
-                    VkImage swapchainImage = m_Context->GetSwapChainImages()[imageIndex];
-                    
-                    // RenderGraph leaves the swapchain in COLOR_ATTACHMENT_OPTIMAL.
-                    // We ensure the transition here for ImGui compatibility.
-                    VulkanUtils::InsertImageBarrier(uiCmd, swapchainImage, 
-                        VK_IMAGE_ASPECT_COLOR_BIT, 
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-
-                    Application::Get().BeginImGui();
-                    
+                    m_ImGuiLayer->Begin();
                     for (auto& layer : layers)
                         layer->OnUIRender();
-
-                    Application::Get().EndImGui(uiCmd, m_Context->GetSwapChainImageViews()[imageIndex], m_Context->GetSwapChainExtent());
-
-                    VulkanUtils::InsertImageBarrier(uiCmd, swapchainImage, 
-                        VK_IMAGE_ASPECT_COLOR_BIT, 
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, 0);
+                    m_ImGuiLayer->End(uiCmd);
                 }
             );
 
             m_Renderer->EndFrame();
         } catch (const std::exception& e) {
             CH_CORE_ERROR("SceneRenderer EXCEPTION: {0}", e.what());
+            m_Renderer->ResetFrameState();
+            if (std::string(e.what()).find("DEVICE_LOST") != std::string::npos) {
+                CH_CORE_FATAL("CRITICAL: Vulkan Device Lost.");
+                Application::Get().Close();
+            }
         }
     }
 

@@ -12,6 +12,9 @@ namespace Chimera {
         virtual void Setup(RenderGraph& graph) override;
 
     private:
+        GraphicsPipelineDescription CreatePipelineDescription();
+
+    private:
         std::shared_ptr<Scene> m_Scene;
     };
 

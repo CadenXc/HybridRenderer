@@ -25,11 +25,17 @@ int main(int argc, char** argv)
 		}
 	}
 
-	auto app = Chimera::CreateApplication(argc, argv);
-
-	app->Run();
-
-	delete app;
+    try {
+	    auto app = Chimera::CreateApplication(argc, argv);
+	    app->Run();
+	    delete app;
+    } catch (const std::exception& e) {
+        CH_CORE_ERROR("FATAL EXCEPTION: {0}", e.what());
+        #ifdef CH_PLATFORM_WINDOWS
+            MessageBoxA(NULL, e.what(), "Chimera Fatal Error", MB_OK | MB_ICONERROR);
+        #endif
+        return -1;
+    }
 
 	return 0;
 }

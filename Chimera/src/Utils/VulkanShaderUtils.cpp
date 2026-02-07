@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Utils/VulkanShaderUtils.h"
 #include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Backend/RenderContext.h"
 #include "Core/FileIO.h"
 
 namespace Chimera::VulkanUtils {
@@ -29,11 +30,10 @@ namespace Chimera::VulkanUtils {
 		VkDeviceSize size
 	) 
 	{
-		VkCommandBuffer commandBuffer = context->BeginSingleTimeCommands();
+		ScopedCommandBuffer cmd(context);
 		VkBufferCopy copyRegion{};
 		copyRegion.size = size;
-		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-		context->EndSingleTimeCommands(commandBuffer);
+		vkCmdCopyBuffer(cmd, srcBuffer, dstBuffer, 1, &copyRegion);
 	}
 }
 

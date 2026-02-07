@@ -29,6 +29,9 @@ namespace Chimera {
 		// Submits command buffer and requests present
 		void EndFrame();
 
+		// Resets internal frame state in case of exception
+		void ResetFrameState() { m_IsFrameInProgress = false; m_ActiveCommandBuffer = VK_NULL_HANDLE; }
+
 		// Called when window is resized
 		void OnResize(uint32_t width, uint32_t height);
 

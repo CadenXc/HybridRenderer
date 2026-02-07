@@ -49,6 +49,7 @@ namespace Chimera {
         );
 
         bool IsDepthFormat(VkFormat format);
+        bool IsSRGBFormat(VkFormat format);
         VkImageLayout GetImageLayoutFromResourceType(TransientResourceType type, VkFormat format);
     }
 }

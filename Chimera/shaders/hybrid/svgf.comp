@@ -1,0 +1,81 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_GOOGLE_include_directive : require
+
+#include "../common/structures.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+struct DirectionalLight { mat4 projview; vec4 direction; vec4 color; vec4 intensity; };
+layout(binding = 0, set = 0) uniform CameraProperties {
+    mat4 view; mat4 proj; mat4 viewInverse; mat4 projInverse; mat4 viewProjInverse;
+    mat4 prevView; mat4 prevProj; DirectionalLight directionalLight;
+    vec2 displaySize; vec2 displaySizeInverse; uint frameIndex; uint frameCount; uint displayMode; vec4 cameraPos;
+} cam;
+
+// SVGF_Standard Layout
+layout(binding = 0, set = 1, rgba16f) uniform image2D imgNormal;
+layout(binding = 1, set = 1, rg16f)   uniform image2D imgMotion;
+layout(binding = 2, set = 1)          uniform sampler2D samplerDepth;
+layout(binding = 3, set = 1, rg16f)   uniform image2D imgShadowAO;
+layout(binding = 4, set = 1, rgba16f) uniform image2D outSVGF;
+
+layout(binding = 5, set = 1, rgba16f) uniform image2D imgPrevNormal;
+layout(binding = 6, set = 1)          uniform sampler2D samplerPrevDepth;
+layout(binding = 7, set = 1, rgba16f) uniform image2D imgShadowAOHist;
+layout(binding = 8, set = 1, rg16f)   uniform image2D imgMomentsHist;
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, ivec2(cam.displaySize)))) return;
+
+    vec2 uv = (vec2(pixel) + 0.5) / cam.displaySize;
+    float depth = texelFetch(samplerDepth, pixel, 0).r;
+    
+    if (depth == 1.0) {
+        imageStore(outSVGF, pixel, vec4(1.0, 1.0, 0.0, 1.0));
+        return;
+    }
+
+    vec3 normal = imageLoad(imgNormal, pixel).rgb * 2.0 - 1.0;
+    vec2 motion = imageLoad(imgMotion, pixel).rg;
+    vec2 shadowAO = imageLoad(imgShadowAO, pixel).rg;
+
+    // Temporal Reprojection
+    vec2 prevUV = uv + motion;
+    ivec2 prevPixel = ivec2(prevUV * cam.displaySize);
+
+    bool valid = false;
+    vec4 historyShadowAO = vec4(0.0);
+    vec2 historyMoments = vec2(0.0);
+
+    if (all(greaterThanEqual(prevUV, vec2(0.0))) && all(lessThan(prevUV, vec2(1.0)))) {
+        float prevDepth = texture(samplerPrevDepth, prevUV).r;
+        vec3 prevNormal = imageLoad(imgPrevNormal, prevPixel).rgb * 2.0 - 1.0;
+
+        // Simple validation: Depth and Normal similarity
+        float depthDiff = abs(depth - prevDepth);
+        float normalDiff = dot(normal, prevNormal);
+
+        if (depthDiff < 0.01 && normalDiff > 0.9) {
+            valid = true;
+            historyShadowAO = imageLoad(imgShadowAOHist, prevPixel);
+            historyMoments = imageLoad(imgMomentsHist, prevPixel).rg;
+        }
+    }
+
+    float alpha = valid ? 0.1 : 1.0;
+    // Simple accumulation for now
+    vec2 integrated = mix(historyShadowAO.rg, shadowAO, alpha);
+    
+    // Compute Moments (for variance-guided filter later)
+    // integrated.x is Shadow, integrated.y is AO
+    float moment1 = integrated.x;
+    float moment2 = moment1 * moment1;
+    vec2 currentMoments = vec2(moment1, moment2);
+    vec2 integratedMoments = mix(historyMoments, currentMoments, alpha);
+
+    imageStore(outSVGF, pixel, vec4(integrated, 0.0, 1.0));
+    imageStore(imgMomentsHist, pixel, vec4(integratedMoments, 0.0, 0.0));
+}

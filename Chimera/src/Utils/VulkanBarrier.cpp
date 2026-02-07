@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Utils/VulkanBarrier.h"
 #include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Backend/RenderContext.h"
 
 namespace Chimera::VulkanUtils
 {
@@ -42,6 +43,10 @@ namespace Chimera::VulkanUtils
         VkAccessFlags dstAccessMask
     )
     {
+        // [FIX] Sanitization: srcStageMask and dstStageMask MUST NOT be 0.
+        if (srcStageMask == 0) srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        if (dstStageMask == 0) dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+
         VkImageMemoryBarrier barrier = CreateImageBarrier(image, oldImageLayout, newImageLayout, srcAccessMask, dstAccessMask, aspectMask);
         vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
@@ -56,6 +61,17 @@ namespace Chimera::VulkanUtils
             VK_FORMAT_D16_UNORM
         };
         return std::find(depthFormats.begin(), depthFormats.end(), format) != depthFormats.end();
+    }
+
+    bool IsSRGBFormat(VkFormat format)
+    {
+        static const std::vector<VkFormat> srgbFormats = {
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_FORMAT_B8G8R8A8_SRGB,
+            VK_FORMAT_R8G8B8_SRGB,
+            VK_FORMAT_B8G8R8_SRGB
+        };
+        return std::find(srgbFormats.begin(), srgbFormats.end(), format) != srgbFormats.end();
     }
 
     // [新增] 核心实现
@@ -184,10 +200,8 @@ namespace Chimera::VulkanUtils
         VkImageLayout newLayout,
         uint32_t mipLevels)
     {
-        VkCommandBuffer commandBuffer = context->BeginSingleTimeCommands();
-        // 复用核心实现
-        TransitionImageLayout(commandBuffer, image, format, oldLayout, newLayout, mipLevels);
-        context->EndSingleTimeCommands(commandBuffer);
+        ScopedCommandBuffer cmd(context);
+        TransitionImageLayout(cmd, image, format, oldLayout, newLayout, mipLevels);
     }
 
     VkImageLayout GetImageLayoutFromResourceType(TransientResourceType type, VkFormat format)

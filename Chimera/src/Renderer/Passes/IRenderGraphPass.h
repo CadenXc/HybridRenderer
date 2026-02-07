@@ -1,5 +1,5 @@
 #pragma once
-#include "Renderer/Graph/core/RenderGraph.h"
+#include "Renderer/Graph/RenderGraph.h"
 
 namespace Chimera {
 

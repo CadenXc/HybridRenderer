@@ -8,6 +8,8 @@
 #include <vector>
 #include <array>
 
+#include "Renderer/Backend/ShaderStructures.h"
+
 namespace Chimera {
 
     struct Vertex
@@ -64,21 +66,6 @@ namespace Chimera {
         }
     };
 
-    struct Material
-    {
-        glm::vec4 albedo{ 1.0f };
-        glm::vec4 emission{ 0.0f };
-        float metallic{ 0.0f };
-        float roughness{ 0.5f };
-        float alphaCutoff{ 0.5f };
-        int alphaMask{ 0 };
-        
-        int base_color_texture = -1;
-        int normal_map = -1;
-        int metallic_roughness_map = -1;
-        int emissive_map = -1;
-    };
-
     struct Mesh
     {
         std::string name;
@@ -107,39 +94,50 @@ namespace Chimera {
 
     struct DirectionalLight
     {
-        glm::vec4 direction;
-        glm::vec4 color; 
+        glm::mat4 projview{ 1.0f };
+        glm::vec4 direction{ 0.0f, -1.0f, 0.0f, 0.0f };
+        glm::vec4 color{ 1.0f };
+        glm::vec4 intensity{ 1.0f };
     };
 
     class Model;
 
-    struct Instance
+    struct TransformComponent
     {
-        std::shared_ptr<Model> model;
         glm::vec3 position{ 0.0f };
         glm::vec3 rotation{ 0.0f }; // Euler angles in degrees
         glm::vec3 scale{ 1.0f };
         
-        glm::mat4 transform{ 1.0f };
-        std::string name;
-        int materialOffset = 0;
+        glm::mat4 GetTransform() const
+        {
+            glm::mat4 trs = glm::translate(glm::mat4(1.0f), position);
+            trs = glm::rotate(trs, glm::radians(rotation.x), { 1, 0, 0 });
+            trs = glm::rotate(trs, glm::radians(rotation.y), { 0, 1, 0 });
+            trs = glm::rotate(trs, glm::radians(rotation.z), { 0, 0, 1 });
+            return glm::scale(trs, scale);
+        }
     };
 
-    struct InstanceData
+    struct MeshComponent
     {
-        uint64_t vertexAddress;
-        uint64_t indexAddress;
-        int materialIndex;
-        int padding;
+        std::shared_ptr<Model> model;
+        MaterialRef material;
     };
 
-    // 存储 Importer 产出的结�?
+    struct Entity
+    {
+        std::string name;
+        TransformComponent transform;
+        MeshComponent mesh;
+    };
+
+    // 存储 Importer 产出的结果
     struct ImportedScene
     {
         std::vector<Vertex> Vertices;
         std::vector<uint32_t> Indices;
         std::vector<Mesh> Meshes;
-        std::vector<Material> Materials;
+        std::vector<PBRMaterial> Materials;
         std::vector<Node> Nodes;
     };
 }

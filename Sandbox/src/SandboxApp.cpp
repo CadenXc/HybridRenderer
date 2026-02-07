@@ -12,14 +12,25 @@ public:
 		// Push the Editor Layer which contains the UI and logic
 		PushLayer(std::make_shared<Chimera::EditorLayer>(this));
 
-        // Load default model
+        // Load default model and skybox
         LoadScene(Chimera::Config::ASSET_DIR + "models/fantasy_queen/scene.gltf");
+        LoadSkybox(Chimera::Config::ASSET_DIR + "textures/newport_loft.hdr");
 		
 		CH_INFO("---------------------------------------------");
 		CH_INFO("Welcome to Chimera Hybrid Renderer!");
 		CH_INFO("App constructed successfully.");
 		CH_INFO("---------------------------------------------");
 	}
+
+    void ExecuteLoadScene(const std::string& path)
+    {
+        CH_CORE_INFO("SandboxApp: Loading default model.");
+        Application::ExecuteLoadScene(path);
+        auto scene = GetScene();
+        if (scene && !scene->GetEntities().empty()) {
+            scene->UpdateEntityTRS(0, {0,0,0}, {0,0,0}, {1,1,1});
+        }
+    }
 
 	~ChimeraApp()
 	{

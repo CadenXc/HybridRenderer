@@ -9,6 +9,7 @@ namespace Chimera {
 	bool Input::IsKeyDown(KeyCode key)
 	{
 		auto window = Application::Get().GetWindow().GetNativeWindow();
+		if (!window) return false;
 		auto state = glfwGetKey(window, static_cast<int32_t>(key));
 		return state == GLFW_PRESS || state == GLFW_REPEAT;
 	}
@@ -16,6 +17,7 @@ namespace Chimera {
 	bool Input::IsMouseButtonDown(MouseButton button)
 	{
 		auto window = Application::Get().GetWindow().GetNativeWindow();
+		if (!window) return false;
 		auto state = glfwGetMouseButton(window, static_cast<int32_t>(button));
 		return state == GLFW_PRESS;
 	}
@@ -23,6 +25,7 @@ namespace Chimera {
 	glm::vec2 Input::GetMousePosition()
 	{
 		auto window = Application::Get().GetWindow().GetNativeWindow();
+		if (!window) return { 0.0f, 0.0f };
 		double xpos, ypos;
 		glfwGetCursorPos(window, &xpos, &ypos);
 		return { (float)xpos, (float)ypos };
@@ -41,6 +44,7 @@ namespace Chimera {
 	void Input::SetCursorMode(CursorMode mode)
 	{
 		auto window = Application::Get().GetWindow().GetNativeWindow();
+		if (!window) return;
 		int inputMode = GLFW_CURSOR_NORMAL;
 		switch (mode)
 		{

@@ -1,27 +1,65 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
+#extension GL_EXT_nonuniform_qualifier : require
 
-// ======================= Payload 定义 =======================
-// 必须与 RayGen 中的结构体完全一致
 struct HitPayload
 {
     vec3 color;
-    vec3 normal;
-    vec3 worldPos;
+    vec3 attenuation;
+    vec3 rayOrigin;
+    vec3 rayDir;
+    bool hit;
     int  depth;
 };
 
+struct DirectionalLight { mat4 projview; vec4 direction; vec4 color; vec4 intensity; };
+
 layout(location = 0) rayPayloadInEXT HitPayload payload;
+
+layout(binding = 0, set = 0) uniform CameraProperties 
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewInverse;
+    mat4 projInverse;
+    mat4 viewProjInverse;
+    mat4 prevView;
+    mat4 prevProj;
+    DirectionalLight directionalLight;
+    vec2 displaySize;
+    vec2 displaySizeInverse;
+    uint frameIndex;
+    uint frameCount;
+    uint displayMode;
+    vec4 cameraPos;
+} cam;
+
+layout(binding = 4, set = 1) uniform sampler2D textureArray[];
+
+layout(push_constant) uniform PushConstants
+{
+    vec4 clearColor;
+    vec3 lightPos;
+    float lightIntensity;
+    int frameCount;
+    int skyboxIndex;
+} pc;
+
+const float PI = 3.14159265359;
 
 void main() 
 {
-    // 返回浅蓝色背景
-    payload.color = vec3(0.39, 0.58, 0.93);
-    
-    // 法线设为 0 (或者任何值，因为 depth=0 时 RayGen 不会用到它)
-    payload.normal = vec3(0.0);
-    payload.worldPos = vec3(0.0);
-    
-    // 标记：未击中物体
-    payload.depth = 0; 
+    payload.hit = false;
+
+    if (pc.skyboxIndex >= 0) {
+        vec3 d = normalize(gl_WorldRayDirectionEXT);
+        // Equirectangular mapping
+        float phi = atan(d.z, d.x);
+        float theta = acos(d.y);
+        vec2 uv = vec2(phi / (2.0 * PI) + 0.5, theta / PI);
+        
+        payload.color = textureLod(textureArray[nonuniformEXT(pc.skyboxIndex)], uv, 0.0).rgb;
+    } else {
+        payload.color = vec3(0.02, 0.02, 0.05); // Fallback color
+    }
 }

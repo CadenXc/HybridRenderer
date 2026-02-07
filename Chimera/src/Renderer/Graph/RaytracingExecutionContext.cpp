@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "RaytracingExecutionContext.h"
+#include "Core/Application.h"
+#include "Renderer/RenderState.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Resources/ResourceManager.h"
 
@@ -16,7 +18,7 @@ namespace Chimera {
 	}
 
 	void RaytracingExecutionContext::BindGlobalSet(uint32_t slot, uint32_t frameIndex) {
-		VkDescriptorSet set = m_ResourceManager.GetGlobalDescriptorSet(frameIndex);
+		VkDescriptorSet set = Application::Get().GetRenderState()->GetDescriptorSet(frameIndex);
 		vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, m_Pipeline.layout, slot, 1, &set, 0, nullptr);
 	}
 

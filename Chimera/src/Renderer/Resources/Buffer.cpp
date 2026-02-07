@@ -22,7 +22,18 @@ namespace Chimera {
 		}
 
 		VmaAllocationInfo allocationResultInfo;
-		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &allocationResultInfo) != VK_SUCCESS)
+		VkResult result;
+		if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+		{
+			// RT scratch buffers and other address-based buffers often require specific alignments (e.g., 128 or 256).
+			result = vmaCreateBufferWithAlignment(allocator, &bufferInfo, &allocInfo, 256, &m_Buffer, &m_Allocation, &allocationResultInfo);
+		}
+		else
+		{
+			result = vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &allocationResultInfo);
+		}
+
+		if (result != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to create buffer!");
 		}

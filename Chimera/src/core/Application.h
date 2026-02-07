@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pch.h"
+#include "Renderer/Backend/Renderer.h"
 #include "Renderer/SceneRenderer.h"
 #include <glm/glm.hpp>
 #include <imgui.h>
@@ -21,6 +22,7 @@ namespace Chimera {
 	class Window;
 	class PipelineManager;
 	class SceneRenderer;
+    class RenderState;
 	class Event;
 	class WindowResizeEvent;
 	class WindowCloseEvent;
@@ -46,6 +48,7 @@ namespace Chimera {
 		void PushLayer(const std::shared_ptr<Layer>& layer);
 		void SwitchRenderPath(RenderPathType type);
 		void LoadScene(const std::string& path);
+		void LoadSkybox(const std::string& path);
 		void ClearScene();
 		void Close();
 
@@ -57,25 +60,21 @@ namespace Chimera {
 		RenderPath* GetRenderPath() { return m_RenderPath.get(); }
 		PipelineManager& GetPipelineManager() { return *m_PipelineManager; }
 		RenderPathType GetCurrentRenderPathType() const;
+		uint32_t GetCurrentImageIndex() const { return m_Renderer->GetCurrentImageIndex(); }
 		Scene* GetScene() { return m_Scene.get(); }
 		ResourceManager* GetResourceManager() { return m_ResourceManager.get(); }
 		Window& GetWindow() { return *m_Window; }
 		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
-
-		// ImGui Integration
-		ImTextureID GetImGuiTextureID(VkImageView view, VkSampler sampler = VK_NULL_HANDLE);
-		void ClearImGuiTextureCache();
+		std::shared_ptr<ImGuiLayer> GetImGuiLayer() { return m_ImGuiLayer; }
+        RenderState* GetRenderState() { return m_RenderState.get(); }
 
 		// Frame State
 		void SetFrameContext(const FrameContext& context) { m_FrameContext = context; }
 		const FrameContext& GetFrameContext() const { return m_FrameContext; }
+		uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
 
 		void RequestShaderReload();
 		void RecompileShaders();
-
-		// ImGui Core Methods
-		void BeginImGui();
-		void EndImGui(VkCommandBuffer cmd, VkImageView targetView, VkExtent2D extent);
 
         // Static Convenience Accessors (Walnut style)
         static VkDevice GetDevice() { return s_Instance->m_Context->GetDevice(); }
@@ -95,20 +94,17 @@ namespace Chimera {
             m_EventQueue.push(func);
         }
 
+	protected:
+		void ExecuteRenderPathSwitch(RenderPathType type);
+		virtual void ExecuteLoadScene(const std::string& path);
+		void ExecuteLoadSkybox(const std::string& path);
+		void ExecuteClearScene();
+
 	private:
 		void initVulkan();
 		void cleanup();
 
 		void drawFrame();
-
-		// ImGui Core Methods
-		void InitImGui();
-		void ShutdownImGui();
-		void SetImGuiDarkThemeColors();
-
-		void ExecuteRenderPathSwitch(RenderPathType type);
-		void ExecuteLoadScene(const std::string& path);
-		void ExecuteClearScene();
 
 		bool OnWindowResize(WindowResizeEvent& e);
 		bool OnWindowClose(WindowCloseEvent& e);
@@ -121,6 +117,7 @@ namespace Chimera {
 		std::shared_ptr<Renderer> m_Renderer;
 		std::shared_ptr<Scene> m_Scene;
 		std::unique_ptr<ResourceManager> m_ResourceManager;
+        std::unique_ptr<RenderState> m_RenderState;
 		std::unique_ptr<PipelineManager> m_PipelineManager;
 		std::unique_ptr<SceneRenderer> m_SceneRenderer;
 
@@ -134,13 +131,12 @@ namespace Chimera {
 		bool m_ScreenshotRequested = false;
 		std::string m_ScreenshotFilename;
 
+		uint32_t m_TotalFrameCount = 0;
+
 		// Layers
 		float m_LastFrameTime = 0.0f;
 		std::vector<std::shared_ptr<Layer>> m_LayerStack;
-		
-		// ImGui Internal
-		VkDescriptorPool m_ImGuiDescriptorPool = VK_NULL_HANDLE;
-		std::unordered_map<VkImageView, ImTextureID> m_ImGuiTextureCache;
+		std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
 	};
 
 	Application* CreateApplication(int argc, char** argv);

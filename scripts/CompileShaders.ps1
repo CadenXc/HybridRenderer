@@ -24,7 +24,7 @@ foreach ($Shader in $Shaders) {
 
     # Compile with Vulkan 1.3 target
     Write-Host "Compiling: $FileName -> $OutputFile"
-    glslc --target-env=vulkan1.3 $InputFile -o $OutputFile
+    glslc --target-env=vulkan1.3 -I "$SourceDir\common" -I "$SourceDir" $InputFile -o $OutputFile
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error compiling $FileName" -ForegroundColor Red

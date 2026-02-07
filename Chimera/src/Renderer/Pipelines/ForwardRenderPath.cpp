@@ -21,8 +21,7 @@ namespace Chimera {
         ForwardPass forward(m_Scene);
         forward.Setup(graph);
 
-        // ‰ª?ForwardColor Êã∑Ë¥ùÂà?FinalColor
-        graph.AddBlitPass("Forward Viewport Blit", RS::FORWARD_COLOR, RS::FINAL_COLOR);
+        graph.AddBlitPass("Final Blit", RS::FINAL_COLOR, RS::RENDER_OUTPUT);
 
         graph.Build();
     }

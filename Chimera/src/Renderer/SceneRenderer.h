@@ -11,6 +11,7 @@ namespace Chimera {
     class Scene;
     class Renderer;
     class Layer;
+    class ImGuiLayer;
 
     struct FrameContext {
         glm::mat4 View{ 1.0f };
@@ -24,7 +25,7 @@ namespace Chimera {
 
     class SceneRenderer {
     public:
-        SceneRenderer(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager, std::shared_ptr<Renderer> renderer);
+        SceneRenderer(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager, std::shared_ptr<Renderer> renderer, std::shared_ptr<ImGuiLayer> imguiLayer);
         ~SceneRenderer() = default;
 
         void Render(Scene* scene, RenderPath* renderPath, const FrameContext& context, const std::vector<std::shared_ptr<Layer>>& layers);
@@ -33,6 +34,7 @@ namespace Chimera {
         std::shared_ptr<VulkanContext> m_Context;
         ResourceManager* m_ResourceManager;
         std::shared_ptr<Renderer> m_Renderer;
+        std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
 
         glm::mat4 m_LastView{ 1.0f };
         glm::mat4 m_LastProj{ 1.0f };

@@ -70,12 +70,12 @@ namespace Chimera {
 
 		glm::vec2 m_InitialMousePosition = { 0.0f, 0.0f };
 
-		float m_Distance = 10.0f;
+		float m_Distance = 5.0f;
 		float m_Pitch = 0.0f;
 		float m_Yaw = 0.0f;
 
-		float m_ViewportWidth = 1280.0f;
-		float m_ViewportHeight = 720.0f;
+		float m_ViewportWidth = 1600.0f;
+		float m_ViewportHeight = 900.0f;
 
 		bool m_IsUpdated = false;
 	};

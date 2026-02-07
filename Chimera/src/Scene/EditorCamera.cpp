@@ -20,6 +20,7 @@ namespace Chimera {
 	{
 		m_AspectRatio = m_ViewportWidth / m_ViewportHeight;
 		m_Projection = glm::perspective(glm::radians(m_FOV), m_AspectRatio, m_NearClip, m_FarClip);
+		m_Projection[1][1] *= -1;
 	}
 
 	void EditorCamera::UpdateView()
@@ -143,8 +144,8 @@ namespace Chimera {
 	void EditorCamera::MouseRotate(const glm::vec2& delta)
 	{
 		float yawSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
-		m_Yaw += yawSign * delta.x * RotationSpeed();
-		m_Pitch += delta.y * RotationSpeed();
+		m_Yaw -= yawSign * delta.x * RotationSpeed(); // Changed from += to -=
+		m_Pitch -= delta.y * RotationSpeed(); 
 	}
 
 	void EditorCamera::MouseZoom(float delta)

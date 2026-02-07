@@ -1,0 +1,73 @@
+#version 460
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_GOOGLE_include_directive : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0, set = 0) uniform CameraProperties {
+    mat4 view; mat4 proj; mat4 viewInverse; mat4 projInverse; mat4 viewProjInverse;
+    mat4 prevView; mat4 prevProj;
+    vec4 lightDir; vec4 lightColor;
+    vec2 displaySize; vec2 displaySizeInverse; uint frameIndex; uint frameCount;
+} cam;
+
+// SVGF_Standard Layout (Reuse or extend)
+layout(binding = 0, set = 1, rgba16f) uniform image2D imgNormal;
+layout(binding = 2, set = 1)          uniform sampler2D samplerDepth;
+layout(binding = 3, set = 1, rgba16f) uniform image2D imgInput; // Source to filter
+layout(binding = 4, set = 1, rgba16f) uniform image2D imgOutput; // Result
+
+layout(push_constant) uniform PushConstants {
+    int stepSize;
+} pc;
+
+const float kernel[5] = { 1.0/16.0, 4.0/16.0, 6.0/16.0, 4.0/16.0, 1.0/16.0 };
+const float kernelWeight[3] = { 1.0, 2.0/3.0, 1.0/6.0 }; // Simplified 5x5 luma weights
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(pixel, ivec2(cam.displaySize)))) return;
+
+    vec4 centerColor = imageLoad(imgInput, pixel);
+    vec3 centerNormal = imageLoad(imgNormal, pixel).rgb * 2.0 - 1.0;
+    float centerDepth = texelFetch(samplerDepth, pixel, 0).r;
+
+    if (centerDepth == 1.0) {
+        imageStore(imgOutput, pixel, centerColor);
+        return;
+    }
+
+    vec4 sumColor = vec4(0.0);
+    float sumWeight = 0.0;
+
+    for (int yy = -2; yy <= 2; yy++) {
+        for (int xx = -2; xx <= 2; xx++) {
+            ivec2 samplePos = pixel + ivec2(xx, yy) * pc.stepSize;
+            
+            // Boundary check
+            if (any(lessThan(samplePos, ivec2(0))) || any(greaterThanEqual(samplePos, ivec2(cam.displaySize)))) continue;
+
+            vec4 sampleColor = imageLoad(imgInput, samplePos);
+            vec3 sampleNormal = imageLoad(imgNormal, samplePos).rgb * 2.0 - 1.0;
+            float sampleDepth = texelFetch(samplerDepth, samplePos, 0).r;
+
+            // Compute edge-avoiding weights
+            // 1. Normal weight
+            float wNormal = pow(max(0.0, dot(centerNormal, sampleNormal)), 128.0);
+            
+            // 2. Depth weight
+            float wDepth = abs(centerDepth - sampleDepth) < 0.01 ? 1.0 : 0.0;
+
+            // 3. Gaussian-like kernel weight
+            float wKernel = kernel[xx + 2] * kernel[yy + 2];
+
+            float weight = wNormal * wDepth * wKernel;
+
+            sumColor += sampleColor * weight;
+            sumWeight += weight;
+        }
+    }
+
+    imageStore(imgOutput, pixel, sumWeight > 0.0 ? sumColor / sumWeight : centerColor);
+}

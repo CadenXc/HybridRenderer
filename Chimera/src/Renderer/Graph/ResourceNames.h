@@ -25,6 +25,23 @@ namespace Chimera {
         inline static const std::string RT_OUTPUT       = "RT_Output";
         inline static const std::string RT_AO           = "RT_AO";
         inline static const std::string RT_SHADOWS      = "RT_Shadows";
+        inline static const std::string RT_SHADOW_AO    = "RT_Shadow_AO";
+        inline static const std::string RT_REFLECTIONS  = "RT_Reflections";
+
+        // SVGF / Denoising
+        inline static const std::string SVGF_OUTPUT     = "SVGF_Output";
+        inline static const std::string PREV_NORMAL     = "PrevNormal";
+        inline static const std::string PREV_DEPTH      = "PrevDepth";
+        inline static const std::string SHADOW_AO_HIST  = "ShadowAOHistory";
+        inline static const std::string MOMENTS_HIST    = "MomentsHistory";
+
+        inline static const std::string ATROUS_PING     = "AtrousPing";
+        inline static const std::string ATROUS_PONG     = "AtrousPong";
+
+        // Bloom Post-processing
+        inline static const std::string BLOOM_BRIGHT    = "BloomBright";
+        inline static const std::string BLOOM_BLUR_TMP  = "BloomBlurTmp";
+        inline static const std::string BLOOM_FINAL     = "BloomFinal";
     }
 
 }

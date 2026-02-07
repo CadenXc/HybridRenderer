@@ -3,6 +3,7 @@
 #include "Renderer/Passes/RaytracePass.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Resources/Buffer.h"
+#include "Renderer/Backend/ShaderMetadata.h"
 #include <imgui.h>
 
 namespace Chimera
@@ -19,17 +20,33 @@ namespace Chimera
 
     void RayTracedRenderPath::SetupGraph(RenderGraph& graph)
     {
-        // RaytracePass now gets its buffers directly from m_Scene
         RaytracePass raytrace(m_Scene, m_FrameCount);
         raytrace.Setup(graph);
 
-        graph.AddBlitPass("RT Viewport Blit", RS::RT_OUTPUT, RS::FINAL_COLOR);
+        graph.AddBlitPass("Final Blit", RS::RT_OUTPUT, RS::RENDER_OUTPUT);
+
         graph.Build();
+    }
+
+    void RayTracedRenderPath::Update()
+    {
+        RenderPath::Update();
+
+        static glm::mat4 lastView = glm::mat4(1.0f);
+        if (m_Scene && m_Scene->GetCamera().view != lastView)
+        {
+            m_FrameCount = 0; 
+            lastView = m_Scene->GetCamera().view;
+        }
+
+        m_FrameCount++;
+        // We must rebuild the graph to update the frame index in the pass
+        m_NeedsRebuild = true; 
     }
 
     void RayTracedRenderPath::OnSceneUpdated()
     {
-        RenderPath::OnSceneUpdated();
+        m_NeedsRebuild = true;
         m_FrameCount = 0;
     }
 

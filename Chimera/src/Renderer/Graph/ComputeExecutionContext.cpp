@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "ComputeExecutionContext.h"
+#include "Core/Application.h"
+#include "Renderer/RenderState.h"
 #include "Renderer/Resources/ResourceManager.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Utils/VulkanShaderUtils.h" // Assuming VulkanUtils are here or similar
@@ -15,7 +17,7 @@ namespace Chimera {
 
 		vkCmdBindPipeline(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline->handle);
 		
-		// 我们默认在这里绑定，或者让用户手动�?
+		// 我们默认在这里绑定，或者让用户手动�?
 		BindGlobalSet(0, m_ResourceIdx, *pipeline);
 		if (m_RenderPass.descriptor_set != VK_NULL_HANDLE) {
 			BindPassSet(1, m_RenderPass.descriptor_set, *pipeline);
@@ -25,7 +27,7 @@ namespace Chimera {
 	}
 
 	void ComputeExecutionContext::BindGlobalSet(uint32_t slot, uint32_t frameIndex, const ComputePipeline& pipeline) {
-		VkDescriptorSet set = m_ResourceManager.GetGlobalDescriptorSet(frameIndex);
+		VkDescriptorSet set = Application::Get().GetRenderState()->GetDescriptorSet(frameIndex);
 		vkCmdBindDescriptorSets(m_CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.layout, slot, 1, &set, 0, nullptr);
 	}
 

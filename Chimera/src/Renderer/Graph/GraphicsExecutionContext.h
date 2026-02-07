@@ -19,7 +19,7 @@ namespace Chimera {
 		void BindVertexBuffer(VkBuffer buffer, VkDeviceSize offset);
 		void BindIndexBuffer(VkBuffer buffer, VkDeviceSize offset, VkIndexType type);
 		
-		// 新增：动态绑定方�?
+		// 新增：动态绑定方�?
 		void BindGlobalSet(uint32_t slot, uint32_t frameIndex);
 		void BindPassSet(uint32_t slot, VkDescriptorSet set);
 

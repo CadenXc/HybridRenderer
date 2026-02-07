@@ -34,8 +34,8 @@ namespace Chimera {
 		void DrawRenderPathPanel();
 		void DrawModelSelectionPanel();
 		void DrawViewport();
-		void DrawSettingsPanel();
 		void DrawSceneHierarchy();
+		void DrawPropertiesPanel();
 
 	private:
 		Application* m_App;
