@@ -9,15 +9,14 @@ namespace Chimera {
     // We use alignas(16) to match std140/std430 layout requirements in shaders.
 
     struct PBRMaterial {
-        alignas(16) glm::vec4 albedo;
-        alignas(16) glm::vec3 emission;
+        glm::vec4 albedo;
+        glm::vec4 emission; // Use vec4 for 16-byte alignment
         float roughness;
         float metallic;
-        
-        TextureHandle albedoTex;
-        TextureHandle normalTex;
-        TextureHandle metalRoughTex;
-        int padding; // Maintain 16-byte alignment for the whole struct if needed
+        int albedoTex;
+        int normalTex;
+        int metalRoughTex;
+        int padding[3]; // Explicit padding to make the struct 64 bytes (multiple of 16)
     };
 
     struct RTInstanceData {

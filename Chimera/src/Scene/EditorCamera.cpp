@@ -115,11 +115,20 @@ namespace Chimera {
 
 	bool EditorCamera::OnMouseScroll(MouseScrolledEvent& e)
 	{
-		// Scroll can happen globally or we can filter it in EditorLayer
-		MouseZoom(e.GetYOffset() * 0.1f);
+		float delta = e.GetYOffset();
+		MouseZoom(delta * 0.1f);
+
 		m_IsUpdated = true;
-		UpdateView();
+		UpdateProjection(); 
+		UpdateView();       
 		return false;
+	}
+
+	void EditorCamera::MouseFOV(float delta)
+	{
+		m_FOV -= delta * 2.0f;
+		if (m_FOV < 1.0f) m_FOV = 1.0f;
+		if (m_FOV > 120.0f) m_FOV = 120.0f;
 	}
 
 	void EditorCamera::Reset()
@@ -144,8 +153,8 @@ namespace Chimera {
 	void EditorCamera::MouseRotate(const glm::vec2& delta)
 	{
 		float yawSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
-		m_Yaw -= yawSign * delta.x * RotationSpeed(); // Changed from += to -=
-		m_Pitch -= delta.y * RotationSpeed(); 
+		m_Yaw += yawSign * delta.x * RotationSpeed();
+		m_Pitch += delta.y * RotationSpeed(); 
 	}
 
 	void EditorCamera::MouseZoom(float delta)

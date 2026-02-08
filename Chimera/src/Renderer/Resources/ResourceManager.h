@@ -1,11 +1,12 @@
 #pragma once
 
 #include "pch.h"
-#include "Renderer/Backend/VulkanCommon.h"
+#include "Renderer/ChimeraCommon.h"
 #include "Renderer/Resources/Buffer.h"
 #include "Renderer/Resources/Image.h"
 #include "Renderer/Resources/Material.h"
 #include "Renderer/Resources/ResourceHandle.h"
+#include "Renderer/Graph/RenderGraphCommon.h" // [FIX] Use common definitions
 #include "Scene/SceneCommon.h"
 
 namespace Chimera {
@@ -36,12 +37,15 @@ namespace Chimera {
 
 		void InitGlobalResources();
 		void UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo);
+        void UpdateSceneDescriptorSet();
 
 		VkDescriptorPool GetDescriptorPool() const { return m_DescriptorPool; }
 		VkDescriptorPool GetTransientDescriptorPool() const { return m_TransientDescriptorPool; }
 		void ResetTransientDescriptorPool();
 
-		// Samplers
+        VkDescriptorSet GetSceneDescriptorSet() const { return m_SceneDescriptorSet; }
+        VkDescriptorSetLayout GetSceneDescriptorSetLayout() const { return m_SceneDescriptorSetLayout; }
+
 		VkSampler GetDefaultSampler() const { return m_TextureSampler; }
         Image* GetDefaultTexture() const { return m_Textures.empty() ? nullptr : m_Textures[0].get(); }
 
@@ -51,27 +55,22 @@ namespace Chimera {
 
         static ResourceManager* Get() { return s_Instance; }
 
-		// Resource Access
 		template<typename T> T* Get(Handle<T> handle);
         Image* GetTexture(TextureHandle handle);
         Material* GetMaterial(MaterialHandle handle);
         Buffer* GetBuffer(BufferHandle handle);
 
-		// Loading
 		TextureHandle LoadTexture(const std::string& path);
 		TextureHandle LoadHDRTexture(const std::string& path);
 		TextureHandle AddTexture(std::unique_ptr<Image> texture, const std::string& name = "");
         TextureHandle GetTextureIndex(const std::string& name);
 		
-        // Materials
         MaterialHandle CreateMaterial(const std::string& name = "");
         MaterialHandle AddMaterial(std::unique_ptr<Material> material, const std::string& name = "");
         
-        // GPU Material Data
         VkBuffer GetMaterialBuffer() const { return m_MaterialBuffer->GetBuffer(); }
         void SyncMaterialsToGPU();
 
-        // Reference Counting
         void AddRef(TextureHandle handle);
         void Release(TextureHandle handle);
         uint32_t GetRefCount(TextureHandle handle);
@@ -83,12 +82,10 @@ namespace Chimera {
         void AddRef(MaterialHandle handle);
         void Release(MaterialHandle handle);
 
-		// Reference Walnut: Deferred resource deletion
 		static void SubmitResourceFree(std::function<void()>&& func);
 		void ClearResourceFreeQueue(uint32_t frameIndex);
         void UpdateFrameIndex(uint32_t frameIndex) { m_CurrentFrameIndex = frameIndex; }
 
-        // Raw Access (use sparingly)
         const std::vector<std::unique_ptr<Image>>& GetTextures() const { return m_Textures; }
         const std::vector<std::unique_ptr<Material>>& GetMaterials() const { return m_Materials; }
 
@@ -104,6 +101,9 @@ namespace Chimera {
 		VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 		VkDescriptorPool m_TransientDescriptorPool = VK_NULL_HANDLE;
 		
+        VkDescriptorSetLayout m_SceneDescriptorSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSet m_SceneDescriptorSet = VK_NULL_HANDLE;
+
 		std::vector<std::unique_ptr<Buffer>> m_UniformBuffers;
 		
 		std::vector<std::unique_ptr<Image>> m_Textures;
@@ -119,12 +119,10 @@ namespace Chimera {
         std::vector<std::unique_ptr<Buffer>> m_Buffers;
         std::vector<uint32_t> m_BufferRefCount;
 
-		// One queue per frame in flight (using MaxFramesInFlight from Renderer)
 		std::vector<std::vector<std::function<void()>>> m_ResourceFreeQueue;
         uint32_t m_CurrentFrameIndex = 0;
 	};
 
-    // Template implementations
     template<> inline Image* ResourceManager::Get(TextureHandle handle) { return GetTexture(handle); }
     template<> inline Material* ResourceManager::Get(MaterialHandle handle) { return GetMaterial(handle); }
     template<> inline Buffer* ResourceManager::Get(BufferHandle handle) { return GetBuffer(handle); }

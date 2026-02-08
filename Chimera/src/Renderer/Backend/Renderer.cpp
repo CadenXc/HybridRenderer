@@ -170,6 +170,24 @@ namespace Chimera {
 
 		VK_CHECK(vkBeginCommandBuffer(frameResource.commandBuffer, &beginInfo));
 
+        // [FIX] Ensure swapchain image is in a known layout at start of frame
+        // This prevents the "expects COLOR_ATTACHMENT but is PRESENT_SRC" error
+        VkImage image = m_Context->GetSwapChainImages()[m_CurrentImageIndex];
+        VkFormat format = m_Context->GetSwapChainImageFormat();
+        
+        // We use UNDEFINED as old layout to discard previous contents and start fresh
+        VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.image = image;
+        barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        
+        vkCmdPipelineBarrier(frameResource.commandBuffer, 
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
 		m_IsFrameInProgress = true;
 		m_ActiveCommandBuffer = frameResource.commandBuffer;
 		return frameResource.commandBuffer;

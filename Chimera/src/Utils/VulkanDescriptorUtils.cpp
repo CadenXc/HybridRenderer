@@ -17,7 +17,8 @@ namespace Chimera::VulkanUtils {
 		VkDescriptorType descriptorType, 
 		VkShaderStageFlags stageFlags, 
 		uint32_t descriptorCount
-	) {
+	) 
+	{
 		VkDescriptorSetLayoutBinding layoutBinding{};
 		layoutBinding.binding = binding;
 		layoutBinding.descriptorType = descriptorType;

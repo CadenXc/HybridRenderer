@@ -1,7 +1,7 @@
 #pragma once
 
 #include "pch.h"
-#include "Renderer/Backend/VulkanCommon.h"
+#include "Renderer/ChimeraCommon.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Resources/ResourceManager.h"
 #include <glm/glm.hpp>

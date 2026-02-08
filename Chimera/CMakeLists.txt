@@ -40,6 +40,7 @@ target_link_libraries(Chimera PUBLIC
     tinyobjloader
     stb_lib
     cgltf
+    spirv-reflect
     spdlog::spdlog
     imgui
 )

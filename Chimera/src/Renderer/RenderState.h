@@ -1,6 +1,6 @@
 #pragma once
 #include "pch.h"
-#include "Renderer/Backend/VulkanCommon.h"
+#include "Renderer/ChimeraCommon.h"
 #include "Scene/SceneCommon.h"
 #include "Renderer/Resources/ResourceHandle.h"
 

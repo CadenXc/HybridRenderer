@@ -1,7 +1,8 @@
 #include "pch.h"
 #include "ImGuiLayer.h"
-#include "Renderer/Backend/VulkanCommon.h"
+#include "Renderer/ChimeraCommon.h"
 #include "Renderer/Resources/ResourceManager.h"
+#include "Utils/VulkanBarrier.h"
 #include "Core/Application.h"
 
 #include <imgui.h>
@@ -56,6 +57,7 @@ namespace Chimera {
     void ImGuiLayer::OnDetach()
     {
         vkDeviceWaitIdle(m_Context->GetDevice());
+        ClearTextureCache();
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
@@ -64,6 +66,16 @@ namespace Chimera {
     void ImGuiLayer::OnEvent(Event& e)
     {
         ImGuiIO& io = ImGui::GetIO();
+        
+        // [FIX] If it's a scroll event, we don't want to block it entirely
+        // because the viewport (which is an ImGui window) needs to let 
+        // the camera handle zooming even when hovered.
+        if (e.GetEventType() == EventType::MouseScrolled)
+        {
+            // Do NOT mark as handled, let it pass through to EditorLayer
+            return;
+        }
+
         e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
         e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
     }
@@ -82,14 +94,18 @@ namespace Chimera {
 
         VkExtent2D extent = m_Context->GetSwapChainExtent();
         uint32_t imageIndex = Application::Get().GetCurrentImageIndex();
+        VkImage targetImage = m_Context->GetSwapChainImages()[imageIndex];
         VkImageView targetView = m_Context->GetSwapChainImageViews()[imageIndex];
+        VkFormat format = m_Context->GetSwapChainImageFormat();
 
+        // [FIX] The image is already in COLOR_ATTACHMENT_OPTIMAL from BlitPass or BeginFrame.
+        // We just need to start the rendering.
+        
         VkRenderingAttachmentInfoKHR colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR };
         colorAttachment.imageView = targetView;
         colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; 
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // MUST BE LOAD to keep scene content
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colorAttachment.clearValue.color = { { 0.1f, 0.1f, 0.1f, 1.0f } };
         
         VkRenderingInfoKHR renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO_KHR };
         renderingInfo.renderArea = { {0, 0}, extent };
@@ -100,6 +116,9 @@ namespace Chimera {
         vkCmdBeginRendering(commandBuffer, &renderingInfo);
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
         vkCmdEndRendering(commandBuffer);
+
+        // Final transition to PRESENT_SRC_KHR so it can be shown on screen.
+        VulkanUtils::TransitionImageLayout(commandBuffer, targetImage, format, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
             ImGui::UpdatePlatformWindows();

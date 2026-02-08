@@ -6,7 +6,9 @@
 
 #include <filesystem>
 
-extern Chimera::Application* Chimera::CreateApplication(int argc, char** argv);
+namespace Chimera {
+	extern Application* CreateApplication(int argc, char** argv);
+}
 
 int main(int argc, char** argv)
 {

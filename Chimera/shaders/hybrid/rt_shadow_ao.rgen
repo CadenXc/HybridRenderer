@@ -13,18 +13,18 @@ layout(binding = 0, set = 0) uniform CameraProperties {
     vec2 displaySize; vec2 displaySizeInverse; uint frameIndex; uint frameCount; uint displayMode; vec4 cameraPos;
 } cam;
 
-// --- Unified Ray Tracing Layout (Set 1) ---
-layout(binding = 0, set = 1) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 1, rg16f) uniform image2D outShadowAO; 
+// --- 按统一契约命名 ---
+layout(binding = 0, set = 1) uniform accelerationStructureEXT SceneAS;
+layout(binding = 1, set = 1, rg16f) uniform image2D ShadowAO; 
 layout(binding = 2, set = 1, scalar) buffer MaterialBuffer { PBRMaterial m[]; } materials;
-layout(binding = 3, set = 1, scalar) buffer InstanceDataBuffer { RTInstanceData i[]; } instances;
-layout(binding = 4, set = 1) uniform sampler2D textureArray[];
-layout(binding = 5, set = 1, rgba16f) uniform image2D outReflections;
+layout(binding = 3, set = 1, scalar) buffer InstanceBuffer { RTInstanceData i[]; } instances;
+layout(binding = 4, set = 1) uniform sampler2D TextureArray[];
+layout(binding = 5, set = 1, rgba16f) uniform image2D Reflections;
 
-// --- Hybrid Specific Inputs ---
-layout(binding = 6, set = 1) uniform sampler2D samplerNormal;
-layout(binding = 7, set = 1) uniform sampler2D samplerDepth;
-layout(binding = 8, set = 1) uniform sampler2D samplerMaterial;
+// G-Buffer 采样器输入 (逻辑名对应资源名)
+layout(binding = 6, set = 1) uniform sampler2D Normal;
+layout(binding = 7, set = 1) uniform sampler2D Depth;
+layout(binding = 8, set = 1) uniform sampler2D Material;
 
 layout(location = 0) rayPayloadEXT HitPayload reflectPayload;
 layout(location = 1) rayPayloadEXT bool isShadowed;
@@ -54,15 +54,15 @@ void main() {
     ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
     vec2 uv = (vec2(pixel) + 0.5) / vec2(gl_LaunchSizeEXT.xy);
 
-    float depth = texture(samplerDepth, uv).r;
+    float depth = texture(Depth, uv).r;
     if (depth == 1.0) {
-        imageStore(outShadowAO, pixel, vec4(1.0, 1.0, 0.0, 0.0));
-        imageStore(outReflections, pixel, vec4(0.0));
+        imageStore(ShadowAO, pixel, vec4(1.0, 1.0, 0.0, 0.0));
+        imageStore(Reflections, pixel, vec4(0.0));
         return;
     }
 
-    vec3 normal = texture(samplerNormal, uv).rgb * 2.0 - 1.0;
-    vec4 matParams = texture(samplerMaterial, uv);
+    vec3 normal = texture(Normal, uv).rgb * 2.0 - 1.0;
+    vec4 matParams = texture(Material, uv);
     float roughness = matParams.r;
     
     vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -74,34 +74,24 @@ void main() {
     // 1. Shadow
     vec3 L = normalize(-cam.directionalLight.direction.xyz);
     isShadowed = true;
-    traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, worldPos.xyz + normal * 0.001, 0.001, L, 10000.0, 1);
+    traceRayEXT(SceneAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, worldPos.xyz + normal * 0.001, 0.001, L, 10000.0, 1);
     float shadow = isShadowed ? 0.0 : 1.0;
 
     // 2. AO
-    float ao = 0.0;
     isShadowed = true;
-    traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, worldPos.xyz + normal * 0.001, 0.001, getCosSample(seed, normal), 2.0, 1);
-    ao = isShadowed ? 0.0 : 1.0;
+    traceRayEXT(SceneAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, worldPos.xyz + normal * 0.001, 0.001, getCosSample(seed, normal), 2.0, 1);
+    float ao = isShadowed ? 0.0 : 1.0;
 
     // 3. Reflection
     vec3 reflectionColor = vec3(0.0);
     if (roughness < 0.5) {
         vec3 V = normalize(cam.cameraPos.xyz - worldPos.xyz);
         vec3 R = reflect(-V, normalize(normal));
-        reflectPayload.hit = false;
-        reflectPayload.color = vec3(0.0);
-        traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, worldPos.xyz + normal * 0.001, 0.001, R, 10000.0, 0);
+        reflectPayload.hit = false; reflectPayload.color = vec3(0.0);
+        traceRayEXT(SceneAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, worldPos.xyz + normal * 0.001, 0.001, R, 10000.0, 0);
         reflectionColor = reflectPayload.color;
     }
 
-    if (cam.frameCount > 1) {
-        vec2 oldSAO = imageLoad(outShadowAO, pixel).rg;
-        vec3 oldRef = imageLoad(outReflections, pixel).rgb;
-        float a = 1.0 / float(cam.frameCount);
-        imageStore(outShadowAO, pixel, vec4(mix(oldSAO, vec2(shadow, ao), a), 0.0, 0.0));
-        imageStore(outReflections, pixel, vec4(mix(oldRef, reflectionColor, a), 1.0));
-    } else {
-        imageStore(outShadowAO, pixel, vec4(shadow, ao, 0.0, 0.0));
-        imageStore(outReflections, pixel, vec4(reflectionColor, 1.0));
-    }
+    imageStore(ShadowAO, pixel, vec4(shadow, ao, 0.0, 0.0));
+    imageStore(Reflections, pixel, vec4(reflectionColor, 1.0));
 }

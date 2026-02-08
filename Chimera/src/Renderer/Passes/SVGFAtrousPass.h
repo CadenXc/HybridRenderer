@@ -1,18 +1,15 @@
 #pragma once
-
-#include "Renderer/Graph/RenderGraphPass.h"
+#include "Renderer/Graph/RenderGraph.h"
 
 namespace Chimera {
 
-    class SVGFAtrousPass : public RenderGraphPass {
+    class SVGFAtrousPass {
     public:
-        SVGFAtrousPass(const std::string& name, const std::string& inputName, const std::string& outputName, int stepSize);
-        virtual void Setup(RenderGraph& graph) override;
+        SVGFAtrousPass(uint32_t width, uint32_t height) : m_Width(width), m_Height(height) {}
+        void Setup(RenderGraph& graph);
 
     private:
-        std::string m_InputName;
-        std::string m_OutputName;
-        int m_StepSize;
+        uint32_t m_Width, m_Height;
     };
 
 }

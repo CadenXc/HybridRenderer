@@ -40,6 +40,7 @@ namespace Chimera
         const DirectionalLight& GetLight() const { return m_Light; }
 
         void BuildTLAS();
+        void RenderMeshes(class GraphicsExecutionContext& ctx);
 
     private:
         void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);

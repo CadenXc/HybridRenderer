@@ -121,9 +121,10 @@ namespace Chimera {
         scalarLayout.scalarBlockLayout = VK_TRUE;
         scalarLayout.pNext = pNextChain;
 
-        VkPhysicalDeviceDynamicRenderingFeatures dynamicRendering{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES };
-        dynamicRendering.dynamicRendering = VK_TRUE;
-        dynamicRendering.pNext = &scalarLayout;
+        VkPhysicalDeviceVulkan13Features vulkan13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        vulkan13Features.dynamicRendering = VK_TRUE;
+        vulkan13Features.shaderDemoteToHelperInvocation = VK_TRUE;
+        vulkan13Features.pNext = pNextChain;
 
         VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
         createInfo.queueCreateInfoCount = (uint32_t)queueCreateInfos.size();
@@ -131,7 +132,7 @@ namespace Chimera {
         createInfo.pEnabledFeatures = &deviceFeatures;
         createInfo.enabledExtensionCount = (uint32_t)enabledExtensions.size();
         createInfo.ppEnabledExtensionNames = enabledExtensions.data();
-        createInfo.pNext = &dynamicRendering;
+        createInfo.pNext = &vulkan13Features;
 
         if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_LogicalDevice) != VK_SUCCESS) {
             throw std::runtime_error("failed to create logical device!");

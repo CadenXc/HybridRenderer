@@ -50,6 +50,7 @@ namespace Chimera {
 
     void RenderState::CreateDescriptorSets()
     {
+        CH_CORE_INFO("RenderState: Creating Descriptor Sets...");
         // 创建一个专用的池用于管理 Global Sets
         VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES_IN_FLIGHT };
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0, MAX_FRAMES_IN_FLIGHT, 1, &poolSize };
@@ -62,15 +63,21 @@ namespace Chimera {
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, m_DescriptorPool, MAX_FRAMES_IN_FLIGHT, layouts.data() };
         
         m_DescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        if (vkAllocateDescriptorSets(m_Context->GetDevice(), &allocInfo, m_DescriptorSets.data()) != VK_SUCCESS) {
+        VkResult res = vkAllocateDescriptorSets(m_Context->GetDevice(), &allocInfo, m_DescriptorSets.data());
+        if (res != VK_SUCCESS) {
+            CH_CORE_ERROR("RenderState: Failed to allocate descriptor sets! Result: {0}", (int)res);
             throw std::runtime_error("RenderState: failed to allocate descriptor sets!");
         }
 
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+            if (m_DescriptorSets[i] == VK_NULL_HANDLE) {
+                CH_CORE_ERROR("RenderState: Descriptor set {0} is NULL after allocation!", i);
+            }
             VkDescriptorBufferInfo bufferInfo{ m_Frames[i].UBO->GetBuffer(), 0, sizeof(GlobalFrameData) };
             VkWriteDescriptorSet descriptorWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, m_DescriptorSets[i], 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &bufferInfo, nullptr };
             vkUpdateDescriptorSets(m_Context->GetDevice(), 1, &descriptorWrite, 0, nullptr);
         }
+        CH_CORE_INFO("RenderState: Descriptor Sets Updated.");
     }
 
 }

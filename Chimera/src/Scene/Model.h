@@ -8,7 +8,8 @@
 
 namespace Chimera {
 
-    class Model {
+    class Model 
+    {
     public:
         Model(std::shared_ptr<VulkanContext> context, const ImportedScene& importedScene);
         ~Model();

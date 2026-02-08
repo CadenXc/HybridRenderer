@@ -6,6 +6,8 @@
 #include "Renderer/Resources/Image.h"
 #include "Renderer/Resources/Material.h"
 #include "Utils/VulkanBarrier.h"
+
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 namespace Chimera {
@@ -28,18 +30,90 @@ namespace Chimera {
             queue.clear();
         }
 
+        if (m_SceneDescriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(m_Context->GetDevice(), m_SceneDescriptorSetLayout, nullptr);
         if (m_DescriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(m_Context->GetDevice(), m_DescriptorPool, nullptr);
         if (m_TransientDescriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(m_Context->GetDevice(), m_TransientDescriptorPool, nullptr);
         if (m_TextureSampler != VK_NULL_HANDLE) vkDestroySampler(m_Context->GetDevice(), m_TextureSampler, nullptr);
     }
 
+    void ResourceManager::UpdateSceneDescriptorSet()
+    {
+        if (!m_MaterialBuffer) return;
+
+        std::vector<VkWriteDescriptorSet> writes;
+        
+        // 1. Material Buffer
+        VkDescriptorBufferInfo bufferInfo{ m_MaterialBuffer->GetBuffer(), 0, m_MaterialBuffer->GetSize() };
+        VkWriteDescriptorSet bufferWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+        bufferWrite.dstSet = m_SceneDescriptorSet;
+        bufferWrite.dstBinding = 0;
+        bufferWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bufferWrite.descriptorCount = 1;
+        bufferWrite.pBufferInfo = &bufferInfo;
+        writes.push_back(bufferWrite);
+
+        // 2. Texture Array
+        std::vector<VkDescriptorImageInfo> imageInfos;
+        for (const auto& tex : m_Textures) {
+            VkDescriptorImageInfo info{};
+            info.sampler = m_TextureSampler;
+            info.imageView = tex->GetImageView();
+            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageInfos.push_back(info);
+        }
+
+        if (!imageInfos.empty()) {
+            VkWriteDescriptorSet imageWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+            imageWrite.dstSet = m_SceneDescriptorSet;
+            imageWrite.dstBinding = 1;
+            imageWrite.dstArrayElement = 0;
+            imageWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            imageWrite.descriptorCount = (uint32_t)imageInfos.size();
+            imageWrite.pImageInfo = imageInfos.data();
+            writes.push_back(imageWrite);
+        }
+
+        vkUpdateDescriptorSets(m_Context->GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
+    }
+
     void ResourceManager::InitGlobalResources()
     {
+        CH_CORE_INFO("ResourceManager: Initializing Global Resources...");
         CreateDescriptorPool();
         CreateTransientDescriptorPool();
         CreateTextureSampler();
 
-        CH_CORE_INFO("ResourceManager: Loading default texture...");
+        // 1. Create Scene Descriptor Set Layout (Set 1)
+        // Binding 0: Material Storage Buffer
+        // Binding 1: Bindless Texture Array
+        std::vector<VkDescriptorSetLayoutBinding> bindings = {
+            { 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr },
+            { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024, VK_SHADER_STAGE_ALL, nullptr } // Max 1024 textures
+        };
+
+        VkDescriptorBindingFlags bindingsFlags[2] = { 0, VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT };
+        VkDescriptorSetLayoutBindingFlagsCreateInfo layoutFlags{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+        layoutFlags.bindingCount = 2;
+        layoutFlags.pBindingFlags = bindingsFlags;
+
+        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        layoutInfo.pNext = &layoutFlags;
+        layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        layoutInfo.bindingCount = (uint32_t)bindings.size();
+        layoutInfo.pBindings = bindings.data();
+
+        if (vkCreateDescriptorSetLayout(m_Context->GetDevice(), &layoutInfo, nullptr, &m_SceneDescriptorSetLayout) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create scene descriptor set layout!");
+        }
+
+        // Allocate the set
+        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        allocInfo.descriptorPool = m_DescriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &m_SceneDescriptorSetLayout;
+        vkAllocateDescriptorSets(m_Context->GetDevice(), &allocInfo, &m_SceneDescriptorSet);
+
+        CH_CORE_INFO("ResourceManager: Creating default magenta texture...");
         auto fallback = std::make_unique<Image>(m_Context->GetAllocator(), m_Context->GetDevice(), 1, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
         
         uint8_t magenta[] = { 255, 0, 255, 255 };
@@ -47,6 +121,7 @@ namespace Chimera {
         staging.Update(magenta, 4);
 
         {
+            CH_CORE_INFO("ResourceManager: Transitioning default texture layout...");
             ScopedCommandBuffer cmd(m_Context);
             VulkanUtils::TransitionImageLayout(cmd, fallback->GetImage(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
             VkBufferImageCopy region{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { 1, 1, 1 } };
@@ -59,7 +134,9 @@ namespace Chimera {
         CH_CORE_INFO("ResourceManager: Creating default material...");
         CreateMaterial("Default");
 
+        CH_CORE_INFO("ResourceManager: Syncing materials to GPU...");
         SyncMaterialsToGPU();
+        CH_CORE_INFO("ResourceManager: Global Resources Initialized.");
     }
 
     void ResourceManager::ResetTransientDescriptorPool()
@@ -190,6 +267,8 @@ namespace Chimera {
             VkBufferCopy copy{ 0, 0, sizeof(PBRMaterial) * materialData.size() };
             vkCmdCopyBuffer(cmd, staging.GetBuffer(), m_MaterialBuffer->GetBuffer(), 1, &copy);
         }
+
+        UpdateSceneDescriptorSet();
     }
 
     void ResourceManager::AddRef(TextureHandle handle) { if (handle.id < m_TextureRefCount.size()) m_TextureRefCount[handle.id]++; }
@@ -205,7 +284,7 @@ namespace Chimera {
     void ResourceManager::CreateDescriptorPool()
     {
         std::vector<VkDescriptorPoolSize> poolSizes = { { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 }, { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096 }, { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096 }, { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 }, { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 }, { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 }, { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 } };
-        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT, 1000, (uint32_t)poolSizes.size(), poolSizes.data() };
+        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT, 1000, (uint32_t)poolSizes.size(), poolSizes.data() };
         if (vkCreateDescriptorPool(m_Context->GetDevice(), &poolInfo, nullptr, &m_DescriptorPool) != VK_SUCCESS) throw std::runtime_error("failed to create descriptor pool!");
     }
 

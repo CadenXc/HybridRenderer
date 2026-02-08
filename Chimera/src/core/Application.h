@@ -1,143 +1,109 @@
 #pragma once
 
 #include "pch.h"
-#include "Renderer/Backend/Renderer.h"
-#include "Renderer/SceneRenderer.h"
-#include <glm/glm.hpp>
-#include <imgui.h>
-#include <queue>
+#include "Renderer/ChimeraCommon.h"
+#include "Core/Events/Event.h"
+#include "Core/Events/ApplicationEvent.h"
+#include "Core/Window.h"
+#include "Core/Layer.h"
+#include <memory>
 #include <mutex>
-#include <functional>
+#include <vector>
+#include <deque>
 
 namespace Chimera {
 
-	class VulkanContext;
-	class Renderer;
-	class Scene;
-	class Layer;
-	class ImGuiLayer;
-	class Buffer;
-	class Image;
-	class ResourceManager;
-	class Window;
-	class PipelineManager;
-	class SceneRenderer;
-    class RenderState;
-	class Event;
-	class WindowResizeEvent;
-	class WindowCloseEvent;
+    struct AppFrameContext {
+        glm::vec2 ViewportSize;
+        glm::mat4 View;
+        glm::mat4 Projection;
+        glm::vec3 CameraPosition;
+        float DeltaTime;
+        float Time;
+        uint32_t FrameIndex;
+    };
 
-	struct ApplicationSpecification
-	{
-		std::string Name = "Chimera App";
-		uint32_t Width = 1600;
-		uint32_t Height = 900;
-		bool WindowResizeable = true;
-	};
+    class Application {
+    public:
+        Application(const ApplicationSpecification& spec);
+        virtual ~Application();
 
-	class Application
-	{
-	public:
-		Application(const ApplicationSpecification& spec = ApplicationSpecification());
-		virtual ~Application();
+        static Application& Get() { return *s_Instance; }
 
-		static Application& Get() { return *s_Instance; }
+        void Run();
+        void OnEvent(Event& e);
+        
+        void PushLayer(std::shared_ptr<Layer> layer);
+        void PushOverlay(std::shared_ptr<Layer> layer);
 
-		void Run();
-		void OnEvent(Event& e);
-		void PushLayer(const std::shared_ptr<Layer>& layer);
-		void SwitchRenderPath(RenderPathType type);
-		void LoadScene(const std::string& path);
-		void LoadSkybox(const std::string& path);
-		void ClearScene();
-		void Close();
+        void SwitchRenderPath(RenderPathType type);
+        void RecompileShaders();
+        void RequestShaderReload();
+        void drawFrame();
+        void ExecuteRenderPathSwitch(RenderPathType type);
+        
+        void LoadScene(const std::string& path);
+        void ExecuteLoadScene(const std::string& path);
+        void ClearScene();
+        void ExecuteClearScene();
+        void LoadSkybox(const std::string& path);
+        void ExecuteLoadSkybox(const std::string& path);
+        void Close();
 
-		void RequestScreenshot(const std::string& filename) { m_ScreenshotFilename = filename; m_ScreenshotRequested = true; }
+        Window& GetWindow() { return *m_Window; }
+        std::shared_ptr<class Scene> GetScene() { return m_Scene; }
+        class RenderPath* GetRenderPath() { return m_RenderPath.get(); }
+        class Renderer* GetRenderer() { return m_Renderer.get(); }
+        class RenderState* GetRenderState() { return m_RenderState.get(); }
+        class ResourceManager* GetResourceManager() { return m_ResourceManager.get(); }
+        class PipelineManager* GetPipelineManager() { return m_PipelineManager.get(); }
+        std::shared_ptr<class ImGuiLayer> GetImGuiLayer() { return m_ImGuiLayer; }
+        uint32_t GetCurrentImageIndex() const;
+        
+        uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
+        void SetFrameContext(const AppFrameContext& ctx) { m_FrameContext = ctx; }
 
-		std::shared_ptr<VulkanContext> GetContext() { return m_Context; }
-		std::shared_ptr<Renderer> GetRenderer() { return m_Renderer; }
-		
-		RenderPath* GetRenderPath() { return m_RenderPath.get(); }
-		PipelineManager& GetPipelineManager() { return *m_PipelineManager; }
-		RenderPathType GetCurrentRenderPathType() const;
-		uint32_t GetCurrentImageIndex() const { return m_Renderer->GetCurrentImageIndex(); }
-		Scene* GetScene() { return m_Scene.get(); }
-		ResourceManager* GetResourceManager() { return m_ResourceManager.get(); }
-		Window& GetWindow() { return *m_Window; }
-		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
-		std::shared_ptr<ImGuiLayer> GetImGuiLayer() { return m_ImGuiLayer; }
-        RenderState* GetRenderState() { return m_RenderState.get(); }
-
-		// Frame State
-		void SetFrameContext(const FrameContext& context) { m_FrameContext = context; }
-		const FrameContext& GetFrameContext() const { return m_FrameContext; }
-		uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
-
-		void RequestShaderReload();
-		void RecompileShaders();
-
-        // Static Convenience Accessors (Walnut style)
-        static VkDevice GetDevice() { return s_Instance->m_Context->GetDevice(); }
-        static VkPhysicalDevice GetPhysicalDevice() { return s_Instance->m_Context->GetPhysicalDevice(); }
-        static VmaAllocator GetAllocator() { return s_Instance->m_Context->GetAllocator(); }
-        static VkQueue GetGraphicsQueue() { return s_Instance->m_Context->GetGraphicsQueue(); }
-        static VulkanContext& GetVulkanContext() { return *s_Instance->m_Context; }
-
-        static VkCommandBuffer GetCommandBuffer(bool begin);
-        static void FlushCommandBuffer(VkCommandBuffer commandBuffer);
-
-        // Reference Walnut: Thread-safe event queue for deferred execution
-        template<typename Func>
-        void QueueEvent(Func&& func)
-        {
-            std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
-            m_EventQueue.push(func);
+        void QueueEvent(std::function<void()>&& func) {
+            std::lock_guard<std::mutex> lock(m_EventQueueMutex);
+            m_EventQueue.push_back(std::move(func));
         }
 
-	protected:
-		void ExecuteRenderPathSwitch(RenderPathType type);
-		virtual void ExecuteLoadScene(const std::string& path);
-		void ExecuteLoadSkybox(const std::string& path);
-		void ExecuteClearScene();
+        VkCommandBuffer GetCommandBuffer(bool begin = true);
+        void FlushCommandBuffer(VkCommandBuffer cmd);
+        RenderPathType GetCurrentRenderPathType() const;
 
-	private:
-		void initVulkan();
-		void cleanup();
+    private:
+        bool OnWindowClose(WindowCloseEvent& e);
+        bool OnWindowResize(WindowResizeEvent& e);
+        void cleanup();
 
-		void drawFrame();
-
-		bool OnWindowResize(WindowResizeEvent& e);
-		bool OnWindowClose(WindowCloseEvent& e);
-
-	private:
-		static Application* s_Instance;
-		ApplicationSpecification m_Specification;
-		std::unique_ptr<Window> m_Window;
-		std::shared_ptr<VulkanContext> m_Context;
-		std::shared_ptr<Renderer> m_Renderer;
-		std::shared_ptr<Scene> m_Scene;
-		std::unique_ptr<ResourceManager> m_ResourceManager;
-        std::unique_ptr<RenderState> m_RenderState;
-		std::unique_ptr<PipelineManager> m_PipelineManager;
-		std::unique_ptr<SceneRenderer> m_SceneRenderer;
-
-		std::unique_ptr<RenderPath> m_RenderPath;
-
-		FrameContext m_FrameContext;
-
+    private:
+        static Application* s_Instance;
+        ApplicationSpecification m_Specification;
+        
+        std::unique_ptr<Window> m_Window;
+        std::shared_ptr<class VulkanContext> m_Context;
+        std::unique_ptr<class ResourceManager> m_ResourceManager;
+        std::unique_ptr<class PipelineManager> m_PipelineManager;
+        std::unique_ptr<class RenderState> m_RenderState;
+        std::shared_ptr<class Renderer> m_Renderer;
+        
+        std::shared_ptr<class ImGuiLayer> m_ImGuiLayer;
+        std::unique_ptr<class SceneRenderer> m_SceneRenderer;
+        std::shared_ptr<class Scene> m_Scene;
+        std::unique_ptr<class RenderPath> m_RenderPath;
+        
+        std::vector<std::shared_ptr<Layer>> m_LayerStack;
+        unsigned int m_LayerIndex = 0;
+        AppFrameContext m_FrameContext;
+        
+        std::deque<std::function<void()>> m_EventQueue;
         std::mutex m_EventQueueMutex;
-        std::queue<std::function<void()>> m_EventQueue;
 
-		bool m_ScreenshotRequested = false;
-		std::string m_ScreenshotFilename;
+        bool m_Running = true;
+        bool m_Minimized = false;
+        float m_LastFrameTime = 0.0f;
+        uint32_t m_TotalFrameCount = 0;
+    };
 
-		uint32_t m_TotalFrameCount = 0;
-
-		// Layers
-		float m_LastFrameTime = 0.0f;
-		std::vector<std::shared_ptr<Layer>> m_LayerStack;
-		std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
-	};
-
-	Application* CreateApplication(int argc, char** argv);
 }

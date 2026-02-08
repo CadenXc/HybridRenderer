@@ -24,6 +24,9 @@ namespace Chimera {
 		inline float GetDistance() const { return m_Distance; }
 		inline void SetDistance(float distance) { m_Distance = distance; }
 
+		inline glm::vec3 GetFocalPoint() const { return m_FocalPoint; }
+		inline void SetFocalPoint(const glm::vec3& focalPoint) { m_FocalPoint = focalPoint; }
+
 		inline void SetViewportSize(float width, float height) { m_ViewportWidth = width; m_ViewportHeight = height; UpdateProjection(); }
 
 		const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
@@ -50,6 +53,7 @@ namespace Chimera {
 		void MousePan(const glm::vec2& delta);
 		void MouseRotate(const glm::vec2& delta);
 		void MouseZoom(float delta);
+		void MouseFOV(float delta);
 
 		glm::vec3 CalculatePosition() const;
 

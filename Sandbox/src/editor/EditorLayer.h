@@ -36,6 +36,7 @@ namespace Chimera {
 		void DrawViewport();
 		void DrawSceneHierarchy();
 		void DrawPropertiesPanel();
+		void DrawLightSettings();
 
 	private:
 		Application* m_App;

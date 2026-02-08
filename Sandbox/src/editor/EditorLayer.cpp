@@ -6,6 +6,9 @@
 #include "Renderer/Backend/Renderer.h"
 #include "Utils/VulkanBarrier.h"
 #include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Pipelines/RenderPath.h"
+#include "Scene/Scene.h"
 #include "Core/Input.h"
 #include <imgui.h>
 #include <filesystem>
@@ -18,6 +21,10 @@ namespace Chimera {
         // Initial defaults to prevent invalid projection matrices
         m_ViewportSize = { 1600.0f, 900.0f };
         m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
+        
+        // Initialize camera at a better position
+        m_EditorCamera.SetFocalPoint({ 0.0f, 1.0f, 0.0f });
+        m_EditorCamera.SetDistance(5.0f);
     }
 
     void EditorLayer::OnAttach()
@@ -29,14 +36,15 @@ namespace Chimera {
     {
     }
 
-        void EditorLayer::OnUpdate(Timestep ts)
-        {
-            m_AverageFrameTime = ts.GetMilliseconds();        m_AverageFPS = 1.0f / ts.GetSeconds();
+    void EditorLayer::OnUpdate(Timestep ts)
+    {
+        m_AverageFrameTime = ts.GetMilliseconds();
+        m_AverageFPS = 1.0f / ts.GetSeconds();
 
         m_EditorCamera.OnUpdate(ts, m_ViewportHovered, m_ViewportFocused);
 
         // Sync state to Application
-        FrameContext context;
+        AppFrameContext context;
         context.View = m_EditorCamera.GetViewMatrix();
         context.Projection = m_EditorCamera.GetProjection();
         context.CameraPosition = m_EditorCamera.GetPosition();
@@ -64,129 +72,78 @@ namespace Chimera {
 
     void EditorLayer::OnUIRender()
     {
-        DrawMenuBar();
-        
-        // --- Left Panel: Scene & Assets ---
-        ImGui::Begin("Scene & Assets");
-        if (ImGui::BeginTabBar("LeftTabs"))
+        // Setup Docking
+        static bool dockingEnabled = true;
+        if (dockingEnabled)
         {
-            if (ImGui::BeginTabItem("Hierarchy"))
-            {
-                DrawSceneHierarchy();
-                ImGui::Separator();
-                DrawPropertiesPanel();
-                ImGui::EndTabItem();
-            }
-            if (ImGui::BeginTabItem("Assets"))
-            {
-                DrawModelSelectionPanel();
-                ImGui::EndTabItem();
-            }
-            ImGui::EndTabBar();
-        }
-        ImGui::End();
+            static bool dockspaceOpen = true;
+            static bool opt_fullscreen_persistant = true;
+            bool opt_fullscreen = opt_fullscreen_persistant;
+            static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_None;
 
-        // --- Right Panel: Settings & Stats ---
-        ImGui::Begin("Settings");
-        if (ImGui::BeginTabBar("SettingsTabs"))
-        {
-            if (ImGui::BeginTabItem("Renderer"))
+            ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+            if (opt_fullscreen)
             {
-                DrawRenderPathPanel();
+                ImGuiViewport* viewport = ImGui::GetMainViewport();
+                ImGui::SetNextWindowPos(viewport->Pos);
+                ImGui::SetNextWindowSize(viewport->Size);
+                ImGui::SetNextWindowViewport(viewport->ID);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+                window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+                window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+            }
 
-                if (ImGui::CollapsingHeader("Lighting & Env", ImGuiTreeNodeFlags_DefaultOpen))
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("DockSpace Demo", &dockspaceOpen, window_flags);
+            ImGui::PopStyleVar();
+
+            if (opt_fullscreen)
+                ImGui::PopStyleVar(2);
+
+            // DockSpace
+            ImGuiIO& io = ImGui::GetIO();
+            if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
+            {
+                ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+                ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+            }
+
+            DrawMenuBar();
+            
+            // --- Content ---
+            DrawViewport();
+
+            ImGui::Begin("Settings");
+            if (ImGui::BeginTabBar("SettingsTabs"))
+            {
+                if (ImGui::BeginTabItem("Renderer"))
                 {
-                    if (ImGui::DragFloat3("Light Position", Config::Settings.LightPosition, 0.1f)) {
-                        if (m_App->GetCurrentRenderPathType() != RenderPathType::Forward)
-                            m_App->GetRenderPath()->OnSceneUpdated();
-                    }
-                    if (ImGui::DragFloat("Light Intensity", &Config::Settings.LightIntensity, 0.1f, 0.0f, 100.0f)) {
-                        if (m_App->GetCurrentRenderPathType() != RenderPathType::Forward)
-                            m_App->GetRenderPath()->OnSceneUpdated();
-                    }
-                    ImGui::ColorEdit3("Light Color", Config::Settings.LightColor);
-                    
+                    DrawRenderPathPanel();
                     ImGui::Separator();
-                    if (ImGui::Button("Load Skybox (HDR)")) {
-                        m_App->LoadSkybox(Config::ASSET_DIR + "textures/newport_loft.hdr");
-                    }
-                }
 
-                if (ImGui::CollapsingHeader("Visuals", ImGuiTreeNodeFlags_DefaultOpen))
+                    ImGui::Text("Asset Selection");
+                    DrawModelSelectionPanel();
+                    ImGui::EndTabItem();
+
+                    ImGui::Text("Scene Hierarchy");
+                    DrawSceneHierarchy();
+                    ImGui::Separator();
+                    DrawPropertiesPanel();
+                    ImGui::Separator();
+
+                }
+                if (ImGui::BeginTabItem("Stats"))
                 {
-                    const char* displayModes[] = { "Final Color", "Shadows", "AO", "Reflections" };
-                    ImGui::Combo("Display Mode", &Config::Settings.DisplayMode, displayModes, IM_ARRAYSIZE(displayModes));
-
-                    ImGui::Text("Debug View Selection");
-                    if (ImGui::BeginCombo("Viewport Texture", m_DebugViewTexture.c_str())) {
-                        std::vector<std::string> views = { RS::FINAL_COLOR };
-                        auto* renderPath = m_App->GetRenderPath();
-                        if (renderPath) {
-                            RenderPathType type = m_App->GetCurrentRenderPathType();
-                            std::vector<std::string> colorAtts = renderPath->GetRenderGraph().GetColorAttachments();
-                            
-                            for (const auto& att : colorAtts) {
-                                if (att == RS::FINAL_COLOR) continue;
-                                
-                                // Logic: Only show relevant buffers for the mode
-                                if (type == RenderPathType::Forward) {
-                                    // Forward doesn't have G-Buffer or RT buffers
-                                    if (att == RS::FORWARD_COLOR) views.push_back(att);
-                                } else {
-                                    views.push_back(att);
-                                }
-                            }
-                            if (renderPath->GetRenderGraph().ContainsImage(RS::DEPTH))
-                                views.push_back(RS::DEPTH);
-                        }
-
-                        for (const auto& v : views) {
-                            if (ImGui::Selectable(v.c_str(), m_DebugViewTexture == v)) 
-                                m_DebugViewTexture = v;
-                        }
-                        ImGui::EndCombo();
-                    }
+                    DrawStatsPanel();
+                    ImGui::EndTabItem();
                 }
-
-                if (ImGui::Button("Compile & Reload Shaders")) {
-                    m_App->RecompileShaders();
-                }
-
-                ImGui::EndTabItem();
+                ImGui::EndTabBar();
             }
+            ImGui::End();
 
-            if (ImGui::BeginTabItem("Stats"))
-            {
-                DrawStatsPanel();
-                ImGui::EndTabItem();
-            }
-
-            if (ImGui::BeginTabItem("Camera"))
-            {
-                if (ImGui::Button("Reset Camera")) m_EditorCamera.Reset();
-
-                glm::vec3 pos = m_EditorCamera.GetPosition();
-                float pitch = m_EditorCamera.GetPitch();
-                float yaw = m_EditorCamera.GetYaw();
-                float fov = m_EditorCamera.GetFOV();
-                float dist = m_EditorCamera.GetDistance();
-
-                ImGui::Text("Position: %.2f, %.2f, %.2f", pos.x, pos.y, pos.z);
-                ImGui::Text("Pitch: %.2f, Yaw: %.2f", glm::degrees(pitch), glm::degrees(yaw));
-                ImGui::Text("Distance: %.2f", dist);
-                
-                if (ImGui::SliderFloat("FOV", &fov, 10.0f, 120.0f))
-                    m_EditorCamera.SetFOV(fov);
-                
-                ImGui::EndTabItem();
-            }
-
-            ImGui::EndTabBar();
+            ImGui::End(); // DockSpace Window
         }
-        
-        ImGui::End();
-
-        DrawViewport();
     }
 
     void EditorLayer::DrawSceneHierarchy()
@@ -347,30 +304,68 @@ namespace Chimera {
 
     void EditorLayer::DrawStatsPanel()
     {
-        if (ImGui::CollapsingHeader("Frame Timing", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Text("CPU Frame Time: %.3f ms", m_AverageFrameTime);
-            ImGui::Text("CPU FPS: %.1f", m_AverageFPS);
-        }
-        
-        if (ImGui::CollapsingHeader("GPU Profiler", ImGuiTreeNodeFlags_DefaultOpen))
-        {
+            ImGui::Text("Frame Time: %.3f ms", m_AverageFrameTime);
+            ImGui::Text("FPS: %.1f", m_AverageFPS);
+            
             if (m_App->GetRenderPath()) {
                 m_App->GetRenderPath()->GetRenderGraph().DrawPerformanceStatistics();
-            } else {
-                ImGui::Text("No active Render Path.");
             }
         }
+        
+        if (ImGui::CollapsingHeader("Camera Controls", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (ImGui::Button("Reset Camera")) m_EditorCamera.Reset();
+            
+            float distance = m_EditorCamera.GetDistance();
+            if (ImGui::DragFloat("Distance", &distance, 0.1f, 0.1f, 1000.0f))
+                m_EditorCamera.SetDistance(distance);
+                
+            glm::vec3 focalPoint = m_EditorCamera.GetFocalPoint();
+            if (ImGui::DragFloat3("Focal Point", &focalPoint.x, 0.1f))
+                m_EditorCamera.SetFocalPoint(focalPoint);
+        }
 
-        if (ImGui::CollapsingHeader("Scene Info", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::CollapsingHeader("Scene Stats", ImGuiTreeNodeFlags_DefaultOpen))
         {
             auto scene = m_App->GetScene();
             ImGui::Text("Entities: %llu", scene->GetEntities().size());
-            ImGui::Text("Materials: %llu", m_App->GetResourceManager()->GetMaterials().size());
-            ImGui::Text("Textures: %llu", m_App->GetResourceManager()->GetTextures().size());
-            ImGui::Text("Current Model:");
-            ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "  %s", m_ActiveModelPath.empty() ? "None" : m_ActiveModelPath.c_str());
+            ImGui::Text("Current Model: %s", m_ActiveModelPath.empty() ? "None" : m_ActiveModelPath.c_str());
         }
+    }
+
+    void EditorLayer::DrawLightSettings()
+    {
+        auto scene = m_App->GetScene();
+        if (!scene) return;
+
+        auto& light = scene->GetLight();
+        bool changed = false;
+
+        if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            glm::vec3 dir = glm::vec3(light.direction);
+            if (ImGui::DragFloat3("Direction", &dir.x, 0.01f, -1.0f, 1.0f)) {
+                light.direction = glm::vec4(glm::normalize(dir), 0.0f);
+                changed = true;
+            }
+
+            glm::vec3 color = glm::vec3(light.color);
+            if (ImGui::ColorEdit3("Color", &color.x)) {
+                light.color = glm::vec4(color, 1.0f);
+                changed = true;
+            }
+
+            float intensity = light.intensity.x;
+            if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 100.0f)) {
+                light.intensity = glm::vec4(intensity);
+                changed = true;
+            }
+        }
+
+        if (changed && m_App->GetCurrentRenderPathType() == RenderPathType::RayTracing)
+            m_App->GetRenderPath()->OnSceneUpdated();
     }
 
     void EditorLayer::DrawRenderPathPanel()
@@ -378,10 +373,15 @@ namespace Chimera {
         const char* modes[] = { "Forward", "Ray Tracing", "Hybrid" };
         int currentIdx = (int)m_App->GetCurrentRenderPathType();
         
-        if (ImGui::Combo("Render Mode", &currentIdx, modes, IM_ARRAYSIZE(modes))) 
+        ImGui::Text("Render Path Configuration");
+        if (ImGui::Combo("Active Path", &currentIdx, modes, IM_ARRAYSIZE(modes))) 
         {
             m_App->SwitchRenderPath((RenderPathType)currentIdx);
         }
+
+        ImGui::Separator();
+        
+        DrawLightSettings();
 
         ImGui::Separator();
         if (m_App->GetRenderPath()) 
@@ -422,7 +422,7 @@ namespace Chimera {
 
         ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
         if (std::abs(viewportPanelSize.x - m_ViewportSize.x) > 1.0f || std::abs(viewportPanelSize.y - m_ViewportSize.y) > 1.0f) {
-            if (viewportPanelSize.x > 0 && viewportPanelSize.y > 0) {
+            if (viewportPanelSize.x > 100 && viewportPanelSize.y > 100) { // Threshold to avoid tiny/invalid sizes
                 m_ViewportSize = glm::vec2(viewportPanelSize.x, viewportPanelSize.y);
                 m_App->GetRenderPath()->SetViewportSize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
                 m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);

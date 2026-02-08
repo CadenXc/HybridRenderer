@@ -2,33 +2,34 @@
 #include "ForwardRenderPath.h"
 #include "Renderer/Passes/ForwardPass.h"
 #include "Renderer/Graph/ResourceNames.h"
-#include <imgui.h>
+#include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Backend/VulkanContext.h"
 
 namespace Chimera {
 
-    ForwardRenderPath::ForwardRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene, ResourceManager* resourceManager, PipelineManager& pipelineManager, VkDescriptorSetLayout globalDescriptorSetLayout)
-        : RenderPath(context, scene, resourceManager, pipelineManager), m_GlobalDescriptorSetLayout(globalDescriptorSetLayout)
+    ForwardRenderPath::ForwardRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene, ResourceManager* resourceManager, PipelineManager& pipelineManager)
+        : RenderPath(context, scene, resourceManager, pipelineManager)
     {
     }
 
-    ForwardRenderPath::~ForwardRenderPath()
+    ForwardRenderPath::~ForwardRenderPath() {}
+
+    void ForwardRenderPath::Render(const RenderFrameInfo& frameInfo) 
     {
-        vkDeviceWaitIdle(m_Context->GetDevice());
-    }
+        if (m_NeedsRebuild || !m_RenderGraph) {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, *m_ResourceManager, m_PipelineManager, m_Width, m_Height);
+            
+            ForwardPass forward(m_Scene);
+            forward.Setup(*m_RenderGraph);
 
-    void ForwardRenderPath::SetupGraph(RenderGraph& graph)
-    {
-        ForwardPass forward(m_Scene);
-        forward.Setup(graph);
+            m_RenderGraph->AddBlitPass("FinalBlit", RS::FinalColor, RS::RENDER_OUTPUT, VK_FORMAT_B8G8R8A8_UNORM, m_Context->GetSwapChainImageFormat());
 
-        graph.AddBlitPass("Final Blit", RS::FINAL_COLOR, RS::RENDER_OUTPUT);
+            m_RenderGraph->Build();
+            m_NeedsRebuild = false;
+        }
 
-        graph.Build();
-    }
-
-    void ForwardRenderPath::OnImGui()
-    {
-        ImGui::Text("Forward Rendering Path (RenderGraph)");
+        m_RenderGraph->Execute(frameInfo.commandBuffer, frameInfo.frameIndex, frameInfo.imageIndex);
     }
 
 }

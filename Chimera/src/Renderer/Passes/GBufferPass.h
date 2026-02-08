@@ -1,21 +1,16 @@
 #pragma once
-
-#include "Renderer/Graph/RenderGraphPass.h"
-#include "Scene/Scene.h"
+#include "Renderer/Graph/RenderGraph.h"
 
 namespace Chimera {
 
-    class GBufferPass : public RenderGraphPass
-    {
+    class GBufferPass {
     public:
-        GBufferPass(std::shared_ptr<Scene> scene);
-        virtual void Setup(RenderGraph& graph) override;
+        GBufferPass(std::shared_ptr<class Scene> scene) : m_Scene(scene) {}
+        void Setup(RenderGraph& graph);
+        void SetScene(std::shared_ptr<class Scene> scene) { m_Scene = scene; }
 
     private:
-        GraphicsPipelineDescription CreatePipelineDescription();
-
-    private:
-        std::shared_ptr<Scene> m_Scene;
+        std::shared_ptr<class Scene> m_Scene;
     };
 
 }

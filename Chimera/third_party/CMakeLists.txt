@@ -45,6 +45,15 @@ if(NOT TARGET cgltf)
     target_include_directories(cgltf INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/cgltf)
 endif()
 
+if(NOT TARGET spirv-reflect)
+    set(SPIRV_REFLECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/spirv-reflect")
+    add_library(spirv-reflect STATIC 
+        "${SPIRV_REFLECT_DIR}/spirv_reflect.c"
+        "${SPIRV_REFLECT_DIR}/spirv_reflect.h"
+    )
+    target_include_directories(spirv-reflect PUBLIC "${SPIRV_REFLECT_DIR}")
+endif()
+
 if(NOT TARGET imgui)
     set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/imgui")
     

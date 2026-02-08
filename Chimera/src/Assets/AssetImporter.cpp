@@ -35,16 +35,31 @@ namespace Chimera {
         for (size_t i = 0; i < data->materials_count; ++i) {
             cgltf_material& gMat = data->materials[i];
             PBRMaterial mat{};
+            mat.albedo = glm::vec4(1.0f);
+            mat.emission = glm::vec4(0.0f);
+            mat.roughness = 1.0f;
+            mat.metallic = 0.0f;
+            mat.albedoTex = -1;
+            mat.normalTex = -1;
+            mat.metalRoughTex = -1;
+
             if (gMat.has_pbr_metallic_roughness) {
                 auto& pbr = gMat.pbr_metallic_roughness;
                 mat.albedo = glm::make_vec4(pbr.base_color_factor);
                 mat.metallic = pbr.metallic_factor;
                 mat.roughness = pbr.roughness_factor;
-                mat.albedoTex = LoadTex(pbr.base_color_texture.texture);
-                mat.metalRoughTex = LoadTex(pbr.metallic_roughness_texture.texture);
+                
+                auto h = LoadTex(pbr.base_color_texture.texture);
+                mat.albedoTex = h.IsValid() ? (int)h.id : -1;
+                
+                auto hm = LoadTex(pbr.metallic_roughness_texture.texture);
+                mat.metalRoughTex = hm.IsValid() ? (int)hm.id : -1;
             }
-            mat.normalTex = LoadTex(gMat.normal_texture.texture);
-            mat.emission = glm::make_vec3(gMat.emissive_factor);
+            
+            auto hn = LoadTex(gMat.normal_texture.texture);
+            mat.normalTex = hn.IsValid() ? (int)hn.id : -1;
+            
+            mat.emission = glm::vec4(glm::make_vec3(gMat.emissive_factor), 1.0f);
             outScene->Materials.push_back(mat);
         }
         if (outScene->Materials.empty()) outScene->Materials.push_back(PBRMaterial{});

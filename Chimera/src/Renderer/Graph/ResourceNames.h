@@ -4,44 +4,43 @@
 namespace Chimera {
 
     namespace RS {
-        // Reserved Keywords
+        // --- 系统保留 ---
         inline static const std::string RENDER_OUTPUT = "RENDER_OUTPUT";
-        inline static const std::string FINAL_COLOR   = "FinalColor";
-        inline static const std::string FORWARD_COLOR = "ForwardColor";
 
-        // G-Buffer (RT0 - RT3 + Depth)
-        inline static const std::string ALBEDO        = "Albedo";   // RT0: RGBA8 (Albedo + Alpha/ObjectID)
-        inline static const std::string NORMAL        = "Normal";   // RT1: RGBA16F (World Normal)
-        inline static const std::string MATERIAL      = "Material"; // RT2: RGBA8 (Roughness, Metallic, etc.)
-        inline static const std::string MOTION        = "Motion";   // RT3: RGBA16F (Motion Vectors)
-        inline static const std::string DEPTH         = "Depth";    // Depth: D32F
+        // --- 核心资源 (C++ 与 Shader 共用此名称) ---
+        inline static const std::string Albedo        = "Albedo";
+        inline static const std::string Normal        = "Normal";
+        inline static const std::string Material      = "Material";
+        inline static const std::string Motion        = "Motion";
+        inline static const std::string Depth         = "Depth";
 
-        // Scene Data (Buffers/AS)
-        inline static const std::string SCENE_AS        = "SceneTLAS";
-        inline static const std::string MATERIAL_BUFFER = "MaterialBuffer";
-        inline static const std::string TEXTURE_ARRAY   = "TextureArray";
+        // --- 场景数据 ---
+        inline static const std::string SceneAS       = "SceneAS";
+        inline static const std::string MaterialBuffer = "MaterialBuffer";
+        inline static const std::string InstanceBuffer = "InstanceBuffer";
+        inline static const std::string TextureArray   = "TextureArray";
 
-        // Ray Tracing specific
-        inline static const std::string RT_OUTPUT       = "RT_Output";
-        inline static const std::string RT_AO           = "RT_AO";
-        inline static const std::string RT_SHADOWS      = "RT_Shadows";
-        inline static const std::string RT_SHADOW_AO    = "RT_Shadow_AO";
-        inline static const std::string RT_REFLECTIONS  = "RT_Reflections";
+        // --- 光追与中间件 ---
+        inline static const std::string RTOutput      = "RTOutput";
+        inline static const std::string ShadowAO      = "ShadowAO";
+        inline static const std::string Reflections   = "Reflections";
+        
+        // --- SVGF / 降噪 ---
+        inline static const std::string SVGFOutput    = "SVGFOutput";
+        inline static const std::string PrevNormal    = "PrevNormal";
+        inline static const std::string PrevDepth     = "PrevDepth";
+        inline static const std::string History       = "History";
+        inline static const std::string Moments       = "Moments";
 
-        // SVGF / Denoising
-        inline static const std::string SVGF_OUTPUT     = "SVGF_Output";
-        inline static const std::string PREV_NORMAL     = "PrevNormal";
-        inline static const std::string PREV_DEPTH      = "PrevDepth";
-        inline static const std::string SHADOW_AO_HIST  = "ShadowAOHistory";
-        inline static const std::string MOMENTS_HIST    = "MomentsHistory";
+        // --- 后处理 ---
+        inline static const std::string AtrousPing    = "AtrousPing";
+        inline static const std::string AtrousPong    = "AtrousPong";
+        inline static const std::string FinalColor    = "FinalColor";
 
-        inline static const std::string ATROUS_PING     = "AtrousPing";
-        inline static const std::string ATROUS_PONG     = "AtrousPong";
-
-        // Bloom Post-processing
-        inline static const std::string BLOOM_BRIGHT    = "BloomBright";
-        inline static const std::string BLOOM_BLUR_TMP  = "BloomBlurTmp";
-        inline static const std::string BLOOM_FINAL     = "BloomFinal";
+        // Compatibility aliases
+        inline static const std::string FINAL_COLOR   = FinalColor;
+        inline static const std::string DEPTH         = Depth;
+        inline static const std::string FORWARD_COLOR = FinalColor; // Assuming Forward writes to FinalColor
     }
 
 }

@@ -25,3 +25,6 @@
 [submodule "third_party/imgui"]
 	path = Chimera/third_party/imgui
 	url = https://github.com/ocornut/imgui.git
+[submodule "Chimera/third_party/spirv-reflect"]
+	path = Chimera/third_party/spirv-reflect
+	url = https://github.com/KhronosGroup/SPIRV-Reflect

@@ -6,6 +6,7 @@
 #include "Core/Events/MouseEvent.h"
 
 #include <GLFW/glfw3.h>
+#include <backends/imgui_impl_glfw.h>
 
 namespace Chimera {
 
@@ -66,7 +67,7 @@ namespace Chimera {
 
 			glfwSetWindowUserPointer(m_Window, &m_Data);
 
-			// --- GLFW Callbacks -> Chimera Events ---
+			// --- GLFW Callbacks -> Chimera Events & ImGui ---
 
 			glfwSetFramebufferSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
 			{
@@ -87,6 +88,7 @@ namespace Chimera {
 
 			glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
 			{
+				ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
 				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 				if (!data.EventCallback) return;
 
@@ -115,6 +117,7 @@ namespace Chimera {
 
 			glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* window, int button, int action, int mods)
 			{
+				ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
 				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 				if (!data.EventCallback) return;
 
@@ -137,6 +140,7 @@ namespace Chimera {
 
 			glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xOffset, double yOffset)
 			{
+				ImGui_ImplGlfw_ScrollCallback(window, xOffset, yOffset);
 				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 				MouseScrolledEvent event((float)xOffset, (float)yOffset);
 				if (data.EventCallback) data.EventCallback(event);
@@ -144,9 +148,25 @@ namespace Chimera {
 
 			glfwSetCursorPosCallback(m_Window, [](GLFWwindow* window, double xPos, double yPos)
 			{
+				ImGui_ImplGlfw_CursorPosCallback(window, xPos, yPos);
 				WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 				MouseMovedEvent event((float)xPos, (float)yPos);
 				if (data.EventCallback) data.EventCallback(event);
+			});
+
+			glfwSetCharCallback(m_Window, [](GLFWwindow* window, unsigned int c)
+			{
+				ImGui_ImplGlfw_CharCallback(window, c);
+			});
+
+			glfwSetCursorEnterCallback(m_Window, [](GLFWwindow* window, int entered)
+			{
+				ImGui_ImplGlfw_CursorEnterCallback(window, entered);
+			});
+
+			glfwSetWindowFocusCallback(m_Window, [](GLFWwindow* window, int focused)
+			{
+				ImGui_ImplGlfw_WindowFocusCallback(window, focused);
 			});
 		}
 

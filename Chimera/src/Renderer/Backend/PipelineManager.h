@@ -1,30 +1,49 @@
 #pragma once
 
-#include "pch.h"
-#include "Renderer/Backend/VulkanCommon.h"
+#include "Renderer/ChimeraCommon.h"
+#include "Renderer/Graph/RenderGraphCommon.h"
+#include "VulkanContext.h"
+#include "Renderer/Resources/ResourceHandle.h"
 #include <unordered_map>
-#include <string>
 #include <memory>
+#include <string>
 
 namespace Chimera {
 
-    class VulkanContext;
-    class ResourceManager;
-    struct RenderPass;
+    // 管线物理对象定义
+    struct GraphicsPipeline {
+        VkPipeline handle = VK_NULL_HANDLE;
+        VkPipelineLayout layout = VK_NULL_HANDLE;
+        GraphicsPipelineDescription description;
+    };
 
-    class PipelineManager
-    {
+    struct RaytracingPipeline {
+        VkPipeline handle = VK_NULL_HANDLE;
+        VkPipelineLayout layout = VK_NULL_HANDLE;
+        struct {
+            VkStridedDeviceAddressRegionKHR raygen;
+            VkStridedDeviceAddressRegionKHR miss;
+            VkStridedDeviceAddressRegionKHR hit;
+            VkStridedDeviceAddressRegionKHR callable;
+        } sbt;
+        RaytracingPipelineDescription description;
+    };
+
+    struct ComputePipeline {
+        VkPipeline handle = VK_NULL_HANDLE;
+        VkPipelineLayout layout = VK_NULL_HANDLE;
+    };
+
+    class PipelineManager {
     public:
         PipelineManager(std::shared_ptr<VulkanContext> context, ResourceManager& resourceManager);
         ~PipelineManager();
 
         GraphicsPipeline& GetGraphicsPipeline(const RenderPass& renderPass, const GraphicsPipelineDescription& description);
         RaytracingPipeline& GetRaytracingPipeline(const RenderPass& renderPass, const RaytracingPipelineDescription& description);
-        ComputePipeline& GetComputePipeline(const RenderPass& renderPass, const PushConstantDescription& pushConstants, const ComputeKernel& kernel);
-
-        void ClearCache(); 
-        bool CheckForShaderUpdates(); // Monitors .spv files
-        bool CheckForSourceUpdates(); // Monitors .vert/.frag source files
+        ComputePipeline& GetComputePipeline(const RenderPass& renderPass, const ComputePipelineDescription::Kernel& kernel);
+        
+        void ClearCache();
 
     private:
         std::shared_ptr<VulkanContext> m_Context;
@@ -33,9 +52,6 @@ namespace Chimera {
         std::unordered_map<std::string, std::unique_ptr<GraphicsPipeline>> m_GraphicsCache;
         std::unordered_map<std::string, std::unique_ptr<RaytracingPipeline>> m_RaytracingCache;
         std::unordered_map<std::string, std::unique_ptr<ComputePipeline>> m_ComputeCache;
-
-        std::unordered_map<std::string, std::filesystem::file_time_type> m_ShaderTimestamps;
-        std::unordered_map<std::string, std::filesystem::file_time_type> m_SourceTimestamps;
     };
 
 }

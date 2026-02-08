@@ -1,65 +1,30 @@
 #include "pch.h"
 #include "RayTracedRenderPath.h"
-#include "Renderer/Passes/RaytracePass.h"
 #include "Renderer/Graph/ResourceNames.h"
-#include "Renderer/Resources/Buffer.h"
-#include "Renderer/Backend/ShaderMetadata.h"
-#include <imgui.h>
+#include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Backend/VulkanContext.h"
 
-namespace Chimera
-{
-    RayTracedRenderPath::RayTracedRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene, ResourceManager* resourceManager, PipelineManager& pipelineManager, VkDescriptorSetLayout globalDescriptorSetLayout)
-        : RenderPath(context, scene, resourceManager, pipelineManager), m_GlobalDescriptorSetLayout(globalDescriptorSetLayout)
+namespace Chimera {
+
+    RayTracedRenderPath::RayTracedRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene, ResourceManager* resourceManager, PipelineManager& pipelineManager)
+        : RenderPath(context, scene, resourceManager, pipelineManager)
     {
+        m_RaytracePass = std::make_unique<RaytracePass>(m_Width, m_Height);
     }
 
-    RayTracedRenderPath::~RayTracedRenderPath()
+    void RayTracedRenderPath::Render(const RenderFrameInfo& frameInfo) 
     {
-        vkDeviceWaitIdle(m_Context->GetDevice());
-    }
-
-    void RayTracedRenderPath::SetupGraph(RenderGraph& graph)
-    {
-        RaytracePass raytrace(m_Scene, m_FrameCount);
-        raytrace.Setup(graph);
-
-        graph.AddBlitPass("Final Blit", RS::RT_OUTPUT, RS::RENDER_OUTPUT);
-
-        graph.Build();
-    }
-
-    void RayTracedRenderPath::Update()
-    {
-        RenderPath::Update();
-
-        static glm::mat4 lastView = glm::mat4(1.0f);
-        if (m_Scene && m_Scene->GetCamera().view != lastView)
-        {
-            m_FrameCount = 0; 
-            lastView = m_Scene->GetCamera().view;
+        if (m_NeedsRebuild || !m_RenderGraph) {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            if (!m_RenderGraph) Init();
+            
+            m_RaytracePass->Setup(*m_RenderGraph);
+            m_RenderGraph->AddBlitPass("FinalBlit", RS::RTOutput, RS::RENDER_OUTPUT, VK_FORMAT_R16G16B16A16_SFLOAT, m_Context->GetSwapChainImageFormat());
+            m_RenderGraph->Build();
+            m_NeedsRebuild = false;
         }
 
-        m_FrameCount++;
-        // We must rebuild the graph to update the frame index in the pass
-        m_NeedsRebuild = true; 
+        m_RenderGraph->Execute(frameInfo.commandBuffer, frameInfo.frameIndex, frameInfo.imageIndex);
     }
 
-    void RayTracedRenderPath::OnSceneUpdated()
-    {
-        m_NeedsRebuild = true;
-        m_FrameCount = 0;
-    }
-
-    void RayTracedRenderPath::SetScene(std::shared_ptr<Scene> scene)
-    {
-        m_Scene = scene;
-        OnSceneUpdated();
-    }
-
-    void RayTracedRenderPath::OnImGui()
-    {
-        ImGui::Text("Ray Tracing Path (RenderGraph)");
-        ImGui::Text("Accumulated Frames: %d", m_FrameCount);
-        if (ImGui::Button("Reset Accumulation")) m_FrameCount = 0;
-    }
 }

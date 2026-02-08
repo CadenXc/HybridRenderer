@@ -1,22 +1,15 @@
 #pragma once
-
-#include "Renderer/Graph/RenderGraphPass.h"
-#include "Scene/Scene.h"
+#include "Renderer/Graph/RenderGraph.h"
 
 namespace Chimera {
 
-    class RaytracePass : public RenderGraphPass
-    {
+    class RaytracePass {
     public:
-        RaytracePass(std::shared_ptr<Scene> scene, uint32_t& frameCount);
-        virtual void Setup(RenderGraph& graph) override;
+        RaytracePass(uint32_t width, uint32_t height) : m_Width(width), m_Height(height) {}
+        void Setup(RenderGraph& graph);
 
     private:
-        RaytracingPipelineDescription CreatePipelineDescription();
-
-    private:
-        std::shared_ptr<Scene> m_Scene;
-        uint32_t& m_FrameCount;
+        uint32_t m_Width, m_Height;
     };
 
 }

@@ -1,22 +1,15 @@
 #pragma once
-
-#include "Renderer/Graph/RenderGraphPass.h"
-#include <glm/glm.hpp>
+#include "Renderer/Graph/RenderGraph.h"
 
 namespace Chimera {
 
-    class SVGFPass : public RenderGraphPass {
+    class SVGFPass {
     public:
-        struct SVGFPushConstants {
-            glm::uvec2 integrated_shadow_and_ao; // indices or handled by graph?
-            uint32_t prev_frame_normals_and_object_ids;
-            uint32_t shadow_and_ao_history;
-            uint32_t shadow_and_ao_moments_history;
-            int atrous_step;
-        };
-
-        SVGFPass();
+        SVGFPass(uint32_t width, uint32_t height) : m_Width(width), m_Height(height) {}
         void Setup(RenderGraph& graph);
+
+    private:
+        uint32_t m_Width, m_Height;
     };
 
 }

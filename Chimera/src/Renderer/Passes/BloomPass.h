@@ -1,78 +1,28 @@
 #pragma once
-
 #include "Renderer/Graph/RenderGraph.h"
-#include "Renderer/Graph/ResourceNames.h"
-#include "Renderer/Backend/VulkanCommon.h"
-#include "Renderer/Graph/ComputeExecutionContext.h"
+#include "ComputeExecutionContext.h"
 
 namespace Chimera {
 
-    struct BloomPushConstants {
-        int mode; // 0: Extract, 1: H-Blur, 2: V-Blur, 3: Composite
-        float threshold;
-        float intensity;
-    };
-
     class BloomPass {
     public:
-        static void Setup(RenderGraph& graph, const std::string& inputName, float threshold, float intensity) {
-            uint32_t width = graph.GetWidth();
-            uint32_t height = graph.GetHeight();
-            uint32_t groupX = (width + 15) / 16;
-            uint32_t groupY = (height + 15) / 16;
+        BloomPass(uint32_t width, uint32_t height) : m_Width(width), m_Height(height) {}
 
-            ComputePipelineDescription bloomDesc;
-            ComputeKernel kernel;
-            kernel.shader = "bloom.comp";
-            bloomDesc.kernels.push_back(kernel);
-            
-            bloomDesc.push_constant_description.size = sizeof(BloomPushConstants);
-            bloomDesc.push_constant_description.shader_stage = VK_SHADER_STAGE_COMPUTE_BIT;
-
-            // 1. Extract Pass
-            graph.AddComputePass("Bloom: Extract",
-                { TransientResource::Image(inputName, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                { TransientResource::Image(RS::BLOOM_BRIGHT, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                bloomDesc,
-                [=](ComputeExecutionContext& ctx) {
-                    BloomPushConstants pc{ 0, threshold, intensity };
-                    ctx.Dispatch("main", groupX, groupY, 1, pc);
-                }, "Bloom_Standard"
-            );
-
-            // 2. Horizontal Blur
-            graph.AddComputePass("Bloom: Blur H",
-                { TransientResource::Image(RS::BLOOM_BRIGHT, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                { TransientResource::Image(RS::BLOOM_BLUR_TMP, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                bloomDesc,
-                [=](ComputeExecutionContext& ctx) {
-                    BloomPushConstants pc{ 1, threshold, intensity };
-                    ctx.Dispatch("main", groupX, groupY, 1, pc);
-                }, "Bloom_Standard"
-            );
-
-            // 3. Vertical Blur
-            graph.AddComputePass("Bloom: Blur V",
-                { TransientResource::Image(RS::BLOOM_BLUR_TMP, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                { TransientResource::Image(RS::BLOOM_FINAL, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                bloomDesc,
-                [=](ComputeExecutionContext& ctx) {
-                    BloomPushConstants pc{ 2, threshold, intensity };
-                    ctx.Dispatch("main", groupX, groupY, 1, pc);
-                }, "Bloom_Standard"
-            );
-
-            // 4. Composite (Add to input image)
-            graph.AddComputePass("Bloom: Composite",
-                { TransientResource::Image(RS::BLOOM_FINAL, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                { TransientResource::Image(inputName, VK_FORMAT_R16G16B16A16_SFLOAT, 1, {0}, TransientImageType::StorageImage) },
-                bloomDesc,
-                [=](ComputeExecutionContext& ctx) {
-                    BloomPushConstants pc{ 3, threshold, intensity };
-                    ctx.Dispatch("main", groupX, groupY, 1, pc);
-                }, "Bloom_Standard"
-            );
+        void Setup(RenderGraph& graph) {
+            graph.AddComputePass({
+                .Name = "BloomBrightPass",
+                .Dependencies = { TransientResource::Image(RS::FinalColor, VK_FORMAT_B8G8R8A8_UNORM) },
+                .Outputs = { TransientResource::StorageImage(RS::AtrousPing, VK_FORMAT_R16G16B16A16_SFLOAT) }, // Re-using for bloom
+                .Pipeline = { .kernels = { { "Bright", "bloom.comp" } } },
+                .Callback = [this](ComputeExecutionContext& ctx) {
+                    ctx.Dispatch(m_Width / 8, m_Height / 8, 1);
+                },
+                .ShaderLayout = "BloomLayout"
+            });
         }
+
+    private:
+        uint32_t m_Width, m_Height;
     };
 
 }
