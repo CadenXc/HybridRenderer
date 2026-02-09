@@ -10,10 +10,10 @@
 #include <backends/imgui_impl_vulkan.h>
 #include <GLFW/glfw3.h>
 
-namespace Chimera {
-
+namespace Chimera
+{
     ImGuiLayer::ImGuiLayer(const std::shared_ptr<VulkanContext>& context)
-        : m_Context(context)
+        : Layer("ImGuiLayer"), m_Context(context)
     {
     }
 
@@ -39,7 +39,7 @@ namespace Chimera {
         init_info.Device = m_Context->GetDevice();
         init_info.QueueFamily = m_Context->GetGraphicsQueueFamily();
         init_info.Queue = m_Context->GetGraphicsQueue();
-        init_info.DescriptorPool = ResourceManager::Get()->GetDescriptorPool();
+        init_info.DescriptorPool = ResourceManager::Get().GetDescriptorPool();
         init_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
         init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
         init_info.UseDynamicRendering = true;
@@ -67,12 +67,8 @@ namespace Chimera {
     {
         ImGuiIO& io = ImGui::GetIO();
         
-        // [FIX] If it's a scroll event, we don't want to block it entirely
-        // because the viewport (which is an ImGui window) needs to let 
-        // the camera handle zooming even when hovered.
         if (e.GetEventType() == EventType::MouseScrolled)
         {
-            // Do NOT mark as handled, let it pass through to EditorLayer
             return;
         }
 
@@ -94,17 +90,15 @@ namespace Chimera {
 
         VkExtent2D extent = m_Context->GetSwapChainExtent();
         uint32_t imageIndex = Application::Get().GetCurrentImageIndex();
+        
         VkImage targetImage = m_Context->GetSwapChainImages()[imageIndex];
-        VkImageView targetView = m_Context->GetSwapChainImageViews()[imageIndex];
+        VkImageView targetView = m_Context->GetSwapchain()->GetImageViews()[imageIndex];
         VkFormat format = m_Context->GetSwapChainImageFormat();
 
-        // [FIX] The image is already in COLOR_ATTACHMENT_OPTIMAL from BlitPass or BeginFrame.
-        // We just need to start the rendering.
-        
         VkRenderingAttachmentInfoKHR colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR };
         colorAttachment.imageView = targetView;
         colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // MUST BE LOAD to keep scene content
+        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; 
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         
         VkRenderingInfoKHR renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO_KHR };
@@ -117,10 +111,10 @@ namespace Chimera {
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
         vkCmdEndRendering(commandBuffer);
 
-        // Final transition to PRESENT_SRC_KHR so it can be shown on screen.
         VulkanUtils::TransitionImageLayout(commandBuffer, targetImage, format, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
-        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+        {
             ImGui::UpdatePlatformWindows();
             ImGui::RenderPlatformWindowsDefault();
         }
@@ -128,10 +122,19 @@ namespace Chimera {
 
     ImTextureID ImGuiLayer::GetTextureID(VkImageView view, VkSampler sampler)
     {
-        if (view == VK_NULL_HANDLE) return (ImTextureID)0;
-        if (sampler == VK_NULL_HANDLE) sampler = ResourceManager::Get()->GetDefaultSampler();
+        if (view == VK_NULL_HANDLE)
+        {
+            return (ImTextureID)0;
+        }
+        if (sampler == VK_NULL_HANDLE)
+        {
+            sampler = ResourceManager::Get().GetDefaultSampler();
+        }
         
-        if (m_TextureCache.count(view)) return m_TextureCache[view];
+        if (m_TextureCache.count(view))
+        {
+            return m_TextureCache[view];
+        }
         
         ImTextureID id = (ImTextureID)ImGui_ImplVulkan_AddTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         m_TextureCache[view] = id;
@@ -140,7 +143,8 @@ namespace Chimera {
 
     void ImGuiLayer::ClearTextureCache()
     {
-        for (auto& [view, id] : m_TextureCache) {
+        for (auto& [view, id] : m_TextureCache)
+        {
             ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)id);
         }
         m_TextureCache.clear(); 
@@ -168,5 +172,4 @@ namespace Chimera {
         colors[ImGuiCol_TitleBgActive] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
         colors[ImGuiCol_TitleBgCollapsed] = ImVec4{ 0.15f, 0.1505f, 0.151f, 1.0f };
     }
-
 }

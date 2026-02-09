@@ -4,8 +4,8 @@
 #include "Renderer/ChimeraCommon.h"
 #include "Scene/Scene.h"
 
-namespace Chimera {
-
+namespace Chimera
+{
     void GBufferPass::Setup(RenderGraph& graph)
     {
         graph.AddGraphicsPass({
@@ -18,12 +18,13 @@ namespace Chimera {
                 TransientResource::Attachment(RS::Depth, VK_FORMAT_D32_SFLOAT, {1.0f, 0})
             },
             .Pipelines = { { "GBuffer", "gbuffer.vert", "gbuffer.frag" } },
-            .Callback = [scene = m_Scene](ExecuteGraphicsCallback& execute) {
-                execute("GBuffer", [scene](GraphicsExecutionContext& ctx) {
+            .Callback = [scene = m_Scene](ExecuteGraphicsCallback& execute)
+            {
+                execute("GBuffer", [scene](GraphicsExecutionContext& ctx)
+                {
                     scene->RenderMeshes(ctx);
                 });
             }
         });
     }
-
 }

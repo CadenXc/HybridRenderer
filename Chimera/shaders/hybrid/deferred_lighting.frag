@@ -1,16 +1,14 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "pbr.glsl"
+#include "ShaderCommon.h"
 
 layout(location = 0) in vec2 inUV;
 layout(location = 0) out vec4 outColor;
 
-struct DirectionalLight { mat4 projview; vec4 direction; vec4 color; vec4 intensity; };
 layout(set = 0, binding = 0) uniform CameraProperties {
-    mat4 view; mat4 proj; mat4 viewInverse; mat4 projInverse; mat4 viewProjInverse;
-    mat4 prevView; mat4 prevProj; DirectionalLight directionalLight;
-    vec2 displaySize; vec2 displaySizeInverse; uint frameIndex; uint frameCount; uint displayMode; vec4 cameraPos;
-} cam;
+    UniformBufferObject cam;
+};
 
 // --- 按契约重命名 ---
 layout(set = 1, binding = 0) uniform sampler2D Albedo;

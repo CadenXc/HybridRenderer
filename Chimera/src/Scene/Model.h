@@ -6,25 +6,53 @@
 #include <vector>
 #include <memory>
 
-namespace Chimera {
-
+namespace Chimera
+{
     class Model 
     {
     public:
         Model(std::shared_ptr<VulkanContext> context, const ImportedScene& importedScene);
         ~Model();
 
-        const std::vector<Mesh>& GetMeshes() const { return m_Meshes; }
-        VkBuffer GetVertexBuffer() const { return m_VertexBuffer->GetBuffer(); }
-        VkBuffer GetIndexBuffer() const { return m_IndexBuffer->GetBuffer(); }
+        const std::vector<Mesh>& GetMeshes() const
+        {
+            return m_Meshes;
+        }
+
+        Buffer* GetVertexBuffer() const
+        {
+            return m_VertexBuffer.get();
+        }
+
+        Buffer* GetIndexBuffer() const
+        {
+            return m_IndexBuffer.get();
+        }
         
-        VkDeviceAddress GetVertexBufferAddress() const { return m_VertexBuffer->GetDeviceAddress(); }
-        VkDeviceAddress GetIndexBufferAddress() const { return m_IndexBuffer->GetDeviceAddress(); }
+        VkDeviceAddress GetVertexBufferAddress() const
+        {
+            return m_VertexBuffer->GetDeviceAddress();
+        }
 
-        const std::vector<VkAccelerationStructureKHR>& GetBLASHandles() const { return m_BLASHandles; }
+        VkDeviceAddress GetIndexBufferAddress() const
+        {
+            return m_IndexBuffer->GetDeviceAddress();
+        }
 
-        uint32_t GetVertexCount() const { return m_VertexCount; }
-        uint32_t GetIndexCount() const { return m_IndexCount; }
+        const std::vector<VkAccelerationStructureKHR>& GetBLASHandles() const
+        {
+            return m_BLASHandles;
+        }
+
+        uint32_t GetVertexCount() const
+        {
+            return m_VertexCount;
+        }
+
+        uint32_t GetIndexCount() const
+        {
+            return m_IndexCount;
+        }
 
     private:
         void BuildBLAS();

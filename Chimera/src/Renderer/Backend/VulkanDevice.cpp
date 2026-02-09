@@ -2,8 +2,8 @@
 #include "VulkanDevice.h"
 #include "Swapchain.h"
 
-namespace Chimera {
-
+namespace Chimera
+{
     static const char* requiredDeviceExtensions[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
@@ -16,32 +16,40 @@ namespace Chimera {
         VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME
     };
 
-    VulkanDevice::VulkanDevice(VkInstance instance, VkSurfaceKHR surface) {
+    VulkanDevice::VulkanDevice(VkInstance instance, VkSurfaceKHR surface)
+    {
         PickPhysicalDevice(instance, surface);
         CreateLogicalDevice(surface);
         volkLoadDevice(m_LogicalDevice);
         CreateAllocator(instance);
     }
 
-    VulkanDevice::~VulkanDevice() {
+    VulkanDevice::~VulkanDevice()
+    {
         vmaDestroyAllocator(m_Allocator);
         vkDestroyDevice(m_LogicalDevice, nullptr);
     }
 
-    void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface) {
+    void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
+    {
         uint32_t deviceCount = 0;
         vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
-        if (deviceCount == 0) throw std::runtime_error("failed to find GPUs with Vulkan support!");
+        if (deviceCount == 0)
+        {
+            throw std::runtime_error("failed to find GPUs with Vulkan support!");
+        }
 
         std::vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
         std::multimap<int, VkPhysicalDevice> candidates;
-        for (const auto& device : devices) {
+        for (const auto& device : devices)
+        {
             candidates.insert(std::make_pair(RateDeviceSuitability(device, surface), device));
         }
 
-        if (candidates.rbegin()->first > 0) {
+        if (candidates.rbegin()->first > 0)
+        {
             m_PhysicalDevice = candidates.rbegin()->second;
             vkGetPhysicalDeviceProperties(m_PhysicalDevice, &m_DeviceProperties);
             
@@ -51,31 +59,41 @@ namespace Chimera {
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extensionCount, availableExtensions.data());
             
             std::set<std::string> optional;
-            for (auto ext : optionalDeviceExtensions) optional.insert(ext);
-            for (const auto& ext : availableExtensions) optional.erase(ext.extensionName);
+            for (auto ext : optionalDeviceExtensions)
+            {
+                optional.insert(ext);
+            }
+            for (const auto& ext : availableExtensions)
+            {
+                optional.erase(ext.extensionName);
+            }
             m_RayTracingSupported = optional.empty();
 
             CH_CORE_INFO("Selected GPU: {}", m_DeviceProperties.deviceName);
             CH_CORE_INFO("Hardware Ray Tracing Support: {}", m_RayTracingSupported ? "YES" : "NO");
 
-            if (m_RayTracingSupported) {
+            if (m_RayTracingSupported)
+            {
                 m_RayTracingProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
                 VkPhysicalDeviceProperties2 prop2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 };
                 prop2.pNext = &m_RayTracingProperties;
                 vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &prop2);
             }
-            m_MaxSamples = QueryMaxUsableSampleCount();
-        } else {
+        }
+        else
+        {
             throw std::runtime_error("failed to find a suitable GPU!");
         }
     }
 
-    void VulkanDevice::CreateLogicalDevice(VkSurfaceKHR surface) {
+    void VulkanDevice::CreateLogicalDevice(VkSurfaceKHR surface)
+    {
         QueueFamilyIndices indices = FindQueueFamilies(m_PhysicalDevice, surface);
         std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
         float queuePriority = 1.0f;
-        for (uint32_t queueFamily : uniqueQueueFamilies) {
+        for (uint32_t queueFamily : uniqueQueueFamilies)
+        {
             VkDeviceQueueCreateInfo queueCreateInfo{ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
             queueCreateInfo.queueFamilyIndex = queueFamily;
             queueCreateInfo.queueCount = 1;
@@ -88,11 +106,21 @@ namespace Chimera {
         deviceFeatures.shaderInt64 = VK_TRUE;
 
         std::vector<const char*> enabledExtensions;
-        for (auto ext : requiredDeviceExtensions) enabledExtensions.push_back(ext);
-        if (m_RayTracingSupported) {
-            for (auto ext : optionalDeviceExtensions) enabledExtensions.push_back(ext);
+        for (auto ext : requiredDeviceExtensions)
+        {
+            enabledExtensions.push_back(ext);
+        }
+        if (m_RayTracingSupported)
+        {
+            for (auto ext : optionalDeviceExtensions)
+            {
+                enabledExtensions.push_back(ext);
+            }
         }
 
+        // --- Feature Chain Construction ---
+        
+        // 1. Descriptor Indexing
         VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexing{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
         descriptorIndexing.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
         descriptorIndexing.runtimeDescriptorArray = VK_TRUE;
@@ -101,30 +129,42 @@ namespace Chimera {
         descriptorIndexing.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
         descriptorIndexing.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
 
+        // 2. Buffer Device Address
         VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddress{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
+        bufferDeviceAddress.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
         bufferDeviceAddress.bufferDeviceAddress = VK_TRUE;
         bufferDeviceAddress.pNext = &descriptorIndexing;
 
-        VkBaseOutStructure* pNextChain = (VkBaseOutStructure*)&bufferDeviceAddress;
+        void* pNextChain = &bufferDeviceAddress;
 
+        // 3. Ray Tracing (Optional)
         VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
         VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
-        if (m_RayTracingSupported) {
+        if (m_RayTracingSupported)
+        {
+            rtPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
             rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
             rtPipelineFeatures.pNext = pNextChain;
+            
+            asFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
             asFeatures.accelerationStructure = VK_TRUE;
             asFeatures.pNext = &rtPipelineFeatures;
-            pNextChain = (VkBaseOutStructure*)&asFeatures;
+            pNextChain = &asFeatures;
         }
 
+        // 4. Scalar Layout
         VkPhysicalDeviceScalarBlockLayoutFeatures scalarLayout{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES };
+        scalarLayout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES;
         scalarLayout.scalarBlockLayout = VK_TRUE;
         scalarLayout.pNext = pNextChain;
 
+        // 5. Vulkan 1.3 Core Features (including Dynamic Rendering and Sync 2)
         VkPhysicalDeviceVulkan13Features vulkan13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         vulkan13Features.dynamicRendering = VK_TRUE;
+        vulkan13Features.synchronization2 = VK_TRUE;
         vulkan13Features.shaderDemoteToHelperInvocation = VK_TRUE;
-        vulkan13Features.pNext = pNextChain;
+        vulkan13Features.pNext = &scalarLayout;
 
         VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
         createInfo.queueCreateInfoCount = (uint32_t)queueCreateInfos.size();
@@ -134,7 +174,8 @@ namespace Chimera {
         createInfo.ppEnabledExtensionNames = enabledExtensions.data();
         createInfo.pNext = &vulkan13Features;
 
-        if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_LogicalDevice) != VK_SUCCESS) {
+        if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_LogicalDevice) != VK_SUCCESS)
+        {
             throw std::runtime_error("failed to create logical device!");
         }
 
@@ -143,7 +184,8 @@ namespace Chimera {
         m_GraphicsQueueFamily = indices.graphicsFamily.value();
     }
 
-    void VulkanDevice::CreateAllocator(VkInstance instance) {
+    void VulkanDevice::CreateAllocator(VkInstance instance)
+    {
         VmaVulkanFunctions vmaFuncs{};
         vmaFuncs.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
         vmaFuncs.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
@@ -179,62 +221,81 @@ namespace Chimera {
         allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
         allocatorInfo.pVulkanFunctions = &vmaFuncs;
 
-        if (vmaCreateAllocator(&allocatorInfo, &m_Allocator) != VK_SUCCESS) {
+        if (vmaCreateAllocator(&allocatorInfo, &m_Allocator) != VK_SUCCESS)
+        {
             throw std::runtime_error("failed to create VMA allocator!");
         }
     }
 
-    QueueFamilyIndices VulkanDevice::FindQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) {
+    QueueFamilyIndices VulkanDevice::FindQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)
+    {
         QueueFamilyIndices indices;
         uint32_t count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
         std::vector<VkQueueFamilyProperties> families(count);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &count, families.data());
-        for (int i = 0; i < (int)count; ++i) {
-            if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) indices.graphicsFamily = i;
+        for (int i = 0; i < (int)count; ++i)
+        {
+            if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                indices.graphicsFamily = i;
+            }
             VkBool32 presentSupport = false;
             vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
-            if (presentSupport) indices.presentFamily = i;
-            if (indices.isComplete()) break;
+            if (presentSupport)
+            {
+                indices.presentFamily = i;
+            }
+            if (indices.isComplete())
+            {
+                break;
+            }
         }
         return indices;
     }
 
-    int VulkanDevice::RateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface) {
-        VkPhysicalDeviceProperties props; vkGetPhysicalDeviceProperties(device, &props);
+    int VulkanDevice::RateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface)
+    {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(device, &props);
         int score = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) ? 1000 : 0;
         QueueFamilyIndices indices = FindQueueFamilies(device, surface);
-        if (!indices.isComplete()) return 0;
+        if (!indices.isComplete())
+        {
+            return 0;
+        }
         return score + 1;
     }
 
-    uint32_t VulkanDevice::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+    uint32_t VulkanDevice::FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties)
+    {
         VkPhysicalDeviceMemoryProperties memProps;
         vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice, &memProps);
-        for (uint32_t i = 0; i < memProps.memoryTypeCount; i++) {
-            if ((typeFilter & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties) return i;
+        for (uint32_t i = 0; i < memProps.memoryTypeCount; i++)
+        {
+            if ((typeFilter & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & properties) == properties)
+            {
+                return i;
+            }
         }
         throw std::runtime_error("failed to find suitable memory type!");
     }
 
-    VkFormat VulkanDevice::FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features) {
-        for (VkFormat format : candidates) {
-            VkFormatProperties props; vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, format, &props);
-            if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) return format;
-            if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) return format;
+    VkFormat VulkanDevice::FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+    {
+        for (VkFormat format : candidates)
+        {
+            VkFormatProperties props;
+            vkGetPhysicalDeviceFormatProperties(m_PhysicalDevice, format, &props);
+            if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
+            {
+                return format;
+            }
+            if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features)
+            {
+                return format;
+            }
         }
         throw std::runtime_error("failed to find supported format!");
     }
-
-    VkSampleCountFlagBits VulkanDevice::QueryMaxUsableSampleCount() {
-        VkSampleCountFlags counts = m_DeviceProperties.limits.framebufferColorSampleCounts & m_DeviceProperties.limits.framebufferDepthSampleCounts;
-        if (counts & VK_SAMPLE_COUNT_64_BIT) return VK_SAMPLE_COUNT_64_BIT;
-        if (counts & VK_SAMPLE_COUNT_32_BIT) return VK_SAMPLE_COUNT_32_BIT;
-        if (counts & VK_SAMPLE_COUNT_16_BIT) return VK_SAMPLE_COUNT_16_BIT;
-        if (counts & VK_SAMPLE_COUNT_8_BIT) return VK_SAMPLE_COUNT_8_BIT;
-        if (counts & VK_SAMPLE_COUNT_4_BIT) return VK_SAMPLE_COUNT_4_BIT;
-        if (counts & VK_SAMPLE_COUNT_2_BIT) return VK_SAMPLE_COUNT_2_BIT;
-        return VK_SAMPLE_COUNT_1_BIT;
-    }
-
 }

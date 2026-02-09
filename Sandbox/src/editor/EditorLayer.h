@@ -1,8 +1,9 @@
 #pragma once
 
 #include "Core/Layer.h"
-#include "Core/Application.h"
 #include "Scene/EditorCamera.h"
+#include "Scene/Scene.h"
+#include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include <vector>
 #include <string>
@@ -15,14 +16,22 @@ namespace Chimera {
 	class EditorLayer : public Layer
 	{
 	public:
-		EditorLayer(Application* app);
+		EditorLayer();
 		~EditorLayer() = default;
 
 		virtual void OnAttach() override;
 		virtual void OnDetach() override;
 		virtual void OnUpdate(Timestep ts) override;
-		virtual void OnUIRender() override;
+		virtual void OnImGuiRender() override;
 		virtual void OnEvent(Event& e) override;
+
+		void SwitchRenderPath(RenderPathType type);
+		void LoadScene(const std::string& path);
+		void ClearScene();
+		void LoadSkybox(const std::string& path);
+
+		std::shared_ptr<Scene> GetActiveScene() { return m_Scene; }
+		RenderPath* GetRenderPath() { return m_RenderPath.get(); }
 
 	private:
 		void RefreshModelList();
@@ -39,7 +48,6 @@ namespace Chimera {
 		void DrawLightSettings();
 
 	private:
-		Application* m_App;
 		EditorCamera m_EditorCamera;
 		
 		// Viewport & Debugging
@@ -64,6 +72,10 @@ namespace Chimera {
 		// Performance Metrics
 		float m_AverageFrameTime = 0.0f;
 		float m_AverageFPS = 0.0f;
+
+		// Rendering & Scene (Migrated from Application)
+		std::shared_ptr<Scene> m_Scene;
+		std::unique_ptr<RenderPath> m_RenderPath;
 	};
 
 }

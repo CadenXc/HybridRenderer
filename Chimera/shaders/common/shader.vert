@@ -1,4 +1,6 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
@@ -9,29 +11,8 @@ layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec2 fragTexCoord;
 layout(location = 2) out vec3 fragPos;
 
-struct DirectionalLight
-{
-    mat4 projview;
-    vec4 direction;
-    vec4 color;
-    vec4 intensity;
-};
-
 layout(set = 0, binding = 0) uniform GlobalUBO {
-    mat4 view;
-    mat4 proj;
-    mat4 viewInverse;
-    mat4 projInverse;
-    mat4 viewProjInverse;
-    mat4 prevView;
-    mat4 prevProj;
-    DirectionalLight directionalLight;
-    vec2 displaySize;
-    vec2 displaySizeInverse;
-    uint frameIndex;
-    uint frameCount;
-    uint displayMode;
-    vec4 cameraPos;
+    UniformBufferObject cam;
 } ubo;
 
 layout(push_constant) uniform PushConstants {
@@ -42,7 +23,7 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     vec4 worldPos = push.model * vec4(inPosition, 1.0);
-    gl_Position = ubo.proj * ubo.view * worldPos;
+    gl_Position = ubo.cam.proj * ubo.cam.view * worldPos;
 
     fragNormal = mat3(push.normalMatrix) * inNormal;
     fragTexCoord = inTexCoord;

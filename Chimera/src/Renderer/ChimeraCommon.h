@@ -9,8 +9,8 @@
 // VMA Forward Declarations (Avoid complete include here)
 typedef struct VmaAllocation_T* VmaAllocation;
 
-namespace Chimera {
-
+namespace Chimera
+{
     // 1. 核心前置声明
     class VulkanContext;
     class ResourceManager;
@@ -28,10 +28,18 @@ namespace Chimera {
     enum class TransientResourceType { Image, Buffer, Sampler, AccelerationStructure, Storage };
     enum class TransientImageType { AttachmentImage, SampledImage, StorageImage };
     
-    struct ApplicationSpecification { 
+    struct RenderFrameInfo
+    {
+        VkCommandBuffer commandBuffer;
+        uint32_t frameIndex;
+        uint32_t imageIndex;
+        VkDescriptorSet globalSet;
+    };
+
+    struct ApplicationSpecification
+    { 
         std::string Name = "Chimera App"; 
         uint32_t Width = 1600; 
         uint32_t Height = 900; 
     };
-
 }

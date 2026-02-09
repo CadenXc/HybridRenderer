@@ -3,8 +3,8 @@
 #include "spirv_reflect.h"
 #include "Core/FileIO.h"
 
-namespace Chimera {
-
+namespace Chimera
+{
     Shader::Shader(const std::string& path)
         : m_Path(path)
     {
@@ -20,8 +20,10 @@ namespace Chimera {
     {
     }
 
-    static VkDescriptorType ReflectToVulkanDescriptorType(SpvReflectDescriptorType type) {
-        switch (type) {
+    static VkDescriptorType ReflectToVulkanDescriptorType(SpvReflectDescriptorType type)
+    {
+        switch (type)
+        {
             case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER:                return VK_DESCRIPTOR_TYPE_SAMPLER;
             case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:          return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -42,7 +44,8 @@ namespace Chimera {
     {
         SpvReflectShaderModule module;
         SpvReflectResult result = spvReflectCreateShaderModule(m_Bytecode.size() * 4, m_Bytecode.data(), &module);
-        if (result != SPV_REFLECT_RESULT_SUCCESS) {
+        if (result != SPV_REFLECT_RESULT_SUCCESS)
+        {
             CH_CORE_ERROR("Shader Reflection Failed: {0}", m_Path);
             return;
         }
@@ -55,7 +58,8 @@ namespace Chimera {
         std::vector<SpvReflectDescriptorBinding*> bindings(count);
         spvReflectEnumerateDescriptorBindings(&module, &count, bindings.data());
 
-        for (auto* b : bindings) {
+        for (auto* b : bindings)
+        {
             ShaderResourceBinding binding{};
             binding.name = b->name;
             binding.binding = b->binding;
@@ -73,11 +77,11 @@ namespace Chimera {
         std::vector<SpvReflectBlockVariable*> pc_blocks(pc_count);
         spvReflectEnumeratePushConstantBlocks(&module, &pc_count, pc_blocks.data());
 
-        if (pc_count > 0) {
+        if (pc_count > 0)
+        {
             m_PushConstantSize = pc_blocks[0]->size;
         }
 
         spvReflectDestroyShaderModule(&module);
     }
-
 }

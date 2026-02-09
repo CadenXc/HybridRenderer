@@ -15,6 +15,7 @@ namespace Chimera {
                 .Outputs = { TransientResource::StorageImage(RS::AtrousPing, VK_FORMAT_R16G16B16A16_SFLOAT) }, // Re-using for bloom
                 .Pipeline = { .kernels = { { "Bright", "bloom.comp" } } },
                 .Callback = [this](ComputeExecutionContext& ctx) {
+                    ctx.Bind("Bright");
                     ctx.Dispatch(m_Width / 8, m_Height / 8, 1);
                 },
                 .ShaderLayout = "BloomLayout"

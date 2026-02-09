@@ -6,7 +6,7 @@ namespace Chimera {
 
     class RayTracedRenderPath : public RenderPath {
     public:
-        RayTracedRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene, ResourceManager* resourceManager, PipelineManager& pipelineManager);
+        RayTracedRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene);
         virtual ~RayTracedRenderPath() = default;
 
         virtual void Render(const RenderFrameInfo& frameInfo) override;

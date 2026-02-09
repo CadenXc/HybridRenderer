@@ -17,6 +17,7 @@ namespace Chimera {
             .Outputs = { TransientResource::StorageImage(RS::SVGFOutput, VK_FORMAT_R16G16_SFLOAT) },
             .Pipeline = { .kernels = { { "SVGF", "svgf.comp" } } },
             .Callback = [w = m_Width, h = m_Height](ComputeExecutionContext& ctx) {
+                ctx.Bind("SVGF");
                 ctx.Dispatch(w / 8, h / 8, 1);
             }
         });

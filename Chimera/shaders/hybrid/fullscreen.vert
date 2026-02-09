@@ -1,29 +1,11 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
 
 layout(location = 0) out vec2 outUV;
 
-struct DirectionalLight
-{
-    mat4 projview;
-    vec4 direction;
-    vec4 color;
-    vec4 intensity;
-};
-
-layout(set = 0, binding = 0) uniform UniformBufferObject {
-    mat4 view;
-    mat4 proj;
-    mat4 viewInverse;
-    mat4 projInverse;
-    mat4 viewProjInverse;
-    mat4 prevView;
-    mat4 prevProj;
-    DirectionalLight directionalLight;
-    vec2 displaySize;
-    vec2 displaySizeInverse;
-    uint frameIndex;
-    uint frameCount;
-    vec4 cameraPos;
+layout(set = 0, binding = 0) uniform GlobalUBO {
+    UniformBufferObject cam;
 } ubo;
 
 void main() {

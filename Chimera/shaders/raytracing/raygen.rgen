@@ -4,29 +4,26 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : require
 
-#include "../common/structures.glsl"
+#include "ShaderCommon.h"
 
 layout(location = 0) rayPayloadEXT HitPayload payload;
-layout(location = 1) rayPayloadEXT bool isShadowed;
 
-struct DirectionalLight { mat4 projview; vec4 direction; vec4 color; vec4 intensity; };
-layout(binding = 0, set = 0) uniform CameraProperties {
-    mat4 view; mat4 proj; mat4 viewInverse; mat4 projInverse; mat4 viewProjInverse;
-    mat4 prevView; mat4 prevProj; DirectionalLight directionalLight;
-    vec2 displaySize; vec2 displaySizeInverse; uint frameIndex; uint frameCount; uint displayMode; vec4 cameraPos;
-} cam;
+// Set 0: Global
+layout(binding = 0, set = 0) uniform GlobalUBO {
+    UniformBufferObject cam;
+} ubo;
 
+// Set 1: Scene (Unified)
 layout(binding = 0, set = 1) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 1, rgba8) uniform image2D rtOutput;
-layout(binding = 2, set = 1, scalar) buffer MaterialBuffer { PBRMaterial m[]; } materials;
-layout(binding = 3, set = 1, scalar) buffer InstanceDataBuffer { RTInstanceData i[]; } instances;
-layout(binding = 4, set = 1) uniform sampler2D textureArray[];
+layout(binding = 1, set = 1, scalar) readonly buffer MaterialBuffer { PBRMaterial m[]; } materialBuffer;
+layout(binding = 2, set = 1, scalar) readonly buffer InstanceDataBuffer { RTInstanceData i[]; } instanceBuffer;
+layout(binding = 3, set = 1) uniform sampler2D textureArray[];
+
+// Set 2: Pass Specific
+layout(binding = 0, set = 2, rgba16f) uniform image2D rtOutput; // Explicitly match VK_FORMAT_R16G16B16A16_SFLOAT
 
 layout(push_constant) uniform PushConstants {
     vec4 clearColor;
-    vec3 lightPos;
-    float lightIntensity;
-    int frameCount;
     int skyboxIndex;
 } push;
 
@@ -36,44 +33,15 @@ void main()
     const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
     vec2 d = inUV * 2.0 - 1.0;
 
-    vec4 origin = cam.viewInverse * vec4(0, 0, 0, 1);
-    vec4 target = cam.projInverse * vec4(d.x, d.y, 1, 1);
-    vec4 direction = cam.viewInverse * vec4(normalize(target.xyz), 0);
+    vec4 origin = ubo.cam.viewInverse * vec4(0, 0, 0, 1);
+    vec4 target = ubo.cam.projInverse * vec4(d.x, d.y, 1, 1);
+    vec4 direction = ubo.cam.viewInverse * vec4(normalize(target.xyz), 0);
 
-    vec3 finalColor = vec3(0.0);
-    vec3 currentAttenuation = vec3(1.0);
-
-    for(int i = 0; i < 2; i++) {
-        payload.hit = false;
-        payload.color = vec3(0.0);
-        payload.attenuation = vec3(1.0);
-        
-        traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin.xyz, 0.001, direction.xyz, 10000.0, 0);
-        
-        if (!payload.hit) {
-            if (push.skyboxIndex >= 0) {
-                vec3 skyColor = textureLod(textureArray[nonuniformEXT(push.skyboxIndex)], inUV, 0.0).rgb;
-                finalColor += skyColor * currentAttenuation;
-            } else {
-                finalColor += push.clearColor.rgb * currentAttenuation;
-            }
-            break;
-        }
-
-        finalColor += payload.color * currentAttenuation;
-        currentAttenuation *= payload.attenuation;
-
-        if (length(currentAttenuation) < 0.01) break;
-
-        origin = vec4(payload.rayOrigin, 1.0);
-        direction = vec4(payload.rayDir, 0.0);
-    }
-
-    if (push.frameCount > 1) {
-        vec3 oldColor = imageLoad(rtOutput, ivec2(gl_LaunchIDEXT.xy)).rgb;
-        float a = 1.0 / float(push.frameCount);
-        imageStore(rtOutput, ivec2(gl_LaunchIDEXT.xy), vec4(mix(oldColor, finalColor, a), 1.0));
-    } else {
-        imageStore(rtOutput, ivec2(gl_LaunchIDEXT.xy), vec4(finalColor, 1.0));
-    }
+    payload.hit = false;
+    payload.color = vec3(0.0);
+    
+    traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin.xyz, 0.001, direction.xyz, 10000.0, 0);
+    
+    vec3 finalColor = payload.hit ? payload.color : push.clearColor.rgb;
+    imageStore(rtOutput, ivec2(gl_LaunchIDEXT.xy), vec4(finalColor, 1.0));
 }

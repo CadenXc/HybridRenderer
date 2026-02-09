@@ -10,7 +10,7 @@ namespace Chimera {
 
     class HybridRenderPath : public RenderPath {
     public:
-        HybridRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene, ResourceManager* resourceManager, PipelineManager& pipelineManager);
+        HybridRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene);
         virtual ~HybridRenderPath() = default;
 
         virtual RenderPathType GetType() const override { return RenderPathType::Hybrid; }

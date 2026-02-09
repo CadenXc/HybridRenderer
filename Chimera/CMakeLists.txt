@@ -78,7 +78,7 @@ if(GLSLC_EXECUTABLE)
         
         add_custom_command(
             OUTPUT ${SPIRV_BINARY}
-            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -I "${SHADER_SOURCE_DIR}/common" ${SHADER_FILE} -o ${SPIRV_BINARY}
+            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -I "${CMAKE_CURRENT_SOURCE_DIR}/src/Renderer/Backend" -I "${SHADER_SOURCE_DIR}/common" ${SHADER_FILE} -o ${SPIRV_BINARY}
             DEPENDS ${SHADER_FILE}
             COMMENT "Compiling Chimera Shader: ${SHADER_NAME} to SPIR-V..."
         )

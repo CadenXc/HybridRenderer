@@ -7,8 +7,7 @@ namespace Chimera {
 
     void SVGFAtrousPass::Setup(RenderGraph& graph)
     {
-        // 这一步逻辑较复杂，因为涉及多次迭代 (Ping-Pong)
-        // 在新契约下，我们只需确保基础资源的正确
+        // This pass typically involves multiple iterations (Ping-Pong)
         graph.AddComputePass({
             .Name = "SVGFAtrousPass",
             .Dependencies = {
@@ -23,9 +22,9 @@ namespace Chimera {
                 .kernels = { { "Atrous", "svgf_atrous.comp" } }
             },
             .Callback = [w = m_Width, h = m_Height](ComputeExecutionContext& ctx) {
-                ctx.Dispatch(w, h, 1);
-            },
-            .ShaderLayout = "AtrousLayout"
+                ctx.Bind("Atrous");
+                ctx.Dispatch((w + 15) / 16, (h + 15) / 16, 1);
+            }
         });
     }
 

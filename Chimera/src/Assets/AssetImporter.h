@@ -4,8 +4,8 @@
 #include <string>
 #include <memory>
 
-namespace Chimera {
-
+namespace Chimera
+{
     class ResourceManager;
 
     class AssetImporter
@@ -17,5 +17,4 @@ namespace Chimera {
         static void LoadGLTF(const std::string& path, ImportedScene& outScene, ResourceManager* resourceManager);
         static void LoadOBJ(const std::string& path, ImportedScene& outScene, ResourceManager* resourceManager);
     };
-
 }

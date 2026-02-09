@@ -3,9 +3,10 @@
 #include "Renderer/Backend/VulkanContext.h"
 #include <imgui.h>
 
-namespace Chimera {
-
-    class ImGuiLayer : public Layer {
+namespace Chimera
+{
+    class ImGuiLayer : public Layer
+    {
     public:
         ImGuiLayer(const std::shared_ptr<VulkanContext>& context);
         virtual ~ImGuiLayer() override;
@@ -27,5 +28,4 @@ namespace Chimera {
         std::shared_ptr<VulkanContext> m_Context;
         std::unordered_map<VkImageView, ImTextureID> m_TextureCache;
     };
-
 }

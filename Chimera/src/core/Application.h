@@ -11,9 +11,21 @@
 #include <vector>
 #include <deque>
 
-namespace Chimera {
+namespace Chimera
+{
+    // Forward declarations
+    class Window;
+    class Layer;
+    class ImGuiLayer;
+    class VulkanContext;
+    class Renderer;
+    class RenderState;
+    class ResourceManager;
+    class PipelineManager;
+    class SceneRenderer;
 
-    struct AppFrameContext {
+    struct AppFrameContext
+    {
         glm::vec2 ViewportSize;
         glm::mat4 View;
         glm::mat4 Projection;
@@ -23,12 +35,16 @@ namespace Chimera {
         uint32_t FrameIndex;
     };
 
-    class Application {
+    class Application
+    {
     public:
         Application(const ApplicationSpecification& spec);
         virtual ~Application();
 
-        static Application& Get() { return *s_Instance; }
+        static Application& Get()
+        {
+            return *s_Instance;
+        }
 
         void Run();
         void OnEvent(Event& e);
@@ -36,62 +52,68 @@ namespace Chimera {
         void PushLayer(std::shared_ptr<Layer> layer);
         void PushOverlay(std::shared_ptr<Layer> layer);
 
-        void SwitchRenderPath(RenderPathType type);
-        void RecompileShaders();
-        void RequestShaderReload();
-        void drawFrame();
-        void ExecuteRenderPathSwitch(RenderPathType type);
-        
-        void LoadScene(const std::string& path);
-        void ExecuteLoadScene(const std::string& path);
-        void ClearScene();
-        void ExecuteClearScene();
-        void LoadSkybox(const std::string& path);
-        void ExecuteLoadSkybox(const std::string& path);
+        template<typename T>
+        std::shared_ptr<T> GetLayer()
+        {
+            for (auto& layer : m_LayerStack)
+            {
+                std::shared_ptr<T> result = std::dynamic_pointer_cast<T>(layer);
+                if (result)
+                {
+                    return result;
+                }
+            }
+            return nullptr;
+        }
+
+        // --- System Commands ---
         void Close();
 
+        // --- Getters ---
         Window& GetWindow() { return *m_Window; }
-        std::shared_ptr<class Scene> GetScene() { return m_Scene; }
-        class RenderPath* GetRenderPath() { return m_RenderPath.get(); }
-        class Renderer* GetRenderer() { return m_Renderer.get(); }
-        class RenderState* GetRenderState() { return m_RenderState.get(); }
-        class ResourceManager* GetResourceManager() { return m_ResourceManager.get(); }
-        class PipelineManager* GetPipelineManager() { return m_PipelineManager.get(); }
-        std::shared_ptr<class ImGuiLayer> GetImGuiLayer() { return m_ImGuiLayer; }
-        uint32_t GetCurrentImageIndex() const;
-        
-        uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
-        void SetFrameContext(const AppFrameContext& ctx) { m_FrameContext = ctx; }
+        std::shared_ptr<VulkanContext> GetContext() { return m_Context; }
+        Renderer* GetRenderer() { return m_Renderer.get(); }
+        RenderState* GetRenderState() { return m_RenderState.get(); }
+        std::shared_ptr<ImGuiLayer> GetImGuiLayer() { return m_ImGuiLayer; }
 
-        void QueueEvent(std::function<void()>&& func) {
+        uint32_t GetCurrentImageIndex() const;
+        uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
+
+        void SetFrameContext(const AppFrameContext& ctx) { m_FrameContext = ctx; }
+        float GetDepthScale() const { return m_DepthScale; }
+        void SetDepthScale(float scale) { m_DepthScale = scale; }
+
+        void QueueEvent(std::function<void()>&& func)
+        {
             std::lock_guard<std::mutex> lock(m_EventQueueMutex);
             m_EventQueue.push_back(std::move(func));
         }
 
         VkCommandBuffer GetCommandBuffer(bool begin = true);
         void FlushCommandBuffer(VkCommandBuffer cmd);
-        RenderPathType GetCurrentRenderPathType() const;
 
     private:
+        void DrawFrame(Timestep ts); 
+        void ProcessEventQueue();
+        void UpdateGlobalUBO(uint32_t frameIndex);
+        
         bool OnWindowClose(WindowCloseEvent& e);
         bool OnWindowResize(WindowResizeEvent& e);
-        void cleanup();
 
     private:
         static Application* s_Instance;
         ApplicationSpecification m_Specification;
         
         std::unique_ptr<Window> m_Window;
-        std::shared_ptr<class VulkanContext> m_Context;
-        std::unique_ptr<class ResourceManager> m_ResourceManager;
-        std::unique_ptr<class PipelineManager> m_PipelineManager;
-        std::unique_ptr<class RenderState> m_RenderState;
-        std::shared_ptr<class Renderer> m_Renderer;
+        std::shared_ptr<VulkanContext> m_Context;
         
-        std::shared_ptr<class ImGuiLayer> m_ImGuiLayer;
-        std::unique_ptr<class SceneRenderer> m_SceneRenderer;
-        std::shared_ptr<class Scene> m_Scene;
-        std::unique_ptr<class RenderPath> m_RenderPath;
+        std::unique_ptr<ResourceManager> m_ResourceManager;
+        std::unique_ptr<PipelineManager> m_PipelineManager;
+        std::unique_ptr<RenderState> m_RenderState;
+        std::unique_ptr<Renderer> m_Renderer;
+        
+        std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
+        std::unique_ptr<SceneRenderer> m_SceneRenderer;
         
         std::vector<std::shared_ptr<Layer>> m_LayerStack;
         unsigned int m_LayerIndex = 0;
@@ -104,6 +126,6 @@ namespace Chimera {
         bool m_Minimized = false;
         float m_LastFrameTime = 0.0f;
         uint32_t m_TotalFrameCount = 0;
+        float m_DepthScale = 1.0f;
     };
-
 }

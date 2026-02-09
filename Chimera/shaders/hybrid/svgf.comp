@@ -3,16 +3,13 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : require
 
-#include "../common/structures.glsl"
+#include "ShaderCommon.h"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-struct DirectionalLight { mat4 projview; vec4 direction; vec4 color; vec4 intensity; };
 layout(binding = 0, set = 0) uniform CameraProperties {
-    mat4 view; mat4 proj; mat4 viewInverse; mat4 projInverse; mat4 viewProjInverse;
-    mat4 prevView; mat4 prevProj; DirectionalLight directionalLight;
-    vec2 displaySize; vec2 displaySizeInverse; uint frameIndex; uint frameCount; uint displayMode; vec4 cameraPos;
-} cam;
+    UniformBufferObject cam;
+};
 
 // SVGF_Standard Layout
 layout(binding = 0, set = 1, rgba16f) uniform image2D imgNormal;

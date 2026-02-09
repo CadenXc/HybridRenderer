@@ -2,8 +2,8 @@
 #include "Swapchain.h"
 #include <algorithm>
 
-namespace Chimera {
-
+namespace Chimera
+{
     Swapchain::Swapchain(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, GLFWwindow* window)
         : m_Device(device), m_PhysicalDevice(physicalDevice), m_Surface(surface), m_Window(window)
     {
@@ -20,7 +20,8 @@ namespace Chimera {
     {
         int width = 0, height = 0;
         glfwGetFramebufferSize(m_Window, &width, &height);
-        while (width == 0 || height == 0) {
+        while (width == 0 || height == 0)
+        {
             glfwGetFramebufferSize(m_Window, &width, &height);
             glfwWaitEvents();
         }
@@ -41,7 +42,8 @@ namespace Chimera {
         VkExtent2D extent = ChooseSwapExtent(swapChainSupport.capabilities);
 
         uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
+        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
+        {
             imageCount = swapChainSupport.capabilities.maxImageCount;
         }
 
@@ -65,7 +67,8 @@ namespace Chimera {
         createInfo.presentMode = presentMode;
         createInfo.clipped = VK_TRUE;
 
-        if (vkCreateSwapchainKHR(m_Device, &createInfo, nullptr, &m_SwapChain) != VK_SUCCESS) {
+        if (vkCreateSwapchainKHR(m_Device, &createInfo, nullptr, &m_SwapChain) != VK_SUCCESS)
+        {
             throw std::runtime_error("failed to create swap chain!");
         }
 
@@ -79,12 +82,14 @@ namespace Chimera {
 
     void Swapchain::Cleanup()
     {
-        for (auto imageView : m_SwapChainImageViews) {
+        for (auto imageView : m_SwapChainImageViews)
+        {
             vkDestroyImageView(m_Device, imageView, nullptr);
         }
         m_SwapChainImageViews.clear();
 
-        if (m_SwapChain != VK_NULL_HANDLE) {
+        if (m_SwapChain != VK_NULL_HANDLE)
+        {
             vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
             m_SwapChain = VK_NULL_HANDLE;
         }
@@ -94,7 +99,8 @@ namespace Chimera {
     {
         m_SwapChainImageViews.resize(m_SwapChainImages.size());
 
-        for (size_t i = 0; i < m_SwapChainImages.size(); i++) {
+        for (size_t i = 0; i < m_SwapChainImages.size(); i++)
+        {
             VkImageViewCreateInfo viewInfo{};
             viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             viewInfo.image = m_SwapChainImages[i];
@@ -106,7 +112,8 @@ namespace Chimera {
             viewInfo.subresourceRange.baseArrayLayer = 0;
             viewInfo.subresourceRange.layerCount = 1;
 
-            if (vkCreateImageView(m_Device, &viewInfo, nullptr, &m_SwapChainImageViews[i]) != VK_SUCCESS) {
+            if (vkCreateImageView(m_Device, &viewInfo, nullptr, &m_SwapChainImageViews[i]) != VK_SUCCESS)
+            {
                 throw std::runtime_error("failed to create swap chain image view!");
             }
         }
@@ -114,8 +121,10 @@ namespace Chimera {
 
     VkSurfaceFormatKHR Swapchain::ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
     {
-        for (const auto& availableFormat : availableFormats) {
-            if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        for (const auto& availableFormat : availableFormats)
+        {
+            if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+            {
                 return availableFormat;
             }
         }
@@ -124,8 +133,10 @@ namespace Chimera {
 
     VkPresentModeKHR Swapchain::ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes)
     {
-        for (const auto& availablePresentMode : availablePresentModes) {
-            if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+        for (const auto& availablePresentMode : availablePresentModes)
+        {
+            if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+            {
                 return availablePresentMode;
             }
         }
@@ -134,9 +145,12 @@ namespace Chimera {
 
     VkExtent2D Swapchain::ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities)
     {
-        if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+        if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+        {
             return capabilities.currentExtent;
-        } else {
+        }
+        else
+        {
             int width, height;
             glfwGetFramebufferSize(m_Window, &width, &height);
 
@@ -159,19 +173,20 @@ namespace Chimera {
 
         uint32_t formatCount;
         vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
-        if (formatCount != 0) {
+        if (formatCount != 0)
+        {
             details.formats.resize(formatCount);
             vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
         }
 
         uint32_t presentModeCount;
         vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
-        if (presentModeCount != 0) {
+        if (presentModeCount != 0)
+        {
             details.presentModes.resize(presentModeCount);
             vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
         }
 
         return details;
     }
-
 }

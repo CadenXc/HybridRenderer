@@ -8,24 +8,14 @@
 #include <vector>
 #include <array>
 
-#include "Renderer/Backend/ShaderStructures.h"
+#include "Renderer/Resources/ResourceHandle.h"
+#include "Renderer/Backend/ShaderCommon.h"
 
 namespace Chimera {
 
-    struct Vertex
+    struct VertexInfo : public Vertex
     {
-        glm::vec3 pos;
-        float pad1;
-
-        glm::vec3 normal;
-        float pad2;
-
-        glm::vec4 tangent;
-
-        glm::vec2 texCoord;
-        glm::vec2 pad3;
-
-        bool operator==(const Vertex& other) const
+        bool operator==(const VertexInfo& other) const
         {
             return pos == other.pos && normal == other.normal && texCoord == other.texCoord;
         }
@@ -92,14 +82,6 @@ namespace Chimera {
         glm::mat4 projInverse{ 1.0f };
     };
 
-    struct DirectionalLight
-    {
-        glm::mat4 projview{ 1.0f };
-        glm::vec4 direction{ 0.0f, -1.0f, 0.0f, 0.0f };
-        glm::vec4 color{ 1.0f };
-        glm::vec4 intensity{ 1.0f };
-    };
-
     class Model;
 
     struct TransformComponent
@@ -134,7 +116,7 @@ namespace Chimera {
     // 存储 Importer 产出的结果
     struct ImportedScene
     {
-        std::vector<Vertex> Vertices;
+        std::vector<VertexInfo> Vertices;
         std::vector<uint32_t> Indices;
         std::vector<Mesh> Meshes;
         std::vector<PBRMaterial> Materials;
@@ -144,9 +126,9 @@ namespace Chimera {
 
 namespace std 
 {
-    template<> struct hash<Chimera::Vertex>
+    template<> struct hash<Chimera::VertexInfo>
     {
-        size_t operator()(const Chimera::Vertex& vertex) const
+        size_t operator()(const Chimera::VertexInfo& vertex) const
         {
             return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.normal) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.texCoord) << 1);
         }

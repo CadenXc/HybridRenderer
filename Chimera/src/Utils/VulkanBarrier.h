@@ -2,11 +2,12 @@
 #include "pch.h"
 #include "Renderer/ChimeraCommon.h"
 
-namespace Chimera {
+namespace Chimera
+{
     class VulkanContext;
 
-    namespace VulkanUtils {
-
+    namespace VulkanUtils
+    {
         VkImageMemoryBarrier CreateImageBarrier(
             VkImage image,
             VkImageLayout oldLayout,
@@ -28,7 +29,17 @@ namespace Chimera {
             VkAccessFlags dstAccessMask
         );
 
-        // 直接录制到 CommandBuffer (用于 Render Loop)
+        // [NEW] Synchronization 2 transition
+        void TransitionImage(
+            VkCommandBuffer commandBuffer,
+            VkImage image,
+            VkImageLayout oldLayout,
+            VkImageLayout newLayout,
+            VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            uint32_t mipLevels = 1
+        );
+
+        // 直接录制到 CommandBuffer (用于 Render Loop) - Legacy wrapper
         void TransitionImageLayout(
             VkCommandBuffer commandBuffer,
             VkImage image,
@@ -38,9 +49,8 @@ namespace Chimera {
             uint32_t mipLevels = 1
         );
 
-        // 自动创建临�?CommandBuffer 并提�?(用于初始�?
+        // 自动创建临时 CommandBuffer 并提交 (用于初始化)
         void TransitionImageLayout(
-            std::shared_ptr<VulkanContext> context,
             VkImage image,
             VkFormat format,
             VkImageLayout oldLayout,

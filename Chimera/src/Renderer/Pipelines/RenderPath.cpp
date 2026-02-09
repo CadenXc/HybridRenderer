@@ -3,15 +3,22 @@
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Graph/RenderGraph.h"
 
-namespace Chimera {
-
-    RenderPath::RenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene, ResourceManager* resourceManager, PipelineManager& pipelineManager)
-        : m_Context(context), m_Scene(scene), m_ResourceManager(resourceManager), m_PipelineManager(pipelineManager)
+namespace Chimera
+{
+    RenderPath::RenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene)
+        : m_Context(context), m_Scene(scene)
     {
     }
 
     RenderPath::~RenderPath()
     {
+        CH_CORE_INFO("RenderPath: Destroying...");
+        m_RenderGraph.reset();
     }
 
+    void RenderPath::Init()
+    {
+        CH_CORE_INFO("RenderPath: Initializing RenderGraph ({0}x{1})...", m_Width, m_Height);
+        m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
+    }
 }

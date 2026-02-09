@@ -10,27 +10,18 @@ public:
 		: Chimera::Application(spec)
 	{
 		// Push the Editor Layer which contains the UI and logic
-		PushLayer(std::make_shared<Chimera::EditorLayer>(this));
+		auto editorLayer = std::make_shared<Chimera::EditorLayer>();
+		PushLayer(editorLayer);
 
-        // Load default model and skybox
-        LoadScene(Chimera::Config::ASSET_DIR + "models/fantasy_queen/scene.gltf");
-        LoadSkybox(Chimera::Config::ASSET_DIR + "textures/newport_loft.hdr");
+        // Load default model and skybox via EditorLayer
+        editorLayer->LoadScene(Chimera::Config::ASSET_DIR + "models/fantasy_queen/scene.gltf");
+        editorLayer->LoadSkybox(Chimera::Config::ASSET_DIR + "textures/newport_loft.hdr");
 		
 		CH_INFO("---------------------------------------------");
 		CH_INFO("Welcome to Chimera Hybrid Renderer!");
 		CH_INFO("App constructed successfully.");
 		CH_INFO("---------------------------------------------");
 	}
-
-    void ExecuteLoadScene(const std::string& path)
-    {
-        CH_CORE_INFO("SandboxApp: Loading default model.");
-        Application::ExecuteLoadScene(path);
-        auto scene = GetScene();
-        if (scene && !scene->GetEntities().empty()) {
-            scene->UpdateEntityTRS(0, {0,0,0}, {0,0,0}, {1,1,1});
-        }
-    }
 
 	~ChimeraApp()
 	{
@@ -51,11 +42,13 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
 	{
 		try
 		{
-			app->LoadScene(std::string(argv[1]));
+			auto editorLayer = app->GetLayer<Chimera::EditorLayer>();
+			if (editorLayer)
+				editorLayer->LoadScene(std::string(argv[1]));
 		}
 		catch (...)
 		{
-			// Ignore; Application will handle failures when executing the load
+			// Ignore
 		}
 	}
 

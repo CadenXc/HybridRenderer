@@ -5,10 +5,10 @@
 #include "Core/Layer.h"
 #include "Core/ImGuiLayer.h"
 
-namespace Chimera {
-
-    SceneRenderer::SceneRenderer(std::shared_ptr<VulkanContext> context, ResourceManager* resourceManager, std::shared_ptr<Renderer> renderer, std::shared_ptr<ImGuiLayer> imguiLayer)
-        : m_Context(context), m_ResourceManager(resourceManager), m_Renderer(renderer), m_ImGuiLayer(imguiLayer)
+namespace Chimera
+{
+    SceneRenderer::SceneRenderer(std::shared_ptr<VulkanContext> context, std::shared_ptr<ImGuiLayer> imguiLayer)
+        : m_Context(context), m_ImGuiLayer(imguiLayer)
     {
     }
 
@@ -16,5 +16,4 @@ namespace Chimera {
     {
         // Actual rendering dispatch logic...
     }
-
 }

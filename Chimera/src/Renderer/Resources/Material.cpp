@@ -1,8 +1,8 @@
 #include "pch.h"
 #include "Material.h"
 
-namespace Chimera {
-
+namespace Chimera
+{
     Material::Material(const std::string& name)
         : m_Name(name)
     {
@@ -14,5 +14,4 @@ namespace Chimera {
         m_Data.normalTex = -1;
         m_Data.metalRoughTex = -1;
     }
-
 }

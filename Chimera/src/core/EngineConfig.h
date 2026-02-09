@@ -19,21 +19,27 @@ namespace Chimera {
             std::filesystem::path root = currentPath;
             bool found = false;
             for (int i = 0; i < 5; ++i) {
-                if (std::filesystem::exists(root / "Chimera") && std::filesystem::exists(root / "scripts")) {
+                if (std::filesystem::exists(root / "Chimera") && std::filesystem::exists(root / "scripts"))
+                {
                     found = true;
                     break;
                 }
-                if (root.has_parent_path()) root = root.parent_path();
-                else break;
+                if (!root.has_parent_path())
+                {
+                    break;
+                }
+                root = root.parent_path();
             }
 
-            if (found) {
+            if (found)
+            {
                 SHADER_SOURCE_DIR = (root / "Chimera" / "shaders").string();
             }
         }
 
         // 全局引擎设置
-        struct EngineSettings {
+        struct EngineSettings
+        {
             float ClearColor[4] = { 0.1f, 0.1f, 0.1f, 1.0f };
             bool EnableHotReload = true;
             float HotReloadCheckInterval = 1.0f;

@@ -1,9 +1,10 @@
 #pragma once
 #include <string>
 
-namespace Chimera {
-
-    namespace RS {
+namespace Chimera
+{
+    namespace RS
+    {
         // --- 系统保留 ---
         inline static const std::string RENDER_OUTPUT = "RENDER_OUTPUT";
 
@@ -36,11 +37,11 @@ namespace Chimera {
         inline static const std::string AtrousPing    = "AtrousPing";
         inline static const std::string AtrousPong    = "AtrousPong";
         inline static const std::string FinalColor    = "FinalColor";
+        inline static const std::string LinearDepth   = "LinearDepth";
 
         // Compatibility aliases
         inline static const std::string FINAL_COLOR   = FinalColor;
         inline static const std::string DEPTH         = Depth;
         inline static const std::string FORWARD_COLOR = FinalColor; // Assuming Forward writes to FinalColor
     }
-
 }

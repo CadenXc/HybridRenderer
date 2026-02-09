@@ -1,50 +1,71 @@
 #include "pch.h"
 #include "RenderContext.h"
+#include "VulkanContext.h"
 
-namespace Chimera {
-
-    // --- ScopedCommandBuffer ---
-
-    ScopedCommandBuffer::ScopedCommandBuffer(const std::shared_ptr<VulkanContext>& context)
-        : m_Context(context)
+namespace Chimera
+{
+    ScopedCommandBuffer::ScopedCommandBuffer()
     {
-        m_CommandBuffer = RenderContext::BeginSingleTimeCommands();
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandPool = VulkanContext::Get().GetCommandPool();
+        allocInfo.commandBufferCount = 1;
+
+        vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, &m_CommandBuffer);
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+        vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
     }
 
     ScopedCommandBuffer::~ScopedCommandBuffer()
     {
-        RenderContext::EndSingleTimeCommands(m_CommandBuffer);
+        vkEndCommandBuffer(m_CommandBuffer);
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_CommandBuffer;
+
+        vkQueueSubmit(VulkanContext::Get().GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(VulkanContext::Get().GetGraphicsQueue());
+
+        vkFreeCommandBuffers(VulkanContext::Get().GetDevice(), VulkanContext::Get().GetCommandPool(), 1, &m_CommandBuffer);
     }
 
-    // --- RenderContext ---
-
-    void RenderContext::Init(const std::shared_ptr<VulkanContext>& context) {
-        s_Context = context;
+    void RenderContext::Init()
+    {
     }
 
-    void RenderContext::Shutdown() {
-        s_Context.reset();
+    void RenderContext::Shutdown()
+    {
     }
 
-    VkCommandBuffer RenderContext::BeginSingleTimeCommands() {
+    VkCommandBuffer RenderContext::BeginSingleTimeCommands()
+    {
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandPool = s_Context->GetCommandPool();
+        allocInfo.commandPool = VulkanContext::Get().GetCommandPool();
         allocInfo.commandBufferCount = 1;
 
         VkCommandBuffer commandBuffer;
-        vkAllocateCommandBuffers(s_Context->GetDevice(), &allocInfo, &commandBuffer);
+        vkAllocateCommandBuffers(VulkanContext::Get().GetDevice(), &allocInfo, &commandBuffer);
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
         vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
         return commandBuffer;
     }
 
-    void RenderContext::EndSingleTimeCommands(VkCommandBuffer commandBuffer) {
+    void RenderContext::EndSingleTimeCommands(VkCommandBuffer commandBuffer)
+    {
         vkEndCommandBuffer(commandBuffer);
 
         VkSubmitInfo submitInfo{};
@@ -52,10 +73,9 @@ namespace Chimera {
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
 
-        vkQueueSubmit(s_Context->GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(s_Context->GetGraphicsQueue());
+        vkQueueSubmit(VulkanContext::Get().GetGraphicsQueue(), 1, &submitInfo, VK_NULL_HANDLE);
+        vkQueueWaitIdle(VulkanContext::Get().GetGraphicsQueue());
 
-        vkFreeCommandBuffers(s_Context->GetDevice(), s_Context->GetCommandPool(), 1, &commandBuffer);
+        vkFreeCommandBuffers(VulkanContext::Get().GetDevice(), VulkanContext::Get().GetCommandPool(), 1, &commandBuffer);
     }
-
 }

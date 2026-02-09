@@ -24,6 +24,11 @@ namespace Chimera {
 		inline float GetDistance() const { return m_Distance; }
 		inline void SetDistance(float distance) { m_Distance = distance; }
 
+		inline float GetNearClip() const { return m_NearClip; }
+		inline void SetNearClip(float nearClip) { m_NearClip = nearClip; UpdateProjection(); }
+		inline float GetFarClip() const { return m_FarClip; }
+		inline void SetFarClip(float farClip) { m_FarClip = farClip; UpdateProjection(); }
+
 		inline glm::vec3 GetFocalPoint() const { return m_FocalPoint; }
 		inline void SetFocalPoint(const glm::vec3& focalPoint) { m_FocalPoint = focalPoint; }
 

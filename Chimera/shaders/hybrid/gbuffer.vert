@@ -1,4 +1,6 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
@@ -6,14 +8,7 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 3) in vec4 inTangent;
 
 layout(set = 0, binding = 0) uniform GlobalUniforms {
-    mat4 view;
-    mat4 proj;
-    mat4 viewInverse;
-    mat4 projInverse;
-    mat4 viewProjInverse;
-    mat4 prevView;
-    mat4 prevProj;
-    vec4 cameraPos;
+    UniformBufferObject cam;
 } ubo;
 
 layout(push_constant) uniform ModelData {
@@ -43,5 +38,5 @@ void main() {
     vec3 B = cross(N, T) * inTangent.w;
     outTBN = mat3(T, B, N);
 
-    gl_Position = ubo.proj * ubo.view * worldPos;
+    gl_Position = ubo.cam.proj * ubo.cam.view * worldPos;
 }
