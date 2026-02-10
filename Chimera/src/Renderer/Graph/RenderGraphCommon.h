@@ -140,6 +140,7 @@ namespace Chimera
         std::string fragment_shader;
         bool depth_test = true;
         bool depth_write = true;
+        VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
     };
 
     struct RaytracingPipelineDescription

@@ -30,11 +30,12 @@ namespace Chimera {
 
         // Initialize Scene and default RenderPath
         m_Scene = std::make_shared<Scene>(app.GetContext());
-        SwitchRenderPath(RenderPathType::Forward);
+        SwitchRenderPath(RenderPathType::Hybrid);
     }
 
     void EditorLayer::OnAttach()
     {
+        RefreshModelList();
     }
 
     void EditorLayer::OnDetach()
@@ -46,6 +47,22 @@ namespace Chimera {
         // 1. Update logic
         m_AverageFrameTime = ts.GetMilliseconds();
         m_AverageFPS = 1.0f / ts.GetSeconds();
+
+        // Handle Resize Debounce
+        if (m_ResizeTimer > 0.0f)
+        {
+            m_ResizeTimer -= ts.GetSeconds();
+            if (m_ResizeTimer <= 0.0f)
+            {
+                CH_CORE_INFO("EditorLayer: Resize settled. Rebuilding RenderPath to {0}x{1}", (uint32_t)m_NextViewportSize.x, (uint32_t)m_NextViewportSize.y);
+                if (m_RenderPath)
+                    m_RenderPath->SetViewportSize((uint32_t)m_NextViewportSize.x, (uint32_t)m_NextViewportSize.y);
+                
+                m_EditorCamera.SetViewportSize(m_NextViewportSize.x, m_NextViewportSize.y);
+                m_ViewportSize = m_NextViewportSize;
+            }
+        }
+
         m_EditorCamera.OnUpdate(ts, m_ViewportHovered, m_ViewportFocused);
 
         AppFrameContext context;
@@ -57,6 +74,7 @@ namespace Chimera {
         context.Time = (float)glfwGetTime();
         context.FrameIndex = Application::Get().GetTotalFrameCount();
         Application::Get().SetFrameContext(context);
+        Application::Get().SetActiveScene(m_Scene.get());
 
         // 2. Render logic (Moved from OnRender)
         if (m_RenderPath && Renderer::HasInstance() && Renderer::Get().IsFrameInProgress())
@@ -242,10 +260,12 @@ namespace Chimera {
         m_AvailableModels.clear();
         std::string rootPath = Config::ASSET_DIR + "models";
         if (!std::filesystem::exists(rootPath)) return;
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(rootPath)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(rootPath))
+        {
             if (entry.is_regular_file()) {
                 auto ext = entry.path().extension().string();
-                if (ext == ".gltf" || ext == ".glb" || ext == ".obj") {
+                if (ext == ".gltf" || ext == ".glb" || ext == ".obj")
+                {
                     std::string relPath = std::filesystem::relative(entry.path(), ".").string();
                     std::replace(relPath.begin(), relPath.end(), '\\', '/');
                     m_AvailableModels.push_back({ entry.path().filename().string(), relPath });
@@ -316,16 +336,40 @@ namespace Chimera {
             float intensity = light.intensity.x;
             if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 100.0f)) { light.intensity = glm::vec4(intensity); changed = true; }
         }
-        if (changed && m_RenderPath && m_RenderPath->GetType() == RenderPathType::RayTracing) m_RenderPath->OnSceneUpdated();
+
+        if (changed && m_RenderPath && m_RenderPath->GetType() == RenderPathType::RayTracing)
+        {
+            m_RenderPath->OnSceneUpdated();
+        }
     }
 
     void EditorLayer::DrawRenderPathPanel()
     {
-        const char* modes[] = { "Forward", "Hybrid", "Ray Tracing" };
-        int currentIdx = m_RenderPath ? (int)m_RenderPath->GetType() : 0;
-        if (ImGui::Combo("Active Path", &currentIdx, modes, IM_ARRAYSIZE(modes))) SwitchRenderPath((RenderPathType)currentIdx);
+        const auto& allTypes = GetAllRenderPathTypes();
+        RenderPathType currentType = m_RenderPath ? m_RenderPath->GetType() : RenderPathType::Forward;
+        const char* currentLabel = RenderPathTypeToString(currentType);
+
+        if (ImGui::BeginCombo("Active Path", currentLabel))
+        {
+            for (auto type : allTypes)
+            {
+                bool isSelected = (currentType == type);
+                if (ImGui::Selectable(RenderPathTypeToString(type), isSelected))
+                {
+                    SwitchRenderPath(type);
+                }
+
+                if (isSelected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+            }
+            ImGui::EndCombo();
+        }
+
         ImGui::Separator();
-        if (m_RenderPath) {
+        if (m_RenderPath)
+        {
             auto attachments = m_RenderPath->GetRenderGraph().GetColorAttachments();
             if (ImGui::BeginCombo("Debug Image", m_DebugViewTexture.c_str()))
             {
@@ -338,14 +382,17 @@ namespace Chimera {
                 ImGui::EndCombo();
             }
 
-            if (m_DebugViewTexture == RS::LinearDepth) {
+            if (m_DebugViewTexture == RS::LinearDepth)
+            {
                 float scale = Application::Get().GetDepthScale();
-                if (ImGui::DragFloat("Depth Scale", &scale, 1.0f, 0.1f, 10000.0f)) {
+                if (ImGui::DragFloat("Depth Scale", &scale, 1.0f, 0.1f, 10000.0f))
+                {
                     Application::Get().SetDepthScale(scale);
                 }
             }
         }
         ImGui::Separator();
+
         DrawLightSettings();
         ImGui::Separator();
         if (m_RenderPath) m_RenderPath->OnImGui();
@@ -355,9 +402,13 @@ namespace Chimera {
     {
         if (ImGui::Button("Refresh List")) RefreshModelList();
         ImGui::BeginChild("ModelList", ImVec2(0, 300), true);
-        for (int i = 0; i < (int)m_AvailableModels.size(); i++) {
+        for (int i = 0; i < (int)m_AvailableModels.size(); i++)
+        {
             ImGui::PushID(i);
-            if (ImGui::Selectable(m_AvailableModels[i].Name.c_str(), m_SelectedModelIndex == i)) { m_SelectedModelIndex = i; LoadModel(m_AvailableModels[i].Path); }
+            if (ImGui::Selectable(m_AvailableModels[i].Name.c_str(), m_SelectedModelIndex == i))
+            {
+                m_SelectedModelIndex = i; LoadModel(m_AvailableModels[i].Path);
+            }
             ImGui::PopID();
         }
         ImGui::EndChild();
@@ -371,36 +422,37 @@ namespace Chimera {
         m_ViewportHovered = ImGui::IsWindowHovered();
         m_ViewportFocused = ImGui::IsWindowFocused();
         ImVec2 viewportPanelSize = ImGui::GetContentRegionAvail();
-        if (std::abs(viewportPanelSize.x - m_ViewportSize.x) > 1.0f || std::abs(viewportPanelSize.y - m_ViewportSize.y) > 1.0f) {
-            if (viewportPanelSize.x > 100 && viewportPanelSize.y > 100) { 
-                m_ViewportSize = glm::vec2(viewportPanelSize.x, viewportPanelSize.y);
-                if (m_RenderPath) m_RenderPath->SetViewportSize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
-                m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-            }
+        
+        // Handle resize with debounce
+        if (viewportPanelSize.x > 0 && viewportPanelSize.y > 0 && 
+           (std::abs(viewportPanelSize.x - m_ViewportSize.x) > 0.1f || std::abs(viewportPanelSize.y - m_ViewportSize.y) > 0.1f))
+        {
+            // Just mark for update, don't trigger rebuild yet
+            m_NextViewportSize = glm::vec2(viewportPanelSize.x, viewportPanelSize.y);
+            m_ResizeTimer = 0.15f; // Wait for 150ms of no changes
         }
         
         if (m_RenderPath)
         {
-            if (!m_RenderPath->GetRenderGraph().ContainsImage(m_DebugViewTexture)) m_DebugViewTexture = RS::FinalColor;
-                if (m_RenderPath->GetRenderGraph().ContainsImage(m_DebugViewTexture))
+            std::string textureToDisplay = m_DebugViewTexture;
+            if (!m_RenderPath->GetRenderGraph().ContainsImage(textureToDisplay))
+            {
+                textureToDisplay = RS::Albedo;
+            }
+
+            if (m_RenderPath->GetRenderGraph().ContainsImage(textureToDisplay))
+            {
+                auto& img = m_RenderPath->GetRenderGraph().GetImage(textureToDisplay);
+                if (img.handle != VK_NULL_HANDLE)
                 {
-                    auto& img = m_RenderPath->GetRenderGraph().GetImage(m_DebugViewTexture);
-                    auto& access = m_RenderPath->GetRenderGraph().GetImageAccess(m_DebugViewTexture);
-                    if (img.handle != VK_NULL_HANDLE)
+                    ImTextureID textureID = Application::Get().GetImGuiLayer()->GetTextureID(img.debug_view, ResourceManager::Get().GetDefaultSampler());
+                    if (textureID)
                     {
-                        if (cmd != VK_NULL_HANDLE && access.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-                        {
-                            VulkanUtils::TransitionImage(cmd, img.handle, access.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VulkanUtils::IsDepthFormat(img.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT);
-                                            access.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                        }
-                        ImTextureID textureID = Application::Get().GetImGuiLayer()->GetTextureID(img.debug_view, ResourceManager::Get().GetDefaultSampler());
-                        if (textureID)
-                        {
-                            ImGui::Image(textureID, viewportPanelSize);
-                        }
+                        ImGui::Image(textureID, viewportPanelSize);
                     }
                 }
             }
+        }
         ImGui::End();
         ImGui::PopStyleVar();
     }

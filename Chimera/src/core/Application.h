@@ -22,7 +22,6 @@ namespace Chimera
     class RenderState;
     class ResourceManager;
     class PipelineManager;
-    class SceneRenderer;
 
     struct AppFrameContext
     {
@@ -80,6 +79,7 @@ namespace Chimera
         uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
 
         void SetFrameContext(const AppFrameContext& ctx) { m_FrameContext = ctx; }
+        void SetActiveScene(Scene* scene) { m_ActiveScene = scene; }
         float GetDepthScale() const { return m_DepthScale; }
         void SetDepthScale(float scale) { m_DepthScale = scale; }
 
@@ -113,11 +113,11 @@ namespace Chimera
         std::unique_ptr<Renderer> m_Renderer;
         
         std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
-        std::unique_ptr<SceneRenderer> m_SceneRenderer;
         
         std::vector<std::shared_ptr<Layer>> m_LayerStack;
         unsigned int m_LayerIndex = 0;
         AppFrameContext m_FrameContext;
+        Scene* m_ActiveScene = nullptr;
         
         std::deque<std::function<void()>> m_EventQueue;
         std::mutex m_EventQueueMutex;

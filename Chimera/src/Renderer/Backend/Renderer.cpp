@@ -88,7 +88,10 @@ namespace Chimera
 
     void Renderer::FreeFrameResources()
     {
-        if (!VulkanContext::HasInstance()) return;
+        if (!VulkanContext::HasInstance())
+        {
+            return;
+        }
 
         VkDevice device = VulkanContext::Get().GetDevice();
         VkCommandPool commandPool = VulkanContext::Get().GetCommandPool();
@@ -136,6 +139,9 @@ namespace Chimera
 
         // 2. Wait for previous frame GPU work to complete
         VK_CHECK(vkWaitForFences(device, 1, &frameResource.inFlightFence, VK_TRUE, UINT64_MAX));
+
+        // Flush deferred deletions for this frame index as the GPU is now definitely done with it
+        VulkanContext::Get().GetDeletionQueue().FlushFrame(m_CurrentFrameIndex);
 
         // Clean up resources from the last time this frame index was used (using ResourceManager singleton)
         auto& rm = ResourceManager::Get();

@@ -7,7 +7,6 @@
 #include "Renderer/RenderState.h"
 #include "Renderer/Backend/Renderer.h"
 #include "Renderer/Pipelines/RenderPathFactory.h"
-#include "Renderer/SceneRenderer.h"
 #include "Core/ImGuiLayer.h"
 #include "Scene/Scene.h"
 #include "Core/Input.h"
@@ -32,7 +31,6 @@ namespace Chimera
 
         // 2. Vulkan Core & Singletons
         m_Context = std::make_shared<VulkanContext>(m_Window->GetNativeWindow());
-        RenderContext::Init();
         
         m_ResourceManager = std::make_unique<ResourceManager>();
         m_ResourceManager->InitGlobalResources();
@@ -46,7 +44,6 @@ namespace Chimera
         
         // 4. UI & High-level Systems
         m_ImGuiLayer = std::make_shared<ImGuiLayer>(m_Context);
-        m_SceneRenderer = std::make_unique<SceneRenderer>(m_Context, m_ImGuiLayer);
 
         PushOverlay(m_ImGuiLayer);
     }
@@ -79,24 +76,25 @@ namespace Chimera
 
     void Application::DrawFrame(Timestep ts)
     {
+        uint32_t frameIndex = m_TotalFrameCount % MAX_FRAMES_IN_FLIGHT;
+
+        // 1. Update Global State
+        UpdateGlobalUBO(frameIndex);
+
+        // 2. Begin Frame (Backend)
         VkCommandBuffer cmd = m_Renderer->BeginFrame();
         if (cmd == VK_NULL_HANDLE)
         {
             return;
         }
 
-        uint32_t frameIndex = m_TotalFrameCount % MAX_FRAMES_IN_FLIGHT;
-
-        // 1. Update Global State (based on previous update's context)
-        UpdateGlobalUBO(frameIndex);
-
-        // 2. Update Layers (Logic and Render)
+        // 3. Update Layers (Logic and Render)
         for (auto& layer : m_LayerStack)
         {
             layer->OnUpdate(ts);
         }
 
-        // 3. Render UI Overlay
+        // 4. Render UI Overlay
         m_ImGuiLayer->Begin();
         for (auto& layer : m_LayerStack)
         {
@@ -104,8 +102,9 @@ namespace Chimera
         }
         m_ImGuiLayer->End(cmd);
 
-        // 4. Submit
+        // 5. Submit
         m_Renderer->EndFrame();
+        
         m_TotalFrameCount++;
     }
 
@@ -124,6 +123,16 @@ namespace Chimera
         ubo.frameCount = m_TotalFrameCount;
         
         ResourceManager::Get().UpdateFrameIndex(frameIndex);
+        
+        // Safety check for active scene
+        if (m_ActiveScene)
+        {
+            ResourceManager::Get().UpdateSceneDescriptorSet(m_ActiveScene, frameIndex);
+            
+            // SYNCHRONIZE LIGHT DATA
+            ubo.directionalLight = m_ActiveScene->GetLight();
+        }
+
         m_RenderState->Update(frameIndex, ubo);
     }
 

@@ -73,6 +73,11 @@ namespace Chimera {
 		float m_AverageFrameTime = 0.0f;
 		float m_AverageFPS = 0.0f;
 
+		// Resize debounce
+		float m_ResizeTimer = 0.0f;
+		bool m_ViewportResizing = false;
+		glm::vec2 m_NextViewportSize{ 0.0f };
+
 		// Rendering & Scene (Migrated from Application)
 		std::shared_ptr<Scene> m_Scene;
 		std::unique_ptr<RenderPath> m_RenderPath;

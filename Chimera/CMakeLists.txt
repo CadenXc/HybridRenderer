@@ -37,7 +37,6 @@ target_link_libraries(Chimera PUBLIC
     glm::glm
     volk
     VulkanMemoryAllocator
-    tinyobjloader
     stb_lib
     cgltf
     spirv-reflect

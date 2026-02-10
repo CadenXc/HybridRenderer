@@ -20,12 +20,6 @@ if(NOT TARGET VulkanMemoryAllocator)
     add_subdirectory(VulkanMemoryAllocator)
 endif()
 
-if(NOT TARGET tinyobjloader)
-    set(TINYOBJLOADER_BUILD_TEST_LOADER OFF CACHE BOOL "" FORCE)
-    set(TINYOBJLOADER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    add_subdirectory(tinyobjloader)
-endif()
-
 if(NOT TARGET stb_lib)
     add_library(stb_lib INTERFACE)
     target_include_directories(stb_lib INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/stb")

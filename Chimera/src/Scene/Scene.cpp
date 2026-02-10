@@ -125,7 +125,8 @@ namespace Chimera
             {
                 continue;
             }
-            ForwardPushConstants push;
+            
+            GBufferPushConstants push;
             glm::mat4 entityTransform = entity.transform.GetTransform();
             auto& meshes = entity.mesh.model->GetMeshes();
             
@@ -140,7 +141,11 @@ namespace Chimera
             for (const auto& mesh : meshes)
             {
                 push.model = entityTransform * mesh.transform;
+                
+                // PERFORMANCE OPTIMIZATION: Compute Normal Matrix on CPU
+                // Use mat4 but only the top-left 3x3 is meaningful for normals
                 push.normalMatrix = glm::transpose(glm::inverse(push.model));
+                
                 push.materialIndex = mesh.materialIndex;
                 ctx.PushConstants(push, 0);
                 ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, mesh.vertexOffset, 0);

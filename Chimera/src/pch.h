@@ -35,7 +35,6 @@
 
 #include <stb_image.h>
 #include "vk_mem_alloc.h" 
-#include "tiny_obj_loader.h" 
 
 #include "Core/Log.h"
 

@@ -45,35 +45,55 @@ namespace Chimera
 
     RenderGraph::~RenderGraph()
     {
-        DestroyResources(true);
+        DestroyResources(false);
         if (m_TimestampQueryPool != VK_NULL_HANDLE)
         {
-            vkDestroyQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, nullptr);
+            VkDevice device = m_Context.GetDevice();
+            VkQueryPool pool = m_TimestampQueryPool;
+            uint32_t currentFrame = Renderer::Get().GetCurrentFrameIndex();
+            m_Context.GetDeletionQueue().PushFunction(currentFrame, [device, pool]()
+            {
+                vkDestroyQueryPool(device, pool, nullptr);
+            });
         }
     }
 
     void RenderGraph::DestroyResources(bool all)
     {
         VkDevice device = m_Context.GetDevice();
+        auto& deletionQueue = m_Context.GetDeletionQueue();
+        uint32_t currentFrame = Renderer::Get().GetCurrentFrameIndex();
         
-        // 1. Cleanup Pass-Specific Descriptors
+        // 1. Cleanup Pass-Specific Descriptors (Deferred)
         for (auto& [name, pass] : m_Passes)
         {
             if (pass.descriptor_set_layout != VK_NULL_HANDLE)
             {
-                vkDestroyDescriptorSetLayout(device, pass.descriptor_set_layout, nullptr);
+                VkDescriptorSetLayout layout = pass.descriptor_set_layout;
+                deletionQueue.PushFunction(currentFrame, [device, layout]()
+                {
+                    vkDestroyDescriptorSetLayout(device, layout, nullptr);
+                });
             }
         }
         m_Passes.clear();
-        m_PassDescriptions.clear();
-        m_ExecutionOrder.clear();
+        
+        if (all)
+        {
+            m_PassDescriptions.clear();
+            m_ExecutionOrder.clear();
+        }
 
-        // 2. Cleanup Graph-Owned Images
+        // 2. Cleanup Graph-Owned Images (Deferred)
         for (auto& [name, img] : m_Images)
         {
             if (!img.is_external || all)
             {
-                ResourceManager::Get().DestroyGraphImage(img);
+                GraphImage imgCopy = img;
+                deletionQueue.PushFunction(currentFrame, [imgCopy]() mutable
+                {
+                    ResourceManager::Get().DestroyGraphImage(imgCopy);
+                });
             }
         }
         m_Images.clear();
@@ -83,7 +103,11 @@ namespace Chimera
         m_GraphicsPipelines.clear();
         m_RaytracingPipelines.clear();
         m_ComputePipelines.clear();
-        m_SamplerArrays.clear();
+        
+        if (all)
+        {
+            m_SamplerArrays.clear();
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------------------
@@ -197,6 +221,20 @@ namespace Chimera
                 m_Passes[passName] = { passName, VK_NULL_HANDLE, VK_NULL_HANDLE, std::make_shared<RenderPass::PrivateInfo>(), BlitPass{desc.dependencies[0].name, desc.outputs[0].name} };
             }
         }
+    }
+
+    void RenderGraph::Resize(uint32_t w, uint32_t h)
+    {
+        if (m_Width == w && m_Height == h) return;
+
+        m_Width = w;
+        m_Height = h;
+
+        // Defer destruction of current frame-dependent resources
+        DestroyResources(false);
+
+        // Re-build (this will re-create images with new dimensions)
+        Build();
     }
 
     // ---------------------------------------------------------------------------------------------------------------------
@@ -434,7 +472,7 @@ namespace Chimera
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.handle);
         VkDescriptorSet sets[] = { 
             Application::Get().GetRenderState()->GetDescriptorSet(rIdx), 
-            ResourceManager::Get().GetSceneDescriptorSet(), 
+            ResourceManager::Get().GetSceneDescriptorSet(rIdx), 
             (p.descriptor_set != VK_NULL_HANDLE) ? p.descriptor_set : m_Context.GetEmptyDescriptorSet() 
         };
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.layout, 0, 3, sets, 0, nullptr);
@@ -448,6 +486,22 @@ namespace Chimera
         gp.callback(exec);
 
         vkCmdEndRendering(cmd);
+
+        // Transition outputs back to a state usable by other passes or ImGui
+        for (auto& att : gp.attachments)
+        {
+            if (m_Images.count(att.name))
+            {
+                auto& img = m_Images.at(att.name);
+                auto& access = m_ImageAccess[att.name];
+                
+                VkImageLayout finalLayout = VulkanUtils::IsDepthFormat(img.format) ? 
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                
+                VulkanUtils::TransitionImageLayout(cmd, img.handle, img.format, access.layout, finalLayout);
+                access.layout = finalLayout;
+            }
+        }
     }
 
     void RenderGraph::ExecuteRaytracingPass(VkCommandBuffer cmd, uint32_t rIdx, RenderPass& p)
@@ -484,7 +538,7 @@ namespace Chimera
             RaytracingExecutionContext ctx(cmd, m_Context, pipe); 
             VkDescriptorSet sets[] = { 
                 Application::Get().GetRenderState()->GetDescriptorSet(rIdx), 
-                ResourceManager::Get().GetSceneDescriptorSet(), 
+                ResourceManager::Get().GetSceneDescriptorSet(rIdx), 
                 (p.descriptor_set != VK_NULL_HANDLE) ? p.descriptor_set : m_Context.GetEmptyDescriptorSet() 
             };
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipe.layout, 0, 3, sets, 0, nullptr);
@@ -555,7 +609,17 @@ namespace Chimera
         blit.srcOffsets[1] = { (int32_t)src.width, (int32_t)src.height, 1 };
         blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         blit.srcSubresource.layerCount = 1;
-        blit.dstOffsets[1] = { (int32_t)m_Width, (int32_t)m_Height, 1 };
+        
+        if (bp.dstName == RS::RENDER_OUTPUT)
+        {
+            auto extent = m_Context.GetSwapChainExtent();
+            blit.dstOffsets[1] = { (int32_t)extent.width, (int32_t)extent.height, 1 };
+        }
+        else
+        {
+            blit.dstOffsets[1] = { (int32_t)m_Width, (int32_t)m_Height, 1 };
+        }
+        
         blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         blit.dstSubresource.layerCount = 1;
 

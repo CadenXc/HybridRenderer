@@ -47,45 +47,59 @@ vec3 getCosSample(inout uint seed, vec3 n) {
     return tangent * localDir.x + bitangent * localDir.y + n * localDir.z;
 }
 
-void main() {
+void main() 
+{
     ivec2 pixel = ivec2(gl_LaunchIDEXT.xy);
     vec2 uv = (vec2(pixel) + 0.5) / vec2(gl_LaunchSizeEXT.xy);
 
     float depth = texture(inDepth, uv).r;
-    if (depth == 1.0) {
-        imageStore(outShadowAO, pixel, vec4(1.0, 1.0, 0.0, 0.0));
+    if (depth <= 0.00001) 
+    {
+        imageStore(outShadowAO, pixel, vec4(1.0, 1.0, 0.0, 0.0)); // No shadow/AO in sky
         imageStore(outReflections, pixel, vec4(0.0));
         return;
     }
 
     vec3 normal = texture(inNormal, uv).rgb;
     vec4 matParams = texture(inMaterial, uv);
-    float roughness = matParams.r;
+    float roughness = matParams.r; // R is Roughness
     
-    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
-    vec4 worldPos = ubo.cam.viewProjInverse * clipPos;
-    worldPos /= worldPos.w;
+    vec3 worldPos = GetWorldPos(depth, uv, ubo.cam.viewProjInverse);
+
+    // --- IMPROVED BIASING ---
+    // A small bias is needed to avoid self-intersection.
+    // For reconstructed depth, 0.01-0.02 is usually safe.
+    vec3 rayOrigin = worldPos + normal * 0.015; 
 
     uint seed = tea(pixel.y * int(gl_LaunchSizeEXT.x) + pixel.x, ubo.cam.frameCount);
 
-    // 1. Shadow
+    // 1. Shadow Ray
     vec3 L = normalize(-ubo.cam.directionalLight.direction.xyz);
-    isShadowed = true;
-    traceRayEXT(SceneAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, worldPos.xyz + normal * 0.001, 0.001, L, 10000.0, 1);
+    isShadowed = true; 
+    traceRayEXT(SceneAS, 
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 
+        0xFF, 0, 0, 1, 
+        rayOrigin, 0.001, L, 10000.0, 1);
     float shadow = isShadowed ? 0.0 : 1.0;
 
-    // 2. AO
-    isShadowed = true;
-    traceRayEXT(SceneAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 0xFF, 0, 0, 1, worldPos.xyz + normal * 0.001, 0.001, getCosSample(seed, normal), 2.0, 1);
+    // 2. AO Ray
+    isShadowed = true; 
+    vec3 aoDir = getCosSample(seed, normal);
+    traceRayEXT(SceneAS, 
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT, 
+        0xFF, 0, 0, 1, 
+        rayOrigin, 0.001, aoDir, 3.0, 1); // Increased distance to 3.0
     float ao = isShadowed ? 0.0 : 1.0;
 
     // 3. Reflection
     vec3 reflectionColor = vec3(0.0);
-    if (roughness < 0.5) {
+    if (roughness < 0.5) 
+    {
         vec3 V = normalize(ubo.cam.cameraPos.xyz - worldPos.xyz);
         vec3 R = reflect(-V, normalize(normal));
-        reflectPayload.hit = false; reflectPayload.color = vec3(0.0);
-        traceRayEXT(SceneAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, worldPos.xyz + normal * 0.001, 0.001, R, 10000.0, 0);
+        reflectPayload.hit = false; 
+        reflectPayload.color = vec3(0.0);
+        traceRayEXT(SceneAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, rayOrigin, 0.001, R, 10000.0, 0);
         reflectionColor = reflectPayload.color;
     }
 

@@ -12,7 +12,7 @@ namespace Chimera
             .Name = "ForwardPass",
             .Outputs = {
                 TransientResource::Attachment(RS::FinalColor, VK_FORMAT_B8G8R8A8_UNORM),
-                TransientResource::Attachment(RS::Depth, VK_FORMAT_D32_SFLOAT, {1.0f, 0})
+                TransientResource::Attachment(RS::Depth, VK_FORMAT_D32_SFLOAT, {0.0f, 0})
             },
             .Pipelines = { { "Forward", "shader.vert", "shader.frag" } },
             .Callback = [scene = m_Scene](ExecuteGraphicsCallback& execute)

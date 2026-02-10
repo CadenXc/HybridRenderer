@@ -20,6 +20,7 @@ namespace Chimera
 
         // 3. Command & Swap Infrastructure
         CreateCommandPool();
+        m_DeletionQueue.Init(3); // Match MAX_FRAMES_IN_FLIGHT
         m_Swapchain = std::make_shared<Swapchain>(GetDevice(), GetPhysicalDevice(), m_Surface, m_Window);
 
         // 4. Common Resources
@@ -30,6 +31,7 @@ namespace Chimera
 
     VulkanContext::~VulkanContext()
     {
+        m_DeletionQueue.FlushAll();
         m_Swapchain.reset();
 
         if (m_EmptyDescriptorSetLayout != VK_NULL_HANDLE)

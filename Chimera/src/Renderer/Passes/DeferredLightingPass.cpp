@@ -15,17 +15,19 @@ namespace Chimera
             { .name = RS::Normal,   .type = TransientResourceType::Image, .image = { .binding = 1 } },
             { .name = RS::Material, .type = TransientResourceType::Image, .image = { .binding = 2 } },
             { .name = RS::Depth,    .type = TransientResourceType::Image, .image = { .binding = 3 } },
-            { .name = RS::ShadowAO, .type = TransientResourceType::Image, .image = { .binding = 4 } }
+            { .name = RS::ShadowAO, .type = TransientResourceType::Image, .image = { .binding = 4 } },
+            { .name = RS::RTOutput, .type = TransientResourceType::Image, .image = { .binding = 5 } }
         };
         spec.Outputs = {
-            TransientResource::Attachment(RS::FinalColor, VK_FORMAT_R16G16B16A16_SFLOAT)
+            TransientResource::Attachment(RS::FinalColor, VK_FORMAT_R8G8B8A8_UNORM)
         };
         spec.Pipelines = { {
             .name = "Deferred",
             .vertex_shader = "fullscreen.vert",
             .fragment_shader = "deferred_lighting.frag",
-            .depth_test = false,
-            .depth_write = false
+            .depth_test = false, 
+            .depth_write = false,
+            .cull_mode = VK_CULL_MODE_NONE
         } };
         spec.Callback = [](ExecuteGraphicsCallback& execute)
         {

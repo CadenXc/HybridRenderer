@@ -52,6 +52,32 @@ struct UniformBufferObject
     float padding;
 };
 
+#ifndef __cplusplus
+// --- Shader Utility Functions (GLSL only) ---
+
+/**
+ * @brief Reconstructs world-space position from a depth value and screen UV.
+ * Uses the Inverse View-Projection matrix from the camera.
+ */
+vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
+{
+    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 worldPos = invViewProj * clipPos;
+    return worldPos.xyz / worldPos.w;
+}
+
+/**
+ * @brief Reconstructs view-space position from a depth value and screen UV.
+ * Uses the Inverse Projection matrix.
+ */
+vec3 GetViewPos(float depth, vec2 uv, mat4 invProj)
+{
+    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 viewPos = invProj * clipPos;
+    return viewPos.xyz / viewPos.w;
+}
+#endif
+
 // --- Scene & Geometry Structures ---
 
 struct PBRMaterial {
@@ -77,6 +103,7 @@ struct RTInstanceData
 
 struct GBufferPushConstants {
     mat4 model;
+    mat4 normalMatrix;
     int materialIndex;
 };
 

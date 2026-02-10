@@ -32,9 +32,11 @@ void main() {
     vec4 viewPos = ubo.cam.projInverse * ndc;
     viewPos /= viewPos.w;
     
-    float linearDepth = -viewPos.z; // In eye space, Z is negative
+    // In eye space, Z is negative. We want positive distance from camera.
+    float linearDepth = -viewPos.z; 
     
-    // For visualization, we need to map this to [0, 1]
+    // For visualization, map this to [0, 1] based on user scale
+    // Standard visual: Near is black (0), Far is white (1)
     float visualized = clamp(linearDepth / pc.scale, 0.0, 1.0);
 
     imageStore(outLinearDepth, texelCoord, vec4(vec3(visualized), 1.0));

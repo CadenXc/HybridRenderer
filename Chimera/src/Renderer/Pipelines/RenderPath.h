@@ -17,7 +17,7 @@ namespace Chimera
         virtual void Init();
         virtual void Render(const RenderFrameInfo& frameInfo) = 0;
 
-        void SetViewportSize(uint32_t width, uint32_t height) { m_Width = width; m_Height = height; m_NeedsRebuild = true; }
+        void SetViewportSize(uint32_t width, uint32_t height) { m_Width = width; m_Height = height; m_NeedsResize = true; }
         virtual RenderPathType GetType() const = 0;
         
         virtual void OnImGui() {}
@@ -32,6 +32,7 @@ namespace Chimera
         uint32_t m_Width = 0;
         uint32_t m_Height = 0;
         bool m_NeedsRebuild = true;
+        bool m_NeedsResize = false;
     };
 
 }

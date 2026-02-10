@@ -41,16 +41,26 @@ namespace Chimera
             DeferredLightingPass deferred(m_Scene, m_Width, m_Height);
             deferred.Setup(graph);
 
-            CH_CORE_INFO("HybridRenderPath: Setting up LinearizeDepthPass...");
-            LinearizeDepthPass linearize;
-            linearize.Setup(graph);
+            // Add Final Blit to Swapchain
+            m_RenderGraph->AddBlitPass("FinalBlit", RS::Albedo, RS::RENDER_OUTPUT, VK_FORMAT_R8G8B8A8_UNORM, m_Context->GetSwapChainImageFormat());
 
             CH_CORE_INFO("HybridRenderPath: Finalizing RenderGraph build...");
             graph.Build();
             m_NeedsRebuild = false;
+            m_NeedsResize = false;
             CH_CORE_INFO("HybridRenderPath: RenderGraph ready.");
         }
+        else if (m_NeedsResize)
+        {
+            CH_CORE_INFO("HybridRenderPath: Resizing RenderGraph to {0}x{1}...", m_Width, m_Height);
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            
+            m_RenderGraph->Resize(m_Width, m_Height);
+            m_NeedsResize = false;
+        }
 
+        // Before executing, make sure we have a valid output. 
+        // If DeferredLighting is off, we alias Albedo to RENDER_OUTPUT in the graph or just use Albedo.
         m_RenderGraph->Execute(frameInfo.commandBuffer, frameInfo.frameIndex, frameInfo.imageIndex);
     }
 }

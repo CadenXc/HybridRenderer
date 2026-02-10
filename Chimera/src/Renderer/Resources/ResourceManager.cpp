@@ -106,11 +106,16 @@ namespace Chimera
         emptyAlloc.pSetLayouts = &emptyLayout;
         vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &emptyAlloc, &VulkanContext::Get().GetEmptyDescriptorSetRef());
 
+        // Allocate Triple-Buffered Scene Sets
+        m_SceneDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_SceneDescriptorSetLayout);
+        
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
         allocInfo.descriptorPool = m_DescriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &m_SceneDescriptorSetLayout;
-        vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &allocInfo, &m_SceneDescriptorSet);
+        allocInfo.descriptorSetCount = (uint32_t)layouts.size();
+        allocInfo.pSetLayouts = layouts.data();
+        
+        vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &allocInfo, m_SceneDescriptorSets.data());
     }
 
     void ResourceManager::CreateDefaultResources()
@@ -136,13 +141,14 @@ namespace Chimera
         m_CurrentFrameIndex = currentFrame;
     }
 
-    void ResourceManager::UpdateSceneDescriptorSet(Scene* scene)
+    void ResourceManager::UpdateSceneDescriptorSet(Scene* scene, uint32_t frameIndex)
     {
-        if (!scene || m_SceneDescriptorSet == VK_NULL_HANDLE)
+        if (!scene || m_SceneDescriptorSets.empty())
         {
             return;
         }
 
+        VkDescriptorSet targetSet = m_SceneDescriptorSets[frameIndex];
         std::vector<VkWriteDescriptorSet> writes;
         
         // 0. AS
@@ -153,7 +159,7 @@ namespace Chimera
             asWrite.accelerationStructureCount = 1;
             asWrite.pAccelerationStructures = &tlas;
             VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            w.dstSet = m_SceneDescriptorSet;
+            w.dstSet = targetSet;
             w.dstBinding = 0;
             w.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
             w.descriptorCount = 1;
@@ -166,7 +172,7 @@ namespace Chimera
         {
             VkDescriptorBufferInfo matInfo{ BUF(m_MaterialBuffer->GetBuffer()), 0, VK_WHOLE_SIZE };
             VkWriteDescriptorSet matW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            matW.dstSet = m_SceneDescriptorSet;
+            matW.dstSet = targetSet;
             matW.dstBinding = 1;
             matW.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             matW.descriptorCount = 1;
@@ -180,7 +186,7 @@ namespace Chimera
         {
             VkDescriptorBufferInfo instInfo{ BUF(instBuf), 0, VK_WHOLE_SIZE };
             VkWriteDescriptorSet instW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            instW.dstSet = m_SceneDescriptorSet;
+            instW.dstSet = targetSet;
             instW.dstBinding = 2;
             instW.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             instW.descriptorCount = 1;
@@ -197,7 +203,7 @@ namespace Chimera
         if (!imageInfos.empty())
         {
             VkWriteDescriptorSet texW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            texW.dstSet = m_SceneDescriptorSet;
+            texW.dstSet = targetSet;
             texW.dstBinding = 3;
             texW.dstArrayElement = 0;
             texW.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -311,13 +317,14 @@ namespace Chimera
         Buffer staging(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
         staging.Update(pixels, size);
         stbi_image_free(pixels);
-        auto image = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+        
+        auto image = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
         {
             ScopedCommandBuffer cmd;
-            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
+            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
             VkBufferImageCopy region{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tw, (uint32_t)th, 1 } };
             vkCmdCopyBufferToImage(cmd, BUF(staging.GetBuffer()), IMG(image->GetImage()), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         }
         return AddTexture(std::move(image), path);
     }

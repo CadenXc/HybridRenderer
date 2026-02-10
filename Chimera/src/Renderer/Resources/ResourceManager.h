@@ -19,53 +19,28 @@ namespace Chimera
 
         void InitGlobalResources();
         void UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo);
-        void UpdateSceneDescriptorSet(class Scene* scene);
+        
+        // --- Descriptor Set Management (Set 1: Scene) ---
+        void UpdateSceneDescriptorSet(class Scene* scene, uint32_t frameIndex);
+        void UpdateSceneDescriptorSet(class Scene* scene) { UpdateSceneDescriptorSet(scene, 0); } // Legacy
 
-        VkDescriptorPool GetDescriptorPool() const
-        {
-            return m_DescriptorPool;
-        }
+        VkDescriptorSet GetSceneDescriptorSet(uint32_t frameIndex) const { return m_SceneDescriptorSets[frameIndex]; }
+        VkDescriptorSet GetSceneDescriptorSet() const { return m_SceneDescriptorSets[0]; }
+        VkDescriptorSetLayout GetSceneDescriptorSetLayout() const { return m_SceneDescriptorSetLayout; }
 
-        VkDescriptorPool GetTransientDescriptorPool() const
-        {
-            return m_TransientDescriptorPool;
-        }
-
+        VkDescriptorPool GetDescriptorPool() const { return m_DescriptorPool; }
+        VkDescriptorPool GetTransientDescriptorPool() const { return m_TransientDescriptorPool; }
         void ResetTransientDescriptorPool();
 
-        VkDescriptorSet GetSceneDescriptorSet() const
-        {
-            return m_SceneDescriptorSet;
-        }
+        VkSampler GetDefaultSampler() const { return m_TextureSampler; }
+        Image* GetDefaultTexture() const { return m_Textures.empty() ? nullptr : m_Textures[0].get(); }
 
-        VkDescriptorSetLayout GetSceneDescriptorSetLayout() const
-        {
-            return m_SceneDescriptorSetLayout;
-        }
-
-        VkSampler GetDefaultSampler() const
-        {
-            return m_TextureSampler;
-        }
-
-        Image* GetDefaultTexture() const
-        {
-            return m_Textures.empty() ? nullptr : m_Textures[0].get();
-        }
-
-        // Graph Resource Creation
+        // --- Graph Resource Creation ---
         GraphImage CreateGraphImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageLayout initialLayout, VkSampleCountFlagBits samples);
         void DestroyGraphImage(GraphImage& image);
 
-        static bool HasInstance()
-        {
-            return s_Instance != nullptr;
-        }
-
-        static ResourceManager& Get()
-        {
-            return *s_Instance;
-        }
+        static bool HasInstance() { return s_Instance != nullptr; }
+        static ResourceManager& Get() { return *s_Instance; }
 
         template<typename T> T* Get(Handle<T> handle);
         Image* GetTexture(TextureHandle handle);
@@ -80,11 +55,7 @@ namespace Chimera
         MaterialHandle CreateMaterial(const std::string& name = "");
         MaterialHandle AddMaterial(std::unique_ptr<Material> material, const std::string& name = "");
         
-        VkBuffer GetMaterialBuffer() const
-        {
-            return (VkBuffer)m_MaterialBuffer->GetBuffer();
-        }
-
+        VkBuffer GetMaterialBuffer() const { return (VkBuffer)m_MaterialBuffer->GetBuffer(); }
         void SyncMaterialsToGPU();
 
         void AddRef(TextureHandle handle);
@@ -101,26 +72,15 @@ namespace Chimera
         static void SubmitResourceFree(std::function<void()>&& func);
         void ClearResourceFreeQueue(uint32_t frameIndex);
         
-        void UpdateFrameIndex(uint32_t frameIndex)
-        {
-            m_CurrentFrameIndex = frameIndex;
-        }
+        void UpdateFrameIndex(uint32_t frameIndex) { m_CurrentFrameIndex = frameIndex; }
 
-        const std::vector<std::unique_ptr<Image>>& GetTextures() const
-        {
-            return m_Textures;
-        }
-
-        const std::vector<std::unique_ptr<Material>>& GetMaterials() const
-        {
-            return m_Materials;
-        }
+        const std::vector<std::unique_ptr<Image>>& GetTextures() const { return m_Textures; }
+        const std::vector<std::unique_ptr<Material>>& GetMaterials() const { return m_Materials; }
 
     private:
         void CreateDescriptorPool();
         void CreateTransientDescriptorPool();
         void CreateTextureSampler();
-        
         void CreateSceneDescriptorSetLayout();
         void AllocatePersistentSets();
         void CreateDefaultResources();
@@ -132,10 +92,9 @@ namespace Chimera
         VkDescriptorPool m_TransientDescriptorPool = VK_NULL_HANDLE;
         
         VkDescriptorSetLayout m_SceneDescriptorSetLayout = VK_NULL_HANDLE;
-        VkDescriptorSet m_SceneDescriptorSet = VK_NULL_HANDLE;
+        std::vector<VkDescriptorSet> m_SceneDescriptorSets;
 
         std::vector<std::unique_ptr<Buffer>> m_UniformBuffers;
-        
         std::vector<std::unique_ptr<Image>> m_Textures;
         VkSampler m_TextureSampler = VK_NULL_HANDLE;
         std::unordered_map<std::string, TextureHandle> m_TextureMap;

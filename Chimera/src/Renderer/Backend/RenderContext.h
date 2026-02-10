@@ -21,19 +21,4 @@ namespace Chimera
     private:
         VkCommandBuffer m_CommandBuffer;
     };
-
-    /**
-     * @brief RenderContext provides a centralized interface for common 
-     * rendering operations and resource state management.
-     */
-    class RenderContext
-    {
-    public:
-        static void Init();
-        static void Shutdown();
-
-        // One-time command helpers
-        static VkCommandBuffer BeginSingleTimeCommands();
-        static void EndSingleTimeCommands(VkCommandBuffer commandBuffer);
-    };
 }

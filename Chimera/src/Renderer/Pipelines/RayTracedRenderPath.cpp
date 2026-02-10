@@ -30,6 +30,13 @@ namespace Chimera
 
             m_RenderGraph->Build();
             m_NeedsRebuild = false;
+            m_NeedsResize = false;
+        }
+        else if (m_NeedsResize)
+        {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            m_RenderGraph->Resize(m_Width, m_Height);
+            m_NeedsResize = false;
         }
 
         m_RenderGraph->Execute(frameInfo.commandBuffer, frameInfo.frameIndex, frameInfo.imageIndex);

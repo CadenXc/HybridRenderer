@@ -22,6 +22,7 @@ namespace Chimera
         
         // --- Lifecycle ---
         void Build();
+        void Resize(uint32_t w, uint32_t h);
         void Execute(VkCommandBuffer cmd, uint32_t rIdx, uint32_t iIdx);
         void DestroyResources(bool all = false);
 

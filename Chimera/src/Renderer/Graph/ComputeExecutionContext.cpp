@@ -26,7 +26,7 @@ namespace Chimera
         vkCmdBindDescriptorSets(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe->layout, 0, 1, &globalSet, 0, nullptr);
 
         // Set 1: Scene
-        VkDescriptorSet sceneSet = ResourceManager::Get().GetSceneDescriptorSet();
+        VkDescriptorSet sceneSet = ResourceManager::Get().GetSceneDescriptorSet(m_ResIdx);
         vkCmdBindDescriptorSets(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe->layout, 1, 1, &sceneSet, 0, nullptr);
 
         // Set 2: Pass

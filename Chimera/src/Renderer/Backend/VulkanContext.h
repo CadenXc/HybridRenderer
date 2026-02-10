@@ -3,6 +3,7 @@
 #include "Swapchain.h"
 #include "VulkanInstance.h"
 #include "VulkanDevice.h"
+#include "DeletionQueue.h"
 
 namespace Chimera
 {
@@ -68,6 +69,8 @@ namespace Chimera
         VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels);
         void SetDebugName(uint64_t handle, VkObjectType type, const char* name);
 
+        DeletionQueue& GetDeletionQueue() { return m_DeletionQueue; }
+
     private:
         void CreateSurface();
         void CreateCommandPool();
@@ -86,5 +89,6 @@ namespace Chimera
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_EmptyDescriptorSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet m_EmptyDescriptorSet = VK_NULL_HANDLE;
+        DeletionQueue m_DeletionQueue;
     };
 }
