@@ -39,10 +39,18 @@ namespace Chimera
 
     Model::~Model()
     {
-        VkDevice device = VulkanContext::Get().GetDevice();
-        for (auto handle : m_BLASHandles)
+        if (m_Context)
         {
-            vkDestroyAccelerationStructureKHR(device, handle, nullptr);
+            VkDevice device = m_Context->GetDevice();
+            auto vkDestroyAS = (PFN_vkDestroyAccelerationStructureKHR)vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR");
+            
+            for (auto handle : m_BLASHandles)
+            {
+                if (handle != VK_NULL_HANDLE)
+                {
+                    vkDestroyAS(device, handle, nullptr);
+                }
+            }
         }
     }
 

@@ -132,19 +132,4 @@ namespace Chimera::VulkanUtils
         static const std::vector<VkFormat> srgbFormats = { VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8_SRGB, VK_FORMAT_R8G8B8_SRGB, VK_FORMAT_B8G8R8_SRGB };
         return std::find(srgbFormats.begin(), srgbFormats.end(), format) != srgbFormats.end();
     }
-
-    VkImageLayout GetImageLayoutFromResourceType(TransientResourceType type, VkFormat format)
-    {
-        if (IsDepthFormat(format))
-        {
-            return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        }
-        switch (type)
-        {
-            case TransientResourceType::Sampler: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            case TransientResourceType::Storage: return VK_IMAGE_LAYOUT_GENERAL;
-            case TransientResourceType::Image:   return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            default: return VK_IMAGE_LAYOUT_GENERAL;
-        }
-    }
 }

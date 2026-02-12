@@ -15,6 +15,11 @@ namespace Chimera
     RenderState::~RenderState()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
+        vkDeviceWaitIdle(device);
+
+        // [FIX] Explicitly clear frame buffers first
+        m_Frames.clear();
+
         vkDestroyDescriptorSetLayout(device, m_DescriptorSetLayout, nullptr);
         vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
     }
@@ -45,6 +50,7 @@ namespace Chimera
                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 VMA_MEMORY_USAGE_CPU_TO_GPU
             );
+            CH_CORE_TRACE("RenderState: Allocated UBO[{0}] at {1}", i, (void*)m_Frames[i].UBO->GetBuffer());
         }
     }
 

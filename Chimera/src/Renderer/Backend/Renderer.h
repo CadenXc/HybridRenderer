@@ -70,6 +70,7 @@ namespace Chimera
 
     private:
         static Renderer* s_Instance;
+        VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         std::vector<FrameResource> m_FrameResources;
         VkCommandBuffer m_ActiveCommandBuffer = VK_NULL_HANDLE;
 

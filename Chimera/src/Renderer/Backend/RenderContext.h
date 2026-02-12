@@ -19,6 +19,9 @@ namespace Chimera
         }
 
     private:
-        VkCommandBuffer m_CommandBuffer;
+        VkDevice m_Device = VK_NULL_HANDLE;
+        VkQueue m_Queue = VK_NULL_HANDLE;
+        VkCommandPool m_Pool = VK_NULL_HANDLE;
+        VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
     };
 }

@@ -1,5 +1,5 @@
-$SourceDir = Join-Path $PSScriptRoot "..\Chimera\shaders"
-$OutputDir = Join-Path $PSScriptRoot "..\build\Sandbox\Debug\shaders"
+$SourceDir = (Get-Item (Join-Path $PSScriptRoot "..\Chimera\shaders")).FullName
+$OutputDir = (Get-Item (Join-Path $PSScriptRoot "..\build\Sandbox\Debug\shaders")).FullName
 
 # Ensure output directory exists
 if (!(Test-Path -Path $OutputDir)) {
@@ -15,16 +15,31 @@ if ($Shaders.Count -eq 0) {
     exit
 }
 
-Write-Host "Found $($Shaders.Count) shaders. Compiling..." -ForegroundColor Cyan
+Write-Host "Found $($Shaders.Count) shaders in $SourceDir. Compiling..." -ForegroundColor Cyan
 
 foreach ($Shader in $Shaders) {
     $InputFile = $Shader.FullName
+    
+    # Calculate relative path manually to be safe
+    $RelativePath = ""
+    if ($Shader.DirectoryName.Length -gt $SourceDir.Length) {
+        $RelativePath = $Shader.DirectoryName.Substring($SourceDir.Length).TrimStart("\").TrimStart("/")
+    }
+    
     $FileName = $Shader.Name
-    $OutputFile = Join-Path -Path $OutputDir -ChildPath "$FileName.spv"
+    
+    # Ensure subdirectory exists in output
+    $TargetDir = if ($RelativePath) { Join-Path $OutputDir $RelativePath } else { $OutputDir }
+    if (!(Test-Path -Path $TargetDir)) {
+        New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
+    }
+
+    $OutputFile = Join-Path -Path $TargetDir -ChildPath "$FileName.spv"
 
     # Compile with Vulkan 1.3 target
-    Write-Host "Compiling: $FileName -> $OutputFile"
-    glslc --target-env=vulkan1.3 -I "$SourceDir\common" -I "$SourceDir" $InputFile -o $OutputFile
+    $BackendDir = (Get-Item (Join-Path $PSScriptRoot "..\Chimera\src\Renderer\Backend")).FullName
+    Write-Host "Compiling: $FileName -> $(Join-Path $RelativePath "$FileName.spv")"
+    glslc --target-env=vulkan1.3 -I "$SourceDir\common" -I "$SourceDir" -I "$BackendDir" $InputFile -o $OutputFile
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Error compiling $FileName" -ForegroundColor Red

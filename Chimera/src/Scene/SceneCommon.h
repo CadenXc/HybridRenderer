@@ -110,6 +110,7 @@ namespace Chimera {
     {
         std::string name;
         TransformComponent transform;
+        glm::mat4 prevTransform{ 1.0f }; // [NEW]
         MeshComponent mesh;
     };
 

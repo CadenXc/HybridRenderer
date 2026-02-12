@@ -1,47 +1,43 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
-#extension GL_EXT_nonuniform_qualifier : enable
-#extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : require
-
 #include "ShaderCommon.h"
 
-layout(location = 0) rayPayloadEXT HitPayload payload;
+layout(set = 0, binding = 0) uniform GlobalUBO {
+    UniformBufferObject ubo;
+} global;
 
-// Set 0: Global
-layout(binding = 0, set = 0) uniform GlobalUBO {
-    UniformBufferObject cam;
-} ubo;
+layout(set = 1, binding = 0) uniform accelerationStructureEXT topLevelAS;
 
-// Set 1: Scene (Unified)
-layout(binding = 0, set = 1) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 1, scalar) readonly buffer MaterialBuffer { PBRMaterial m[]; } materialBuffer;
-layout(binding = 2, set = 1, scalar) readonly buffer InstanceDataBuffer { RTInstanceData i[]; } instanceBuffer;
-layout(binding = 3, set = 1) uniform sampler2D textureArray[];
+layout(set = 2, binding = 0, rgba16f) uniform image2D rtShadowAO;
+layout(set = 2, binding = 1) uniform sampler2D gNormal;
+layout(set = 2, binding = 2) uniform sampler2D gDepth;
 
-// Set 2: Pass Specific
-layout(binding = 0, set = 2, rgba16f) uniform image2D rtOutput; // Explicitly match VK_FORMAT_R16G16B16A16_SFLOAT
-
-layout(push_constant) uniform PushConstants {
-    vec4 clearColor;
-    int skyboxIndex;
-} push;
+layout(location = 0) rayPayloadEXT int isShadowed;
 
 void main() 
 {
-    const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
-    const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
-    vec2 d = inUV * 2.0 - 1.0;
-
-    vec4 origin = ubo.cam.viewInverse * vec4(0, 0, 0, 1);
-    vec4 target = ubo.cam.projInverse * vec4(d.x, d.y, 1, 1);
-    vec4 direction = ubo.cam.viewInverse * vec4(normalize(target.xyz), 0);
-
-    payload.hit = false;
-    payload.color = vec3(0.0);
+    const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
     
-    traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin.xyz, 0.001, direction.xyz, 10000.0, 0);
+    float depth = texture(gDepth, inUV).r;
+    if (depth == 0.0) {
+        imageStore(rtShadowAO, ivec2(gl_LaunchIDEXT.xy), vec4(1.0, 1.0, 0.0, 1.0));
+        return;
+    }
+
+    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.viewProjInverse);
+    vec3 normal = normalize(texture(gNormal, inUV).xyz * 2.0 - 1.0);
+
+    // 1. Ray Traced Shadow
+    vec3 lightDir = normalize(global.ubo.directionalLight.direction.xyz);
+    vec3 origin = worldPos + normal * 0.005; // Bias
     
-    vec3 finalColor = payload.hit ? payload.color : push.clearColor.rgb;
-    imageStore(rtOutput, ivec2(gl_LaunchIDEXT.xy), vec4(finalColor, 1.0));
+    isShadowed = 1; // 假设有阴影
+    traceRayEXT(topLevelAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                0xFF, 0, 0, 1, origin, 0.001, lightDir, 10000.0, 0);
+
+    float shadow = (isShadowed == 1) ? 0.0 : 1.0;
+    float ao = 1.0; 
+
+    imageStore(rtShadowAO, ivec2(gl_LaunchIDEXT.xy), vec4(shadow, ao, 0.0, 1.0));
 }

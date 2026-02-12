@@ -23,32 +23,15 @@ namespace Chimera
         Image(Image&& other) noexcept;
         Image& operator=(Image&& other) noexcept;
 
-        VkImage GetImage() const
-        {
-            return m_Image;
-        }
-
-        VkImageView GetImageView() const
-        {
-            return m_View;
-        }
-
-        VkFormat GetFormat() const
-        {
-            return m_Format;
-        }
-
-        VkExtent2D GetExtent() const
-        {
-            return { m_Width, m_Height };
-        }
-
-        uint32_t GetMipLevels() const
-        {
-            return m_MipLevels;
-        }
+        VkImage GetImage() const { return m_Image; }
+        VkImageView GetImageView() const { return m_View; }
+        VkFormat GetFormat() const { return m_Format; }
+        VkExtent2D GetExtent() const { return { m_Width, m_Height }; }
+        uint32_t GetMipLevels() const { return m_MipLevels; }
 
     private:
+        VkDevice m_Device = VK_NULL_HANDLE;
+        VmaAllocator m_Allocator = nullptr;
         VkImage m_Image = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
         VkImageView m_View = VK_NULL_HANDLE;

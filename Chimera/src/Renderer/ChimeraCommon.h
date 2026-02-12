@@ -1,69 +1,54 @@
 #pragma once
+
 #include "volk.h"
+#include <vk_mem_alloc.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <string>
 #include <vector>
 #include <memory>
-#include <unordered_map>
-#include <glm/glm.hpp>
+#include <array>
+#include <stdexcept>
+#include <algorithm>
+#include <functional>
 
-// VMA Forward Declarations (Avoid complete include here)
-typedef struct VmaAllocation_T* VmaAllocation;
+#include "Core/Log.h"
 
 namespace Chimera
 {
-    // 1. 核心前置声明
-    class VulkanContext;
-    class ResourceManager;
-    class PipelineManager;
-    class RenderGraph;
-    class Scene;
-    class RenderState;
-    struct GraphicsPipeline;
-    struct RaytracingPipeline;
-    struct ComputePipeline;
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 
-    // 2. 基础枚举与常量
-    inline static const uint32_t MAX_FRAMES_IN_FLIGHT = 3;
-    
-    enum class RenderPathType 
-    { 
-        Forward, 
-        Hybrid, 
-        RayTracing 
+    struct ApplicationSpecification {
+        std::string Name = "Chimera App";
+        uint32_t Width = 1280;
+        uint32_t Height = 720;
+        bool Fullscreen = false;
+        bool VSync = true;
     };
 
-    inline const char* RenderPathTypeToString(RenderPathType type)
-    {
-        switch (type)
-        {
-            case RenderPathType::Forward:    return "Forward";
-            case RenderPathType::Hybrid:     return "Hybrid";
-            case RenderPathType::RayTracing:  return "Ray Tracing";
-            default:                        return "Unknown";
-        }
-    }
+    // --- PURE FORWARD DECLARATIONS ONLY ---
+    class VulkanContext;
+    class Scene;
+    class RenderGraph; // MUST BE PURE FORWARD DECLARATION
+    struct RenderFrameInfo;
 
-    inline const std::vector<RenderPathType>& GetAllRenderPathTypes()
-    {
-        static std::vector<RenderPathType> all = { RenderPathType::Forward, RenderPathType::Hybrid, RenderPathType::RayTracing };
-        return all;
-    }
-
-    enum class TransientResourceType { Image, Buffer, Sampler, AccelerationStructure, Storage };
-    enum class TransientImageType { AttachmentImage, SampledImage, StorageImage };
-    
-    struct RenderFrameInfo
-    {
+    struct RenderFrameInfo {
         VkCommandBuffer commandBuffer;
         uint32_t frameIndex;
         uint32_t imageIndex;
         VkDescriptorSet globalSet;
     };
 
-    struct ApplicationSpecification
-    { 
-        std::string Name = "Chimera App"; 
-        uint32_t Width = 1600; 
-        uint32_t Height = 900; 
-    };
+    enum class RenderPathType { Forward = 0, Hybrid, RayTracing };
+
+    inline const char* RenderPathTypeToString(RenderPathType type) {
+        switch (type) {
+            case RenderPathType::Forward: return "Forward";
+            case RenderPathType::Hybrid: return "Hybrid";
+            case RenderPathType::RayTracing: return "RayTracing";
+            default: return "Unknown";
+        }
+    }
+
+    inline std::vector<RenderPathType> GetAllRenderPathTypes() { return { RenderPathType::Forward, RenderPathType::Hybrid, RenderPathType::RayTracing }; }
 }

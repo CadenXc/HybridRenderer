@@ -50,10 +50,35 @@ namespace Chimera
 
     Application::~Application()
     {
-        vkDeviceWaitIdle(m_Context->GetDevice());
+        CH_CORE_INFO("Application: Shutting down...");
+        
+        if (m_Context) {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+        }
+
+        // 1. NOTIFY AND CLEAR LAYERS - Must call OnDetach explicitly!
+        for (auto& layer : m_LayerStack) {
+            CH_CORE_TRACE("Application: Detaching layer '{0}'", layer->GetName());
+            layer->OnDetach();
+        }
         
         m_ImGuiLayer.reset();
-        m_LayerStack.clear();
+        m_LayerStack.clear(); 
+        
+        CH_CORE_INFO("Application: Layers cleared.");
+
+        // 3. Destroy Renderer (Critical for CommandBuffers/Semaphores)
+        m_Renderer.reset();
+
+        // 4. Destroy Managers
+        m_PipelineManager.reset();
+        m_ResourceManager.reset();
+        m_RenderState.reset();
+
+        // 5. Finally destroy Context (VkDevice)
+        m_Context.reset();
+        
+        CH_CORE_INFO("Application: Shutdown complete.");
     }
 
     void Application::Run()
@@ -78,23 +103,23 @@ namespace Chimera
     {
         uint32_t frameIndex = m_TotalFrameCount % MAX_FRAMES_IN_FLIGHT;
 
-        // 1. Update Global State
-        UpdateGlobalUBO(frameIndex);
-
-        // 2. Begin Frame (Backend)
+        // 1. Begin Frame FIRST - This waits for the GPU fence
         VkCommandBuffer cmd = m_Renderer->BeginFrame();
         if (cmd == VK_NULL_HANDLE)
         {
             return;
         }
 
-        // 3. Update Layers (Logic and Render)
+        // 2. Update Global State AFTER waiting for GPU
+        UpdateGlobalUBO(frameIndex);
+
+        // 3. Update Layers
         for (auto& layer : m_LayerStack)
         {
             layer->OnUpdate(ts);
         }
 
-        // 4. Render UI Overlay
+        // 4. Render UI
         m_ImGuiLayer->Begin();
         for (auto& layer : m_LayerStack)
         {
@@ -111,12 +136,23 @@ namespace Chimera
     void Application::UpdateGlobalUBO(uint32_t frameIndex)
     {
         UniformBufferObject ubo{};
+        
+        // Safety: Ensure we have a valid camera view
+        if (glm::length(m_FrameContext.View[0]) < 0.001f) {
+            m_FrameContext.View = glm::mat4(1.0f);
+            m_FrameContext.Projection = glm::perspective(glm::radians(45.0f), 1.77f, 0.1f, 1000.0f);
+        }
+
         ubo.view = m_FrameContext.View;
         ubo.proj = m_FrameContext.Projection;
         ubo.viewInverse = glm::inverse(ubo.view);
         ubo.projInverse = glm::inverse(ubo.proj);
         ubo.viewProjInverse = ubo.viewInverse * ubo.projInverse;
         ubo.cameraPos = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
+        
+        ubo.prevView = m_PrevView;
+        ubo.prevProj = m_PrevProj;
+        
         ubo.displaySize = { (float)m_Specification.Width, (float)m_Specification.Height };
         ubo.displaySizeInverse = { 1.0f / ubo.displaySize.x, 1.0f / ubo.displaySize.y };
         ubo.frameIndex = frameIndex;
@@ -124,16 +160,16 @@ namespace Chimera
         
         ResourceManager::Get().UpdateFrameIndex(frameIndex);
         
-        // Safety check for active scene
         if (m_ActiveScene)
         {
             ResourceManager::Get().UpdateSceneDescriptorSet(m_ActiveScene, frameIndex);
-            
-            // SYNCHRONIZE LIGHT DATA
             ubo.directionalLight = m_ActiveScene->GetLight();
         }
 
         m_RenderState->Update(frameIndex, ubo);
+
+        m_PrevView = ubo.view;
+        m_PrevProj = ubo.proj;
     }
 
     void Application::OnEvent(Event& e)
@@ -176,11 +212,18 @@ namespace Chimera
     void Application::ProcessEventQueue()
     {
         std::lock_guard<std::mutex> lock(m_EventQueueMutex);
+        if (!m_EventQueue.empty()) {
+            CH_CORE_TRACE("Application: Processing {0} events in queue...", m_EventQueue.size());
+        }
+        
         while (!m_EventQueue.empty())
         {
-            auto& func = m_EventQueue.front();
-            func();
+            auto func = std::move(m_EventQueue.front());
             m_EventQueue.pop_front();
+            
+            CH_CORE_TRACE("Application: Executing event task...");
+            func();
+            CH_CORE_TRACE("Application: Event task finished.");
         }
     }
 

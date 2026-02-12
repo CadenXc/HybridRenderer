@@ -1,66 +1,72 @@
 #include "pch.h"
 #include "HybridRenderPath.h"
-#include "Scene/Scene.h"
+#include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Passes/GBufferPass.h"
 #include "Renderer/Passes/RTShadowAOPass.h"
-#include "Renderer/Passes/DeferredLightingPass.h"
-#include "Renderer/Passes/LinearizeDepthPass.h"
-#include "Renderer/Graph/ResourceNames.h"
-#include "Renderer/Graph/RenderGraph.h"
-#include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Graph/GraphicsExecutionContext.h"
+#include "Renderer/Backend/Renderer.h"
+#include "Core/Application.h"
 
 namespace Chimera
 {
-    HybridRenderPath::HybridRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene)
-        : RenderPath(context, scene)
+    HybridRenderPath::HybridRenderPath(VulkanContext& context, std::shared_ptr<Scene> scene)
+        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}), scene)
     {
     }
 
-    void HybridRenderPath::Render(const RenderFrameInfo& frameInfo) 
+    HybridRenderPath::~HybridRenderPath()
     {
-        if (m_NeedsRebuild || !m_RenderGraph)
+        m_RenderGraph.reset();
+    }
+
+    void HybridRenderPath::Render(const RenderFrameInfo& frameInfo)
+    {
+        if (m_NeedsResize)
         {
-            CH_CORE_INFO("HybridRenderPath: Building/Rebuilding RenderGraph...");
-            vkDeviceWaitIdle(m_Context->GetDevice());
-            
-            // CRITICAL: Build TLAS before graph setup to ensure handles are valid
-            m_Scene->BuildTLAS();
-
-            Init();
-            
-            auto& graph = *m_RenderGraph;
-            CH_CORE_INFO("HybridRenderPath: Setting up GBufferPass...");
-            GBufferPass gbuffer(m_Scene);
-            gbuffer.Setup(graph);
-            
-            CH_CORE_INFO("HybridRenderPath: Setting up RTShadowAOPass...");
-            RTShadowAOPass shadow(m_Context, m_Width, m_Height);
-            shadow.Setup(graph);
-
-            CH_CORE_INFO("HybridRenderPath: Setting up DeferredLightingPass...");
-            DeferredLightingPass deferred(m_Scene, m_Width, m_Height);
-            deferred.Setup(graph);
-
-            // Add Final Blit to Swapchain
-            m_RenderGraph->AddBlitPass("FinalBlit", RS::Albedo, RS::RENDER_OUTPUT, VK_FORMAT_R8G8B8A8_UNORM, m_Context->GetSwapChainImageFormat());
-
-            CH_CORE_INFO("HybridRenderPath: Finalizing RenderGraph build...");
-            graph.Build();
-            m_NeedsRebuild = false;
-            m_NeedsResize = false;
-            CH_CORE_INFO("HybridRenderPath: RenderGraph ready.");
-        }
-        else if (m_NeedsResize)
-        {
-            CH_CORE_INFO("HybridRenderPath: Resizing RenderGraph to {0}x{1}...", m_Width, m_Height);
-            vkDeviceWaitIdle(m_Context->GetDevice());
-            
-            m_RenderGraph->Resize(m_Width, m_Height);
+            if (!m_Context) return;
+            m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
             m_NeedsResize = false;
         }
 
-        // Before executing, make sure we have a valid output. 
-        // If DeferredLighting is off, we alias Albedo to RENDER_OUTPUT in the graph or just use Albedo.
-        m_RenderGraph->Execute(frameInfo.commandBuffer, frameInfo.frameIndex, frameInfo.imageIndex);
+        if (!m_RenderGraph) return;
+        m_RenderGraph->Reset();
+
+        // 1. G-Buffer
+        if (m_Scene) GBufferPass::AddToGraph(*m_RenderGraph, m_Scene);
+
+        // 2. RT Shadow/AO
+        if (m_Scene) RTShadowAOPass::AddToGraph(*m_RenderGraph, m_Scene);
+
+        // 4. Composition
+        struct CompData { RGResourceHandle albedo, shadow, output; };
+        m_RenderGraph->AddPass<CompData>("Composition",
+            [&](CompData& data, RenderGraph::PassBuilder& builder) {
+                data.albedo = builder.Read(RS::Albedo);
+                data.shadow = builder.Read(RS::ShadowAO);
+                data.output = builder.Write(RS::FinalColor, VK_FORMAT_R16G16B16A16_SFLOAT);
+            },
+            [=](const CompData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
+                ctx.DrawMeshes({ "Composition", "common/fullscreen.vert", "postprocess/composition.frag", false, false }, nullptr);
+            }
+        );
+
+        // 5. Final Output
+        struct FinalData { RGResourceHandle src; };
+        m_RenderGraph->AddPass<FinalData>("FinalBlit",
+            [&](FinalData& data, RenderGraph::PassBuilder& builder) {
+                data.src = builder.Read(RS::FinalColor);
+                builder.Write(RS::RENDER_OUTPUT);
+            },
+            [=](const FinalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
+                ctx.DrawMeshes({ "FinalBlit", "common/fullscreen.vert", "postprocess/blit.frag", false, false }, nullptr);
+            }
+        );
+
+        m_RenderGraph->Compile();
+        m_RenderGraph->Execute(frameInfo.commandBuffer);
     }
 }

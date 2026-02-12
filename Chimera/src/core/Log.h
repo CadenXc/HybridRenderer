@@ -1,43 +1,34 @@
 #pragma once
 
-#include <memory>
+#include "pch.h"
+#include <spdlog/spdlog.h>
+#include <spdlog/fmt/ostr.h>
 
-#include "spdlog/spdlog.h"
-#include "spdlog/fmt/ostr.h"
+namespace Chimera {
 
-namespace Chimera 
-{
-	class Log 
-	{
-	public:
-		static void Init();
+    class Log
+    {
+    public:
+        static void Init();
 
-		inline static std::shared_ptr<spdlog::logger>& GetCoreLogger()
-		{
-			return s_CoreLogger;
-		}
+        static std::shared_ptr<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
+        static std::shared_ptr<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+    private:
+        static std::shared_ptr<spdlog::logger> s_CoreLogger;
+        static std::shared_ptr<spdlog::logger> s_ClientLogger;
+    };
 
-		inline static std::shared_ptr<spdlog::logger>& GetClientLogger()
-		{
-			return s_ClientLogger;
-		}
-
-	private:
-		static std::shared_ptr<spdlog::logger> s_CoreLogger;
-		static std::shared_ptr<spdlog::logger> s_ClientLogger;
-	};
 }
 
-// Core log macros
-#define CH_CORE_TRACE(...)	::Chimera::Log::GetCoreLogger()->trace(__VA_ARGS__)
-#define CH_CORE_INFO(...)	 ::Chimera::Log::GetCoreLogger()->info(__VA_ARGS__)
-#define CH_CORE_WARN(...)	 ::Chimera::Log::GetCoreLogger()->warn(__VA_ARGS__)
-#define CH_CORE_ERROR(...)	::Chimera::Log::GetCoreLogger()->error(__VA_ARGS__)
-#define CH_CORE_FATAL(...)	::Chimera::Log::GetCoreLogger()->critical(__VA_ARGS__)
+// --- Enhanced Macros with File, Function and Line ---
+#define CH_CORE_TRACE(...)  ::Chimera::Log::GetCoreLogger()->trace("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_CORE_INFO(...)   ::Chimera::Log::GetCoreLogger()->info("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_CORE_WARN(...)   ::Chimera::Log::GetCoreLogger()->warn("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_CORE_ERROR(...)  ::Chimera::Log::GetCoreLogger()->error("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_CORE_CRITICAL(...) ::Chimera::Log::GetCoreLogger()->critical("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
 
-// Client log macros
-#define CH_TRACE(...)		 ::Chimera::Log::GetClientLogger()->trace(__VA_ARGS__)
-#define CH_INFO(...)		  ::Chimera::Log::GetClientLogger()->info(__VA_ARGS__)
-#define CH_WARN(...)		  ::Chimera::Log::GetClientLogger()->warn(__VA_ARGS__)
-#define CH_ERROR(...)		 ::Chimera::Log::GetClientLogger()->error(__VA_ARGS__)
-#define CH_FATAL(...)		 ::Chimera::Log::GetClientLogger()->critical(__VA_ARGS__)
+#define CH_TRACE(...)       ::Chimera::Log::GetClientLogger()->trace("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_INFO(...)        ::Chimera::Log::GetClientLogger()->info("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_WARN(...)        ::Chimera::Log::GetClientLogger()->warn("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_ERROR(...)       ::Chimera::Log::GetClientLogger()->error("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))
+#define CH_CRITICAL(...)    ::Chimera::Log::GetClientLogger()->critical("[{0}]:[{1}] {2}", strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__, __LINE__, fmt::format(__VA_ARGS__))

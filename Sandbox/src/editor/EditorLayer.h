@@ -76,6 +76,7 @@ namespace Chimera {
 		// Resize debounce
 		float m_ResizeTimer = 0.0f;
 		bool m_ViewportResizing = false;
+		bool m_ResizePending = false;
 		glm::vec2 m_NextViewportSize{ 0.0f };
 
 		// Rendering & Scene (Migrated from Application)

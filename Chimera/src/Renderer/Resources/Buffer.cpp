@@ -25,16 +25,15 @@ namespace Chimera {
 
 		VmaAllocationInfo allocationResultInfo;
 		VkResult result;
-		VmaAllocator allocator = VulkanContext::Get().GetAllocator();
+		m_Allocator = VulkanContext::Get().GetAllocator();
 
 		if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
 		{
-			// RT scratch buffers and other address-based buffers often require specific alignments (e.g., 128 or 256).
-			result = vmaCreateBufferWithAlignment(allocator, &bufferInfo, &allocInfo, 256, &m_Buffer, &m_Allocation, &allocationResultInfo);
+			result = vmaCreateBufferWithAlignment(m_Allocator, &bufferInfo, &allocInfo, 256, &m_Buffer, &m_Allocation, &allocationResultInfo);
 		}
 		else
 		{
-			result = vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &allocationResultInfo);
+			result = vmaCreateBuffer(m_Allocator, &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &allocationResultInfo);
 		}
 
 		if (result != VK_SUCCESS)
@@ -51,27 +50,28 @@ namespace Chimera {
 			VkBufferDeviceAddressInfo deviceAddressInfo{};
 			deviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 			deviceAddressInfo.buffer = m_Buffer;
-			
 			m_DeviceAddress = vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &deviceAddressInfo);
 		}
 	}
 
 	Buffer::~Buffer()
 	{
-		if (m_Buffer != VK_NULL_HANDLE)
+		if (m_Buffer != VK_NULL_HANDLE && m_Allocator != nullptr)
 		{
-			vmaDestroyBuffer(VulkanContext::Get().GetAllocator(), m_Buffer, m_Allocation);
+			vmaDestroyBuffer(m_Allocator, m_Buffer, m_Allocation);
 		}
 	}
 
 	Buffer::Buffer(Buffer&& other) noexcept
-		: m_Buffer(other.m_Buffer),
+		: m_Allocator(other.m_Allocator),
+          m_Buffer(other.m_Buffer),
 		  m_Allocation(other.m_Allocation),
 		  m_Size(other.m_Size),
 		  m_DeviceAddress(other.m_DeviceAddress),
 		  m_MappedData(other.m_MappedData),
 		  m_PersistentlyMapped(other.m_PersistentlyMapped)
 	{
+        other.m_Allocator = nullptr;
 		other.m_Buffer = VK_NULL_HANDLE;
 		other.m_Allocation = VK_NULL_HANDLE;
 		other.m_MappedData = nullptr;
@@ -82,10 +82,11 @@ namespace Chimera {
 	{
 		if (this != &other)
 		{
-			if (m_Buffer != VK_NULL_HANDLE) {
-				vmaDestroyBuffer(VulkanContext::Get().GetAllocator(), m_Buffer, m_Allocation);
+			if (m_Buffer != VK_NULL_HANDLE && m_Allocator != nullptr) {
+				vmaDestroyBuffer(m_Allocator, m_Buffer, m_Allocation);
 			}
 
+            m_Allocator = other.m_Allocator;
 			m_Buffer = other.m_Buffer;
 			m_Allocation = other.m_Allocation;
 			m_Size = other.m_Size;
@@ -93,6 +94,7 @@ namespace Chimera {
 			m_MappedData = other.m_MappedData;
 			m_PersistentlyMapped = other.m_PersistentlyMapped;
 
+            other.m_Allocator = nullptr;
 			other.m_Buffer = VK_NULL_HANDLE;
 			other.m_Allocation = VK_NULL_HANDLE;
 			other.m_MappedData = nullptr;
@@ -104,14 +106,14 @@ namespace Chimera {
 	void* Buffer::Map()
 	{
 		if (m_MappedData) return m_MappedData;
-		vmaMapMemory(VulkanContext::Get().GetAllocator(), m_Allocation, &m_MappedData);
+		vmaMapMemory(m_Allocator, m_Allocation, &m_MappedData);
 		return m_MappedData;
 	}
 
 	void Buffer::Unmap()
 	{
 		if (m_PersistentlyMapped) return;
-		vmaUnmapMemory(VulkanContext::Get().GetAllocator(), m_Allocation);
+		vmaUnmapMemory(m_Allocator, m_Allocation);
 		m_MappedData = nullptr;
 	}
 
@@ -128,7 +130,7 @@ namespace Chimera {
 	void Buffer::Flush(VkDeviceSize size, VkDeviceSize offset)
 	{
 		if (m_IsCoherent) return;
-		vmaFlushAllocation(VulkanContext::Get().GetAllocator(), m_Allocation, offset, size);
+		vmaFlushAllocation(m_Allocator, m_Allocation, offset, size);
 	}
 
 	void Buffer::SetDebugName(const std::string& name)

@@ -1,24 +1,21 @@
 #include "pch.h"
-#include "Core/Log.h"
-
+#include "Log.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/sinks/basic_file_sink.h>
 
-namespace Chimera 
-{
-	std::shared_ptr<spdlog::logger> Log::s_CoreLogger;
-	std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
+namespace Chimera {
 
-	void Log::Init() 
-	{
-		spdlog::set_pattern("%^[%T] %n: %v%$");
+    std::shared_ptr<spdlog::logger> Log::s_CoreLogger;
+    std::shared_ptr<spdlog::logger> Log::s_ClientLogger;
 
-		s_CoreLogger = spdlog::stdout_color_mt("CHIMERA");
-		s_CoreLogger->set_level(spdlog::level::info);
-		s_CoreLogger->flush_on(spdlog::level::trace);
+    void Log::Init()
+    {
+        spdlog::set_pattern("%^[%T] %n: %v%$");
 
-		s_ClientLogger = spdlog::stdout_color_mt("APP");
-		s_ClientLogger->set_level(spdlog::level::info);
-		s_ClientLogger->flush_on(spdlog::level::trace);
-	}
+        s_CoreLogger = spdlog::stdout_color_mt("CHIMERA");
+        s_CoreLogger->set_level(spdlog::level::info); // [BACK TO INFO]
+
+        s_ClientLogger = spdlog::stdout_color_mt("APP");
+        s_ClientLogger->set_level(spdlog::level::info); // [BACK TO INFO]
+    }
+
 }

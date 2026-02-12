@@ -102,6 +102,7 @@ namespace Chimera
         for (size_t i = 0; i < m_SwapChainImages.size(); i++)
         {
             VkImageViewCreateInfo viewInfo{};
+            viewInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
             viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             viewInfo.image = m_SwapChainImages[i];
             viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;

@@ -1,44 +1,39 @@
 #include "pch.h"
 #include "RayTracedRenderPath.h"
-#include "Scene/Scene.h"
-#include "Renderer/Graph/ResourceNames.h"
-#include "Renderer/Graph/RenderGraph.h"
-#include "Renderer/Passes/RaytracePass.h"
 #include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Graph/ResourceNames.h"
 
 namespace Chimera
 {
-    RayTracedRenderPath::RayTracedRenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene)
-        : RenderPath(context, scene)
+    RayTracedRenderPath::RayTracedRenderPath(VulkanContext& context, std::shared_ptr<Scene> scene)
+        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}), scene)
     {
     }
 
-    void RayTracedRenderPath::Render(const RenderFrameInfo& frameInfo) 
+    RayTracedRenderPath::~RayTracedRenderPath()
     {
-        if (m_NeedsRebuild || !m_RenderGraph)
-        {
-            vkDeviceWaitIdle(m_Context->GetDevice());
-            
-            m_Scene->BuildTLAS();
+    }
 
-            Init();
-            
-            RaytracePass rt(m_Width, m_Height);
-            rt.Setup(*m_RenderGraph);
-
-            m_RenderGraph->AddBlitPass("FinalBlit", RS::RTOutput, RS::RENDER_OUTPUT, VK_FORMAT_R16G16B16A16_SFLOAT, m_Context->GetSwapChainImageFormat());
-
-            m_RenderGraph->Build();
-            m_NeedsRebuild = false;
-            m_NeedsResize = false;
-        }
-        else if (m_NeedsResize)
-        {
-            vkDeviceWaitIdle(m_Context->GetDevice());
-            m_RenderGraph->Resize(m_Width, m_Height);
+    void RayTracedRenderPath::Render(const RenderFrameInfo& frameInfo)
+    {
+        if (m_NeedsResize) {
+            m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
             m_NeedsResize = false;
         }
 
-        m_RenderGraph->Execute(frameInfo.commandBuffer, frameInfo.frameIndex, frameInfo.imageIndex);
+        m_RenderGraph->Reset();
+
+        struct RTData {};
+        m_RenderGraph->AddPass<RTData>("RTPass",
+            [&](RTData& data, RenderGraph::PassBuilder& builder) {
+                builder.Write(RS::RENDER_OUTPUT);
+            },
+            [=](const RTData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+            }
+        );
+
+        m_RenderGraph->Compile();
+        m_RenderGraph->Execute(frameInfo.commandBuffer);
     }
 }

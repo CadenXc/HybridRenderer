@@ -10,9 +10,9 @@ namespace Chimera
     {
         switch (type)
         {
-            case RenderPathType::Forward:   return std::make_unique<ForwardRenderPath>(context, scene);
-            case RenderPathType::Hybrid:    return std::make_unique<HybridRenderPath>(context, scene);
-            case RenderPathType::RayTracing: return std::make_unique<RayTracedRenderPath>(context, scene);
+            case RenderPathType::Forward:   return std::make_unique<ForwardRenderPath>(*context, scene);
+            case RenderPathType::Hybrid:    return std::make_unique<HybridRenderPath>(*context, scene);
+            case RenderPathType::RayTracing: return std::make_unique<RayTracedRenderPath>(*context, scene);
         }
         return nullptr;
     }

@@ -37,7 +37,6 @@ namespace Chimera
         inline static const std::string AtrousPing    = "AtrousPing";
         inline static const std::string AtrousPong    = "AtrousPong";
         inline static const std::string FinalColor    = "FinalColor";
-        inline static const std::string LinearDepth   = "LinearDepth";
 
         // Compatibility aliases
         inline static const std::string FINAL_COLOR   = FinalColor;

@@ -127,5 +127,8 @@ namespace Chimera
         float m_LastFrameTime = 0.0f;
         uint32_t m_TotalFrameCount = 0;
         float m_DepthScale = 1.0f;
+
+        glm::mat4 m_PrevView = glm::mat4(1.0f);
+        glm::mat4 m_PrevProj = glm::mat4(1.0f);
     };
 }

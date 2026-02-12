@@ -12,10 +12,6 @@ public:
 		// Push the Editor Layer which contains the UI and logic
 		auto editorLayer = std::make_shared<Chimera::EditorLayer>();
 		PushLayer(editorLayer);
-
-        // Load default model and skybox via EditorLayer
-        editorLayer->LoadScene(Chimera::Config::ASSET_DIR + "models/fantasy_queen/scene.gltf");
-        editorLayer->LoadSkybox(Chimera::Config::ASSET_DIR + "textures/newport_loft.hdr");
 		
 		CH_INFO("---------------------------------------------");
 		CH_INFO("Welcome to Chimera Hybrid Renderer!");

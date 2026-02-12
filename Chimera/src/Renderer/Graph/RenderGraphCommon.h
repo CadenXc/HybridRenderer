@@ -1,261 +1,148 @@
 #pragma once
-#include "Renderer/ChimeraCommon.h"
-#include "GraphicsExecutionContext.h"
-#include "RaytracingExecutionContext.h"
-#include "ComputeExecutionContext.h"
+
+#include "volk.h"
+#include <vk_mem_alloc.h>
 #include <variant>
 #include <vector>
-#include <deque>
 #include <string>
+#include <memory>
 #include <functional>
+#include <unordered_map>
 
 namespace Chimera
 {
-    // 1. 资源描述
-    struct ImageDescription
+    // --- 1. Basic Types & Handles ---
+    using RGResourceHandle = uint32_t;
+    using ResourceHandle = uint32_t;
+    static constexpr RGResourceHandle INVALID_RESOURCE = 0xFFFFFFFF;
+
+    enum class ResourceUsage
     {
-        VkFormat format;
+        None = 0, GraphicsSampled, ComputeSampled, RaytraceSampled,
+        StorageRead, StorageWrite, StorageReadWrite,
+        ColorAttachment, DepthStencilRead, DepthStencilWrite,
+        TransferSrc, TransferDst
     };
 
-    struct TransientResource
+    struct ResourceRequest
     {
-        std::string name;
-        TransientResourceType type;
-        
-        struct ImageInfo
-        {
-            VkFormat format;
-            TransientImageType type;
-            uint32_t binding = 0xFFFFFFFF;
-            VkClearValue clear_value = { {0,0,0,1} };
-        } image;
+        RGResourceHandle handle;
+        ResourceUsage usage;
+        uint32_t binding = 0xFFFFFFFF;
+        VkClearValue clearValue = { {0,0,0,1} };
+    };
 
-        struct BufferInfo
-        {
-            uint32_t count = 1;
-            uint32_t binding = 0xFFFFFFFF;
-            VkBuffer handle = VK_NULL_HANDLE;
-        } buffer;
-
-        struct ASInfo
-        {
-            uint32_t binding = 0xFFFFFFFF;
-            VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-        } as;
-
-        static TransientResource Attachment(const std::string& n, VkFormat f, VkClearValue c = {{0,0,0,1}})
-        {
-            TransientResource r;
-            r.name = n;
-            r.type = TransientResourceType::Image;
-            r.image = {f, TransientImageType::AttachmentImage, 0xFFFFFFFF, c};
-            return r;
-        }
-
-        static TransientResource Image(const std::string& n, VkFormat f)
-        {
-            TransientResource r;
-            r.name = n;
-            r.type = TransientResourceType::Image;
-            r.image.format = f;
-            r.image.type = TransientImageType::SampledImage;
-            r.image.binding = 0xFFFFFFFF;
-            return r;
-        }
-
-        static TransientResource StorageImage(const std::string& n, VkFormat f)
-        {
-            TransientResource r;
-            r.name = n;
-            r.type = TransientResourceType::Image;
-            r.image.format = f;
-            r.image.type = TransientImageType::StorageImage;
-            r.image.binding = 0xFFFFFFFF;
-            return r;
-        }
-
-        static TransientResource Buffer(const std::string& n, uint32_t c = 1)
-        {
-            TransientResource r;
-            r.name = n;
-            r.type = TransientResourceType::Buffer;
-            r.buffer.count = c;
-            return r;
-        }
-
-        static TransientResource Sampler(const std::string& n, uint32_t c = 1)
-        {
-            TransientResource r;
-            r.name = n;
-            r.type = TransientResourceType::Sampler;
-            r.buffer.count = c;
-            return r;
-        }
-
-        static TransientResource AccelerationStructure(const std::string& n)
-        {
-            TransientResource r;
-            r.name = n;
-            r.type = TransientResourceType::AccelerationStructure;
-            return r;
-        }
+    struct ResourceState
+    {
+        VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VkAccessFlags access = 0;
+        VkPipelineStageFlags stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     };
 
     struct GraphImage
-    { 
-        VkImage handle = VK_NULL_HANDLE; 
-        VkImageView view = VK_NULL_HANDLE; 
+    {
+        VkImage handle = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
         VkImageView debug_view = VK_NULL_HANDLE;
-        VmaAllocation allocation = nullptr; 
-        uint32_t width = 0; 
-        uint32_t height = 0; 
-        VkFormat format = VK_FORMAT_UNDEFINED; 
-        VkImageUsageFlags usage = 0; 
-        bool is_external = false; 
+        VmaAllocation allocation = nullptr;
+        uint32_t width = 0; uint32_t height = 0;
+        VkFormat format = VK_FORMAT_UNDEFINED;
+        VkImageUsageFlags usage = 0;
+        bool is_external = false;
     };
 
-    struct ImageAccess
-    {
-        VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        VkAccessFlags access_flags = 0;
-        VkPipelineStageFlags stage_flags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    };
+    // --- 2. Pipeline Descriptions ---
+    struct GraphicsPipelineDescription { std::string name, vertex_shader, fragment_shader; bool depth_test = true, depth_write = true; VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT; };
+    struct RaytracingPipelineDescription { std::string raygen_shader; std::vector<std::string> miss_shaders; struct HitGroup { std::string closest_hit, any_hit, intersection; }; std::vector<HitGroup> hit_shaders; };
+    struct ComputePipelineDescription { struct Kernel { std::string name, shader; }; std::vector<Kernel> kernels; struct { uint32_t size = 0; VkShaderStageFlags stages = 0; } push_constant_description; };
 
-    // 2. 回调定义
-    typedef std::function<void(GraphicsExecutionContext&)> GraphicsExecutionCallback;
-    typedef std::function<void(std::string, GraphicsExecutionCallback)> ExecuteGraphicsCallback;
-    typedef std::function<void(ExecuteGraphicsCallback&)> GraphicsPassCallback;
-    
-    typedef std::function<void(RaytracingExecutionContext&)> RaytracingExecutionCallback;
-    typedef std::function<void(std::string, RaytracingExecutionCallback)> ExecuteRaytracingCallback;
-    typedef std::function<void(ExecuteRaytracingCallback&)> RaytracingPassCallback;
-    
-    typedef std::function<void(ComputeExecutionContext&)> ComputePassCallback;
+    struct GraphicsPass { std::vector<struct TransientResource> attachments; };
+    struct RaytracingPass {};
+    struct ComputePass {};
+    struct BlitPass { std::string srcName, dstName; };
 
-    // 3. 管线描述
-    struct GraphicsPipelineDescription
-    {
-        std::string name;
-        std::string vertex_shader;
-        std::string fragment_shader;
-        bool depth_test = true;
-        bool depth_write = true;
-        VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
-    };
+    // --- 3. RenderGraph Core Structure ---
+    class RenderGraph;
 
-    struct RaytracingPipelineDescription
+    struct RenderGraphRegistry
     {
-        std::string raygen_shader;
-        std::vector<std::string> miss_shaders;
-        
-        struct HitGroup
-        {
-            std::string closest_hit;
-            std::string any_hit;
-            std::string intersection;
-        };
-        std::vector<HitGroup> hit_shaders;
-    };
-
-    struct ComputePipelineDescription
-    {
-        struct Kernel
-        {
-            std::string name;
-            std::string shader;
-        };
-        std::vector<Kernel> kernels;
-        
-        struct
-        {
-            uint32_t size = 0;
-            VkShaderStageFlags stages = 0;
-        } push_constant_description;
-    };
-
-    struct BlitPassDescription
-    {
-    };
-
-    // 4. Pass 对象
-    struct GraphicsPass
-    {
-        std::vector<TransientResource> attachments;
-        GraphicsPassCallback callback;
-    };
-
-    struct RaytracingPass
-    {
-        RaytracingPassCallback callback;
-    };
-
-    struct ComputePass
-    {
-        ComputePassCallback callback;
-    };
-
-    struct BlitPass
-    {
-        std::string srcName;
-        std::string dstName;
+        RenderGraph& graph;
+        struct RenderPass& pass;
+        VkImageView GetImageView(RGResourceHandle h);
+        VkImage GetImage(RGResourceHandle h);
     };
 
     struct RenderPass
     {
         std::string name;
-        VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
-        VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
-        
-        // Added storage for keeping descriptor info alive
-        struct PrivateInfo
+        std::vector<ResourceRequest> inputs;
+        std::vector<ResourceRequest> outputs;
+        std::function<void(RenderGraphRegistry&, VkCommandBuffer)> executeFunc;
+        VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+        VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        std::vector<VkFormat> colorFormats;
+        VkFormat depthFormat = VK_FORMAT_UNDEFINED;
+    };
+
+    class RenderGraph
+    {
+    public:
+        RenderGraph(const RenderGraph&) = delete;
+        RenderGraph& operator=(const RenderGraph&) = delete;
+
+        struct PassBuilder
         {
-            std::deque<VkDescriptorImageInfo> images;
-            std::deque<VkDescriptorBufferInfo> buffers;
-            std::deque<VkWriteDescriptorSetAccelerationStructureKHR> as;
-            VkAccelerationStructureKHR asHandle;
+            RenderGraph& graph;
+            RenderPass& pass;
+            PassBuilder(RenderGraph& g, RenderPass& p) : graph(g), pass(p) {}
+            RGResourceHandle Read(const std::string& name);
+            RGResourceHandle Write(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
+            RGResourceHandle WriteStorage(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
         };
-        std::shared_ptr<PrivateInfo> private_info;
 
-        std::variant<std::monostate, GraphicsPass, RaytracingPass, ComputePass, BlitPass> pass;
-    };
+        RenderGraph(class VulkanContext& context, uint32_t w, uint32_t h);
+        ~RenderGraph();
 
-    struct RenderPassDescription
-    {
-        std::string name;
-        std::vector<TransientResource> dependencies;
-        std::vector<TransientResource> outputs;
-        std::variant<std::monostate, GraphicsPipelineDescription, RaytracingPipelineDescription, ComputePipelineDescription, BlitPassDescription> description;
-        std::variant<std::monostate, GraphicsPassCallback, RaytracingPassCallback, ComputePassCallback> callback;
-    };
+        template<typename PassData>
+        void AddPass(const std::string& name, 
+                    std::function<void(PassData&, PassBuilder&)> setup, 
+                    std::function<void(const PassData&, RenderGraphRegistry&, VkCommandBuffer)> execute)
+        {
+            auto& pass = m_PassStack.emplace_back();
+            pass.name = name;
+            auto data = std::make_shared<PassData>();
+            PassBuilder builder(*this, pass);
+            setup(*data, builder);
+            pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) { execute(*data, reg, cmd); };
+        }
 
-    // 5. Specification Wrappers
-    struct GraphicsPassSpecification
-    {
-        std::string Name;
-        std::vector<TransientResource> Dependencies;
-        std::vector<TransientResource> Outputs;
-        std::vector<GraphicsPipelineDescription> Pipelines;
-        GraphicsPassCallback Callback;
-        std::string ShaderLayout;
-    };
+        void Reset();
+        void Compile();
+        void Execute(VkCommandBuffer cmd);
+        void DestroyResources(bool all = false);
 
-    struct RaytracingPassSpecification
-    {
-        std::string Name;
-        std::vector<TransientResource> Dependencies;
-        std::vector<TransientResource> Outputs;
-        RaytracingPipelineDescription Pipeline;
-        RaytracingPassCallback Callback;
-        std::string ShaderLayout;
-    };
+        RGResourceHandle GetResourceHandle(const std::string& name);
+        void ImportExternalResource(const std::string& name, VkImage image, VkImageView view, VkFormat format);
+        
+        uint32_t GetWidth() const { return m_Width; }
+        uint32_t GetHeight() const { return m_Height; }
+        bool ContainsImage(const std::string& name);
+        const GraphImage& GetImage(const std::string& name) const;
+        std::vector<std::string> GetColorAttachments() const;
+        void DrawPerformanceStatistics();
 
-    struct ComputePassSpecification
-    {
-        std::string Name;
-        std::vector<TransientResource> Dependencies;
-        std::vector<TransientResource> Outputs;
-        ComputePipelineDescription Pipeline;
-        ComputePassCallback Callback;
-        std::string ShaderLayout;
+    private:
+        struct PhysicalResource { std::string name; GraphImage image; ResourceState currentState; bool isExternal = false; };
+        void BuildBarriers(VkCommandBuffer cmd, RenderPass& pass);
+        void BakeDescriptorSet(RenderPass& pass);
+
+    private:
+        class VulkanContext& m_Context;
+        uint32_t m_Width, m_Height;
+        std::vector<RenderPass> m_PassStack;
+        std::vector<PhysicalResource> m_Resources;
+        std::unordered_map<std::string, RGResourceHandle> m_ResourceMap;
+        VkQueryPool m_TimestampQueryPool = VK_NULL_HANDLE;
+        friend struct RenderGraphRegistry;
     };
 }

@@ -2,8 +2,6 @@
 #include "Renderer/Backend/Renderer.h"
 #include "Renderer/Resources/ResourceManager.h"
 
-// TODO: Used in multiple places, consider moving to a common header
-// Helper macro for Vulkan error checking
 #define VK_CHECK(result) \
 	do { \
 		VkResult res = (result); \
@@ -16,7 +14,6 @@ namespace Chimera
 {
     Renderer* Renderer::s_Instance = nullptr;
 
-    // Frame resource structure for synchronization
     struct FrameResource
     {
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
@@ -28,18 +25,15 @@ namespace Chimera
     Renderer::Renderer()
     {
         s_Instance = this;
-        // Create frame resources for triple buffering
         CreateFrameResources();
     }
 
     Renderer::~Renderer()
     {
-        // Ensure GPU completes all work before destroying
         if (VulkanContext::HasInstance())
         {
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
         }
-
         FreeFrameResources();
         s_Instance = nullptr;
     }
@@ -47,156 +41,90 @@ namespace Chimera
     void Renderer::CreateFrameResources()
     {
         VkDevice device = VulkanContext::Get().GetDevice();
-        VkCommandPool commandPool = VulkanContext::Get().GetCommandPool();
         
+        VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = VulkanContext::Get().GetGraphicsQueueFamily();
+        
+        VK_CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &m_CommandPool));
+
         m_FrameResources.resize(MaxFramesInFlight);
 
         for (int i = 0; i < MaxFramesInFlight; ++i)
         {
-            // Create command buffer
-            VkCommandBufferAllocateInfo allocInfo{};
-            allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            allocInfo.commandPool = commandPool;
+            VkCommandBufferAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+            allocInfo.commandPool = m_CommandPool;
             allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             allocInfo.commandBufferCount = 1;
 
-            if (vkAllocateCommandBuffers(device, &allocInfo, &m_FrameResources[i].commandBuffer) != VK_SUCCESS)
-            {
-                throw std::runtime_error("failed to allocate command buffers!");
-            }
+            VK_CHECK(vkAllocateCommandBuffers(device, &allocInfo, &m_FrameResources[i].commandBuffer));
 
-            // Create semaphores and fence
-            VkSemaphoreCreateInfo semaphoreInfo{};
-            semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+            VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_FrameResources[i].imageAvailableSemaphore));
+            VK_CHECK(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_FrameResources[i].renderFinishedSemaphore));
 
-            if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_FrameResources[i].imageAvailableSemaphore) != VK_SUCCESS ||
-                vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_FrameResources[i].renderFinishedSemaphore) != VK_SUCCESS)
-            {
-                throw std::runtime_error("failed to create semaphores!");
-            }
-
-            VkFenceCreateInfo fenceInfo{};
-            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            VkFenceCreateInfo fenceInfo{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-            if (vkCreateFence(device, &fenceInfo, nullptr, &m_FrameResources[i].inFlightFence) != VK_SUCCESS)
-            {
-                throw std::runtime_error("failed to create fence!");
-            }
+            VK_CHECK(vkCreateFence(device, &fenceInfo, nullptr, &m_FrameResources[i].inFlightFence));
         }
     }
 
     void Renderer::FreeFrameResources()
     {
-        if (!VulkanContext::HasInstance())
-        {
-            return;
-        }
-
+        if (!VulkanContext::HasInstance()) return;
         VkDevice device = VulkanContext::Get().GetDevice();
-        VkCommandPool commandPool = VulkanContext::Get().GetCommandPool();
 
         for (auto& frameResource : m_FrameResources)
         {
-            if (frameResource.inFlightFence != VK_NULL_HANDLE)
-            {
-                vkDestroyFence(device, frameResource.inFlightFence, nullptr);
-            }
-            if (frameResource.renderFinishedSemaphore != VK_NULL_HANDLE)
-            {
-                vkDestroySemaphore(device, frameResource.renderFinishedSemaphore, nullptr);
-            }
-            if (frameResource.imageAvailableSemaphore != VK_NULL_HANDLE)
-            {
-                vkDestroySemaphore(device, frameResource.imageAvailableSemaphore, nullptr);
-            }
-            if (frameResource.commandBuffer != VK_NULL_HANDLE)
-            {
-                vkFreeCommandBuffers(device, commandPool, 1, &frameResource.commandBuffer);
-            }
+            if (frameResource.inFlightFence != VK_NULL_HANDLE) vkDestroyFence(device, frameResource.inFlightFence, nullptr);
+            if (frameResource.renderFinishedSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, frameResource.renderFinishedSemaphore, nullptr);
+            if (frameResource.imageAvailableSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, frameResource.imageAvailableSemaphore, nullptr);
         }
+        
+        if (m_CommandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(device, m_CommandPool, nullptr);
+        }
+        
         m_FrameResources.clear();
     }
 
-    void Renderer::OnResize(uint32_t width, uint32_t height)
-    {
-        m_NeedResize = true;
-    }
+    void Renderer::OnResize(uint32_t width, uint32_t height) { m_NeedResize = true; }
 
     VkCommandBuffer Renderer::BeginFrame()
     {
-        assert(!m_IsFrameInProgress && "Cannot call BeginFrame while frame is already in progress!");
-
-        // 1. Handle window resize
-        if (m_NeedResize)
-        {
-            RecreateSwapchain();
-            return VK_NULL_HANDLE; // Skip this frame
-        }
-
+        if (m_NeedResize) { RecreateSwapchain(); return VK_NULL_HANDLE; }
         VkDevice device = VulkanContext::Get().GetDevice();
         auto& frameResource = m_FrameResources[m_CurrentFrameIndex];
-
-        // 2. Wait for previous frame GPU work to complete
         VK_CHECK(vkWaitForFences(device, 1, &frameResource.inFlightFence, VK_TRUE, UINT64_MAX));
-
-        // Flush deferred deletions for this frame index as the GPU is now definitely done with it
         VulkanContext::Get().GetDeletionQueue().FlushFrame(m_CurrentFrameIndex);
-
-        // Clean up resources from the last time this frame index was used (using ResourceManager singleton)
-        auto& rm = ResourceManager::Get();
-        rm.UpdateFrameIndex(m_CurrentFrameIndex);
-        rm.ClearResourceFreeQueue(m_CurrentFrameIndex);
-
-        // 3. Get next swapchain image
-        VkResult result = vkAcquireNextImageKHR(
-            device,
-            VulkanContext::Get().GetSwapChain(),
-            UINT64_MAX,
-            frameResource.imageAvailableSemaphore,
-            VK_NULL_HANDLE,
-            &m_CurrentImageIndex
-        );
-
-        // Handle swapchain being out of date
-        if (result == VK_ERROR_OUT_OF_DATE_KHR)
-        {
-            RecreateSwapchain();
-            return VK_NULL_HANDLE;
-        }
-        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-        {
-            throw std::runtime_error("failed to acquire swap chain image!");
-        }
-
-        // 4. Reset fence after successful acquire
+        ResourceManager::Get().UpdateFrameIndex(m_CurrentFrameIndex);
+        ResourceManager::Get().ClearResourceFreeQueue(m_CurrentFrameIndex);
+        VkResult result = vkAcquireNextImageKHR(device, VulkanContext::Get().GetSwapChain(), UINT64_MAX, frameResource.imageAvailableSemaphore, VK_NULL_HANDLE, &m_CurrentImageIndex);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) { RecreateSwapchain(); return VK_NULL_HANDLE; }
+        
         VK_CHECK(vkResetFences(device, 1, &frameResource.inFlightFence));
 
-        // 5. Reset and begin command buffer
+        // [MODERN] Reset transient pool for the new frame construction
+        ResourceManager::Get().ResetTransientDescriptorPool();
+
         VK_CHECK(vkResetCommandBuffer(frameResource.commandBuffer, 0));
-
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
+        VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr };
         VK_CHECK(vkBeginCommandBuffer(frameResource.commandBuffer, &beginInfo));
-
-        // [FIX] Ensure swapchain image is in a known layout at start of frame
-        // This prevents the "expects COLOR_ATTACHMENT but is PRESENT_SRC" error
-        VkImage image = VulkanContext::Get().GetSwapChainImages()[m_CurrentImageIndex];
-        VkFormat format = VulkanContext::Get().GetSwapChainImageFormat();
         
-        // We use UNDEFINED as old layout to discard previous contents and start fresh
+        VkImage image = VulkanContext::Get().GetSwapChainImages()[m_CurrentImageIndex];
+        
+        // [FIX] Robust Initial Barrier: Discard previous contents and move to COLOR_ATTACHMENT
         VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
         barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
         barrier.image = image;
         barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
         
         vkCmdPipelineBarrier(frameResource.commandBuffer, 
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
             0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         m_IsFrameInProgress = true;
@@ -206,63 +134,22 @@ namespace Chimera
 
     void Renderer::EndFrame()
     {
-        assert(m_IsFrameInProgress && "Cannot call EndFrame while frame is not in progress!");
-
         auto& frameResource = m_FrameResources[m_CurrentFrameIndex];
-        VkCommandBuffer commandBuffer = frameResource.commandBuffer;
-
-        // 1. End command buffer recording
-        VK_CHECK(vkEndCommandBuffer(commandBuffer));
+        VK_CHECK(vkEndCommandBuffer(frameResource.commandBuffer));
         m_ActiveCommandBuffer = VK_NULL_HANDLE;
-
-        // 2. Submit commands
         VkSemaphore waitSemaphores[] = { frameResource.imageAvailableSemaphore };
         VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         VkSemaphore signalSemaphores[] = { frameResource.renderFinishedSemaphore };
-
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = waitSemaphores;
-        submitInfo.pWaitDstStageMask = waitStages;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffer;
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = signalSemaphores;
-
-        // Submit with fence for CPU synchronization
+        VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO, nullptr, 1, waitSemaphores, waitStages, 1, &frameResource.commandBuffer, 1, signalSemaphores };
         VK_CHECK(vkQueueSubmit(VulkanContext::Get().GetGraphicsQueue(), 1, &submitInfo, frameResource.inFlightFence));
-
-        // 3. Present
-        VkPresentInfoKHR presentInfo{};
-        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = signalSemaphores;
-
+        VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, nullptr, 1, signalSemaphores, 1, nullptr, nullptr, nullptr };
         VkSwapchainKHR swapChains[] = { VulkanContext::Get().GetSwapChain() };
-        presentInfo.swapchainCount = 1;
-        presentInfo.pSwapchains = swapChains;
-        presentInfo.pImageIndices = &m_CurrentImageIndex;
-
+        presentInfo.swapchainCount = 1; presentInfo.pSwapchains = swapChains; presentInfo.pImageIndices = &m_CurrentImageIndex;
         VkResult result = vkQueuePresentKHR(VulkanContext::Get().GetPresentQueue(), &presentInfo);
-
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_NeedResize)
-        {
-            m_NeedResize = true; // Handle on next frame
-        }
-        else if (result != VK_SUCCESS)
-        {
-            throw std::runtime_error("failed to present swap chain image!");
-        }
-
-        // 4. Update frame index for next frame
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_NeedResize) m_NeedResize = true;
         m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % MaxFramesInFlight;
         m_IsFrameInProgress = false;
     }
 
-    void Renderer::RecreateSwapchain()
-    {
-        VulkanContext::Get().RecreateSwapChain();
-        m_NeedResize = false;
-    }
+    void Renderer::RecreateSwapchain() { VulkanContext::Get().RecreateSwapChain(); m_NeedResize = false; }
 }

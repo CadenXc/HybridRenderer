@@ -1,6 +1,7 @@
 #pragma once
 #include "pch.h"
 #include "Renderer/ChimeraCommon.h"
+#include "Renderer/Graph/RenderGraphCommon.h"
 
 namespace Chimera
 {
@@ -60,6 +61,5 @@ namespace Chimera
 
         bool IsDepthFormat(VkFormat format);
         bool IsSRGBFormat(VkFormat format);
-        VkImageLayout GetImageLayoutFromResourceType(TransientResourceType type, VkFormat format);
     }
 }

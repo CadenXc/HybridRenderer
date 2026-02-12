@@ -1,18 +1,23 @@
 #pragma once
+
 #include "Renderer/Graph/RenderGraph.h"
+#include "Scene/Scene.h"
 
-namespace Chimera {
-
-    class RTShadowAOPass {
-    public:
-        RTShadowAOPass(std::shared_ptr<class VulkanContext> context, uint32_t width, uint32_t height)
-            : m_Context(context), m_Width(width), m_Height(height) {}
-
-        void Setup(RenderGraph& graph);
-
-    private:
-        std::shared_ptr<class VulkanContext> m_Context;
-        uint32_t m_Width, m_Height;
+namespace Chimera
+{
+    struct RTShadowAOData
+    {
+        RGResourceHandle normal;
+        RGResourceHandle depth;
+        RGResourceHandle output;
     };
 
+    class RTShadowAOPass
+    {
+    public:
+        /**
+         * @brief 将光追阴影与 AO Pass 挂载到渲染图中
+         */
+        static void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
+    };
 }

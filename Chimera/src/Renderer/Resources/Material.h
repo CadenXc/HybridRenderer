@@ -9,6 +9,7 @@ namespace Chimera
     {
     public:
         Material(const std::string& name = "New Material");
+        Material(const std::string& name, const PBRMaterial& data); // [NEW]
         ~Material() = default;
 
         void SetAlbedo(const glm::vec4& color)

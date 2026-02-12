@@ -1,39 +1,52 @@
 #pragma once
-#include "volk.h"
-#include <glm/glm.hpp>
+
+#include "RenderGraphCommon.h"
+#include <string>
+#include <vector>
 
 namespace Chimera
 {
+    class RenderGraph;
+    struct RenderPass;
+    class Shader;
+
+    /**
+     * @brief 自动化执行上下文：统一处理管线、描述符绑定、以及底层绘制指令
+     */
     class GraphicsExecutionContext
     {
     public:
-        GraphicsExecutionContext(VkCommandBuffer cmd, VkPipelineLayout layout) : m_Cmd(cmd), m_Layout(layout)
-        {
-        }
+        GraphicsExecutionContext(RenderGraph& graph, RenderPass& pass, VkCommandBuffer cmd);
+
+        // --- 核心绘制方法 ---
+        void DrawMeshes(const GraphicsPipelineDescription& desc, class Scene* scene);
+        void DispatchRays(const RaytracingPipelineDescription& desc);
+
+        // --- 底层封装 (供 Scene 等类内部调用) ---
+        VkCommandBuffer GetCommandBuffer() const { return m_Cmd; }
+        VkPipelineLayout GetActiveLayout() const { return m_ActiveLayout; } // [NEW] 用于状态同步
         
-        void DrawFullscreenQuad()
+        template<typename T>
+        void PushConstants(VkShaderStageFlags stages, const T& data)
         {
-            vkCmdDraw(m_Cmd, 3, 1, 0, 0);
+            if (m_ActiveLayout != VK_NULL_HANDLE)
+            {
+                vkCmdPushConstants(m_Cmd, m_ActiveLayout, stages, 0, sizeof(T), &data);
+            }
         }
 
-        void DrawIndexed(uint32_t c, uint32_t inst, uint32_t first, int32_t offset, uint32_t firstInst)
-        { 
-            vkCmdDrawIndexed(m_Cmd, c, inst, first, offset, firstInst); 
-        }
-        
-        VkCommandBuffer GetCommandBuffer() const
+        void DrawIndexed(uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t vertexOffset, uint32_t firstInstance)
         {
-            return m_Cmd;
-        }
-        
-        template<typename T> 
-        void PushConstants(const T& data, uint32_t offset = 0)
-        {
-            vkCmdPushConstants(m_Cmd, m_Layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, offset, sizeof(T), &data);
+            vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
         }
 
     private:
+        void BindPipelineAndDescriptorSets(VkPipelineBindPoint bindPoint, VkPipeline handle, VkPipelineLayout layout, const std::vector<const Shader*>& shaders);
+
+    private:
+        RenderGraph& m_Graph;
+        RenderPass& m_Pass;
         VkCommandBuffer m_Cmd;
-        VkPipelineLayout m_Layout;
+        VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE; // [NEW]
     };
 }

@@ -35,7 +35,12 @@ namespace Chimera {
 
     void EditorLayer::OnAttach()
     {
+        CH_CORE_INFO("EditorLayer: OnAttach starting...");
         RefreshModelList();
+
+        // Standard way to load default scene
+        LoadScene(Config::ASSET_DIR + "models/fantasy_queen/scene.gltf");
+        CH_CORE_INFO("EditorLayer: OnAttach complete.");
     }
 
     void EditorLayer::OnDetach()
@@ -52,16 +57,26 @@ namespace Chimera {
         if (m_ResizeTimer > 0.0f)
         {
             m_ResizeTimer -= ts.GetSeconds();
-            if (m_ResizeTimer <= 0.0f)
+            if (m_ResizeTimer <= 0.0f && !m_ResizePending)
             {
                 CH_CORE_INFO("EditorLayer: Resize settled. Rebuilding RenderPath to {0}x{1}", (uint32_t)m_NextViewportSize.x, (uint32_t)m_NextViewportSize.y);
-                if (m_RenderPath)
-                    m_RenderPath->SetViewportSize((uint32_t)m_NextViewportSize.x, (uint32_t)m_NextViewportSize.y);
                 
-                m_EditorCamera.SetViewportSize(m_NextViewportSize.x, m_NextViewportSize.y);
-                m_ViewportSize = m_NextViewportSize;
+                uint32_t w = (uint32_t)m_NextViewportSize.x;
+                uint32_t h = (uint32_t)m_NextViewportSize.y;
+                m_ResizePending = true;
+
+                Application::Get().QueueEvent([this, w, h]() {
+                    vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+                    if (m_RenderPath)
+                        m_RenderPath->SetViewportSize(w, h);
+                    m_EditorCamera.SetViewportSize((float)w, (float)h);
+                    m_ViewportSize = { (float)w, (float)h };
+                    m_ResizePending = false;
+                });
             }
         }
+
+        if (m_ResizePending) return;
 
         m_EditorCamera.OnUpdate(ts, m_ViewportHovered, m_ViewportFocused);
 
@@ -76,16 +91,18 @@ namespace Chimera {
         Application::Get().SetFrameContext(context);
         Application::Get().SetActiveScene(m_Scene.get());
 
-        // 2. Render logic (Moved from OnRender)
-        if (m_RenderPath && Renderer::HasInstance() && Renderer::Get().IsFrameInProgress())
+        if (m_RenderPath && Renderer::HasInstance())
         {
-            RenderFrameInfo frameInfo{};
-            frameInfo.commandBuffer = Renderer::Get().GetActiveCommandBuffer();
-            frameInfo.frameIndex = Renderer::Get().GetCurrentFrameIndex();
-            frameInfo.imageIndex = Renderer::Get().GetCurrentImageIndex();
-            frameInfo.globalSet = Application::Get().GetRenderState()->GetDescriptorSet(frameInfo.frameIndex);
+            if (Renderer::Get().IsFrameInProgress())
+            {
+                RenderFrameInfo frameInfo{};
+                frameInfo.commandBuffer = Renderer::Get().GetActiveCommandBuffer();
+                frameInfo.frameIndex = Renderer::Get().GetCurrentFrameIndex();
+                frameInfo.imageIndex = Renderer::Get().GetCurrentImageIndex();
+                frameInfo.globalSet = Application::Get().GetRenderState()->GetDescriptorSet(frameInfo.frameIndex);
 
-            m_RenderPath->Render(frameInfo);
+                m_RenderPath->Render(frameInfo);
+            }
         }
     }
 
@@ -124,14 +141,16 @@ namespace Chimera {
     {
         Application::Get().QueueEvent([this, path]()
         {
-            CH_CORE_INFO("EditorLayer: Loading Scene: {0}", path);
+            CH_CORE_INFO("EditorLayer: [Event] LoadScene starting: {0}", path);
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
             m_Scene->LoadModel(path);
 
             if (m_RenderPath)
             {
+                CH_CORE_INFO("EditorLayer: [Event] Notifying RenderPath of scene update...");
                 m_RenderPath->OnSceneUpdated();
             }
+            CH_CORE_INFO("EditorLayer: [Event] LoadScene complete.");
         });
     }
 
@@ -153,8 +172,10 @@ namespace Chimera {
     {
         Application::Get().QueueEvent([this, path]()
         {
+            CH_CORE_INFO("EditorLayer: [Event] LoadSkybox starting: {0}", path);
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
             m_Scene->LoadSkybox(path);
+            CH_CORE_INFO("EditorLayer: [Event] LoadSkybox complete.");
         });
     }
 
@@ -370,7 +391,7 @@ namespace Chimera {
         ImGui::Separator();
         if (m_RenderPath)
         {
-            auto attachments = m_RenderPath->GetRenderGraph().GetColorAttachments();
+            std::vector<std::string> attachments = m_RenderPath->GetRenderGraph().GetColorAttachments();
             if (ImGui::BeginCombo("Debug Image", m_DebugViewTexture.c_str()))
             {
                 for (const auto& name : attachments)
@@ -380,15 +401,6 @@ namespace Chimera {
                     if (isSelected) ImGui::SetItemDefaultFocus();
                 }
                 ImGui::EndCombo();
-            }
-
-            if (m_DebugViewTexture == RS::LinearDepth)
-            {
-                float scale = Application::Get().GetDepthScale();
-                if (ImGui::DragFloat("Depth Scale", &scale, 1.0f, 0.1f, 10000.0f))
-                {
-                    Application::Get().SetDepthScale(scale);
-                }
             }
         }
         ImGui::Separator();
@@ -429,7 +441,7 @@ namespace Chimera {
         {
             // Just mark for update, don't trigger rebuild yet
             m_NextViewportSize = glm::vec2(viewportPanelSize.x, viewportPanelSize.y);
-            m_ResizeTimer = 0.15f; // Wait for 150ms of no changes
+            m_ResizeTimer = 0.05f; // Wait for 50ms of no changes
         }
         
         if (m_RenderPath)

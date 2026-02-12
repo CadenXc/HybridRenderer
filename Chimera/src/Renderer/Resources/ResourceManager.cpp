@@ -8,6 +8,7 @@
 #include "Utils/VulkanBarrier.h"
 #include "Core/Application.h"
 #include "Renderer/RenderState.h"
+#include "Renderer/Backend/ShaderCommon.h"
 #include "Scene/Scene.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -15,12 +16,6 @@
 
 namespace Chimera
 {
-    // [Internal Helpers] Force complete types for handles locally
-    struct VkBuffer_T {};
-    struct VkImage_T {};
-    #define BUF(x) ((VkBuffer)(void*)(uintptr_t)(x))
-    #define IMG(x) ((VkImage)(void*)(uintptr_t)(x))
-
     ResourceManager* ResourceManager::s_Instance = nullptr;
 
     ResourceManager::ResourceManager()
@@ -31,465 +26,134 @@ namespace Chimera
 
     ResourceManager::~ResourceManager()
     {
-        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-        for (auto& queue : m_ResourceFreeQueue)
-        {
-            for (auto& func : queue)
-            {
-                func();
-            }
-            queue.clear();
-        }
-        if (m_SceneDescriptorSetLayout != VK_NULL_HANDLE)
-        {
-            vkDestroyDescriptorSetLayout(VulkanContext::Get().GetDevice(), m_SceneDescriptorSetLayout, nullptr);
-        }
-        if (m_DescriptorPool != VK_NULL_HANDLE)
-        {
-            vkDestroyDescriptorPool(VulkanContext::Get().GetDevice(), m_DescriptorPool, nullptr);
-        }
-        if (m_TransientDescriptorPool != VK_NULL_HANDLE)
-        {
-            vkDestroyDescriptorPool(VulkanContext::Get().GetDevice(), m_TransientDescriptorPool, nullptr);
-        }
-        if (m_TextureSampler != VK_NULL_HANDLE)
-        {
-            vkDestroySampler(VulkanContext::Get().GetDevice(), m_TextureSampler, nullptr);
-        }
+        VkDevice device = VulkanContext::Get().GetDevice();
+        vkDeviceWaitIdle(device);
+
+        m_MaterialBuffer.reset();
+        m_Textures.clear();
+        m_Materials.clear();
+        m_Buffers.clear();
+
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) ClearResourceFreeQueue(i);
+
+        if (m_SceneDescriptorSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, m_SceneDescriptorSetLayout, nullptr);
+        if (m_DescriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
+        for (auto pool : m_TransientDescriptorPools) if (pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, pool, nullptr);
+        if (m_TextureSampler != VK_NULL_HANDLE) vkDestroySampler(device, m_TextureSampler, nullptr);
+
+        s_Instance = nullptr;
     }
 
     void ResourceManager::InitGlobalResources()
     {
-        CH_CORE_INFO("ResourceManager: Initializing Global Resources...");
         CreateDescriptorPool();
-        CreateTransientDescriptorPool();
+        CreateTransientDescriptorPools();
         CreateTextureSampler();
-
         CreateSceneDescriptorSetLayout();
         AllocatePersistentSets();
         CreateDefaultResources();
     }
 
-    void ResourceManager::CreateSceneDescriptorSetLayout()
+    void ResourceManager::ResetTransientDescriptorPool()
     {
-        std::vector<VkDescriptorSetLayoutBinding> bindings = {
-            { 0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL, nullptr },
-            { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr },
-            { 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr },
-            { 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024, VK_SHADER_STAGE_ALL, nullptr }
-        };
-
-        VkDescriptorBindingFlags bindingsFlags[4] = { 
-            0, 0, 0,
-            VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT 
-        };
-        
-        VkDescriptorSetLayoutBindingFlagsCreateInfo layoutFlags{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-        layoutFlags.bindingCount = 4;
-        layoutFlags.pBindingFlags = bindingsFlags;
-
-        VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        layoutInfo.pNext = &layoutFlags;
-        layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-        layoutInfo.bindingCount = (uint32_t)bindings.size();
-        layoutInfo.pBindings = bindings.data();
-
-        vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &layoutInfo, nullptr, &m_SceneDescriptorSetLayout);
+        VkDescriptorPool currentPool = m_TransientDescriptorPools[m_CurrentFrameIndex];
+        if (currentPool != VK_NULL_HANDLE) vkResetDescriptorPool(VulkanContext::Get().GetDevice(), currentPool, 0);
     }
 
-    void ResourceManager::AllocatePersistentSets()
+    void ResourceManager::CreateTransientDescriptorPools()
     {
-        VkDescriptorSetLayout emptyLayout = VulkanContext::Get().GetEmptyDescriptorSetLayout();
-        VkDescriptorSetAllocateInfo emptyAlloc{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        emptyAlloc.descriptorPool = m_DescriptorPool;
-        emptyAlloc.descriptorSetCount = 1;
-        emptyAlloc.pSetLayouts = &emptyLayout;
-        vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &emptyAlloc, &VulkanContext::Get().GetEmptyDescriptorSetRef());
-
-        // Allocate Triple-Buffered Scene Sets
-        m_SceneDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-        std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_SceneDescriptorSetLayout);
-        
-        VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        allocInfo.descriptorPool = m_DescriptorPool;
-        allocInfo.descriptorSetCount = (uint32_t)layouts.size();
-        allocInfo.pSetLayouts = layouts.data();
-        
-        vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &allocInfo, m_SceneDescriptorSets.data());
+        m_TransientDescriptorPools.resize(MAX_FRAMES_IN_FLIGHT);
+        std::vector<VkDescriptorPoolSize> poolSizes = { { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4000 }, { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4000 }, { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4000 }, { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4000 }, { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 100 } };
+        VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT, 4000, (uint32_t)poolSizes.size(), poolSizes.data() };
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) vkCreateDescriptorPool(VulkanContext::Get().GetDevice(), &poolInfo, nullptr, &m_TransientDescriptorPools[i]);
     }
 
-    void ResourceManager::CreateDefaultResources()
+    void ResourceManager::CreateTextureSampler()
     {
-        auto fallback = std::make_unique<Image>(1, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-        uint8_t magenta[] = { 255, 0, 255, 255 };
-        Buffer staging(4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-        staging.Update(magenta, 4);
-        {
-            ScopedCommandBuffer cmd;
-            VulkanUtils::TransitionImageLayout(cmd, IMG(fallback->GetImage()), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
-            VkBufferImageCopy region{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { 1, 1, 1 } };
-            vkCmdCopyBufferToImage(cmd, BUF(staging.GetBuffer()), IMG(fallback->GetImage()), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-            VulkanUtils::TransitionImageLayout(cmd, IMG(fallback->GetImage()), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-        }
-        AddTexture(std::move(fallback), "Default");
-        CreateMaterial("Default");
-        SyncMaterialsToGPU();
+        VkSamplerCreateInfo samplerInfo{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+        samplerInfo.magFilter = VK_FILTER_LINEAR;
+        samplerInfo.minFilter = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.anisotropyEnable = VK_TRUE;
+        samplerInfo.maxAnisotropy = VulkanContext::Get().GetDeviceProperties().limits.maxSamplerAnisotropy;
+        samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        samplerInfo.unnormalizedCoordinates = VK_FALSE;
+        samplerInfo.compareEnable = VK_FALSE;
+        samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        vkCreateSampler(VulkanContext::Get().GetDevice(), &samplerInfo, nullptr, &m_TextureSampler);
     }
 
-    void ResourceManager::UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo)
-    {
-        m_CurrentFrameIndex = currentFrame;
-    }
-
-    void ResourceManager::UpdateSceneDescriptorSet(Scene* scene, uint32_t frameIndex)
-    {
-        if (!scene || m_SceneDescriptorSets.empty())
-        {
-            return;
-        }
-
-        VkDescriptorSet targetSet = m_SceneDescriptorSets[frameIndex];
-        std::vector<VkWriteDescriptorSet> writes;
-        
-        // 0. AS
-        VkAccelerationStructureKHR tlas = scene->GetTLAS();
-        VkWriteDescriptorSetAccelerationStructureKHR asWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR };
-        if (tlas != VK_NULL_HANDLE)
-        {
-            asWrite.accelerationStructureCount = 1;
-            asWrite.pAccelerationStructures = &tlas;
-            VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            w.dstSet = targetSet;
-            w.dstBinding = 0;
-            w.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-            w.descriptorCount = 1;
-            w.pNext = &asWrite;
-            writes.push_back(w);
-        }
-
-        // 1. Materials
-        if (m_MaterialBuffer)
-        {
-            VkDescriptorBufferInfo matInfo{ BUF(m_MaterialBuffer->GetBuffer()), 0, VK_WHOLE_SIZE };
-            VkWriteDescriptorSet matW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            matW.dstSet = targetSet;
-            matW.dstBinding = 1;
-            matW.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            matW.descriptorCount = 1;
-            matW.pBufferInfo = &matInfo;
-            writes.push_back(matW);
-        }
-
-        // 2. Instances
-        auto instBuf = scene->GetInstanceDataBuffer();
-        if (instBuf)
-        {
-            VkDescriptorBufferInfo instInfo{ BUF(instBuf), 0, VK_WHOLE_SIZE };
-            VkWriteDescriptorSet instW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            instW.dstSet = targetSet;
-            instW.dstBinding = 2;
-            instW.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            instW.descriptorCount = 1;
-            instW.pBufferInfo = &instInfo;
-            writes.push_back(instW);
-        }
-
-        // 3. Textures
-        std::vector<VkDescriptorImageInfo> imageInfos;
-        for (const auto& tex : m_Textures)
-        {
-            imageInfos.push_back({ m_TextureSampler, tex->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
-        }
-        if (!imageInfos.empty())
-        {
-            VkWriteDescriptorSet texW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            texW.dstSet = targetSet;
-            texW.dstBinding = 3;
-            texW.dstArrayElement = 0;
-            texW.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            texW.descriptorCount = (uint32_t)std::min((size_t)1024, imageInfos.size());
-            texW.pImageInfo = imageInfos.data();
-            writes.push_back(texW);
-        }
-
-        if (!writes.empty())
-        {
-            vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
-        }
-    }
-
+    // --- Core Management Logic ---
+    void ResourceManager::CreateDescriptorPool() { std::vector<VkDescriptorPoolSize> p = { {VK_DESCRIPTOR_TYPE_SAMPLER, 1000}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000}, {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 100} }; VkDescriptorPoolCreateInfo i{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT, 1000, (uint32_t)p.size(), p.data()}; vkCreateDescriptorPool(VulkanContext::Get().GetDevice(), &i, nullptr, &m_DescriptorPool); }
+    void ResourceManager::CreateSceneDescriptorSetLayout() { std::vector<VkDescriptorSetLayoutBinding> b = { { 0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL, nullptr }, { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr }, { 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr }, { 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024, VK_SHADER_STAGE_ALL, nullptr } }; VkDescriptorBindingFlags f[4] = { VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT }; VkDescriptorSetLayoutBindingFlagsCreateInfo lf{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO, nullptr, 4, f }; VkDescriptorSetLayoutCreateInfo li{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, &lf, VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT, (uint32_t)b.size(), b.data() }; vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &li, nullptr, &m_SceneDescriptorSetLayout); }
+    void ResourceManager::AllocatePersistentSets() { VkDescriptorSetLayout eL = VulkanContext::Get().GetEmptyDescriptorSetLayout(); VkDescriptorSetAllocateInfo eA{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, m_DescriptorPool, 1, &eL }; vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &eA, &VulkanContext::Get().GetEmptyDescriptorSetRef()); m_SceneDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT); std::vector<VkDescriptorSetLayout> ls(MAX_FRAMES_IN_FLIGHT, m_SceneDescriptorSetLayout); VkDescriptorSetAllocateInfo aI{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, m_DescriptorPool, MAX_FRAMES_IN_FLIGHT, ls.data() }; vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &aI, m_SceneDescriptorSets.data()); }
+    void ResourceManager::CreateDefaultResources() { auto f = std::make_unique<Image>(1, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT); uint8_t m[] = { 255, 0, 255, 255 }; Buffer s(4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY); s.Update(m, 4); { ScopedCommandBuffer c; VulkanUtils::TransitionImageLayout(c, (VkImage)f->GetImage(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1); VkBufferImageCopy r{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { 1, 1, 1 } }; vkCmdCopyBufferToImage(c, (VkBuffer)s.GetBuffer(), (VkImage)f->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r); VulkanUtils::TransitionImageLayout(c, (VkImage)f->GetImage(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1); } AddTexture(std::move(f), "Default"); CreateMaterial("Default"); SyncMaterialsToGPU(); }
+    void ResourceManager::UpdateGlobalResources(uint32_t cF, const UniformBufferObject& ubo) { m_CurrentFrameIndex = cF; }
+    void ResourceManager::UpdateSceneDescriptorSet(Scene* s, uint32_t fI) { if (!s || m_SceneDescriptorSets.empty()) return; VkDescriptorSet tS = m_SceneDescriptorSets[fI]; if (tS == VK_NULL_HANDLE) return; std::vector<VkWriteDescriptorSet> wS; VkAccelerationStructureKHR tlas = s->GetTLAS(); VkWriteDescriptorSetAccelerationStructureKHR aW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR, nullptr, 1, &tlas }; if (tlas != VK_NULL_HANDLE) { VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, &aW, tS, 0, 0, 1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR }; wS.push_back(w); } if (m_MaterialBuffer && m_MaterialBuffer->GetBuffer() != VK_NULL_HANDLE) { static VkDescriptorBufferInfo mI; mI = { (VkBuffer)m_MaterialBuffer->GetBuffer(), 0, VK_WHOLE_SIZE }; VkWriteDescriptorSet mW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &mI }; wS.push_back(mW); } auto iB = s->GetInstanceDataBuffer(); if (iB != VK_NULL_HANDLE) { static VkDescriptorBufferInfo iI; iI = { (VkBuffer)iB, 0, VK_WHOLE_SIZE }; VkWriteDescriptorSet iW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, 2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &iI }; wS.push_back(iW); } std::vector<VkDescriptorImageInfo> iIs; for (uint32_t i = 0; i < (uint32_t)m_Textures.size(); ++i) { if (m_Textures[i] && m_Textures[i]->GetImageView() != VK_NULL_HANDLE) iIs.push_back({ m_TextureSampler, m_Textures[i]->GetImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL }); } if (!iIs.empty()) { VkWriteDescriptorSet tW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, 3, 0, (uint32_t)std::min((size_t)1024, iIs.size()), VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, iIs.data() }; wS.push_back(tW); } if (!wS.empty()) vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), (uint32_t)wS.size(), wS.data(), 0, nullptr); }
     void ResourceManager::SyncMaterialsToGPU()
     {
-        if (m_Materials.empty())
-        {
-            return;
-        }
-        VkDeviceSize bufferSize = std::max((VkDeviceSize)1024, sizeof(PBRMaterial) * m_Materials.size());
+        if (m_Materials.empty()) return;
+        
+        VkDeviceSize bufferSize = std::max((VkDeviceSize)1024, (VkDeviceSize)(sizeof(PBRMaterial) * m_Materials.size()));
+        
         if (!m_MaterialBuffer || m_MaterialBuffer->GetSize() < bufferSize)
         {
             m_MaterialBuffer = std::make_unique<Buffer>(bufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         }
+
         std::vector<PBRMaterial> materialData;
         for (const auto& mat : m_Materials)
         {
             materialData.push_back(mat ? mat->GetData() : PBRMaterial{});
         }
+
         Buffer staging(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
         staging.UploadData(materialData.data(), sizeof(PBRMaterial) * materialData.size());
+
         {
             ScopedCommandBuffer cmd;
             VkBufferCopy copy{ 0, 0, sizeof(PBRMaterial) * materialData.size() };
-            vkCmdCopyBuffer(cmd, BUF(staging.GetBuffer()), BUF(m_MaterialBuffer->GetBuffer()), 1, &copy);
+            vkCmdCopyBuffer(cmd, (VkBuffer)staging.GetBuffer(), (VkBuffer)m_MaterialBuffer->GetBuffer(), 1, &copy);
         }
     }
-
-    GraphImage ResourceManager::CreateGraphImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageLayout initialLayout, VkSampleCountFlagBits samples)
-    {
-        GraphImage img{};
-        img.width = width;
-        img.height = height;
-        img.format = format;
-        img.usage = usage;
-        VkImageCreateInfo imageInfo{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.extent = { width, height, 1 };
-        imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
-        imageInfo.format = format;
-        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = usage;
-        imageInfo.samples = samples;
-        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VmaAllocationCreateInfo vmaAllocInfo{};
-        vmaAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-        vmaCreateImage(VulkanContext::Get().GetAllocator(), &imageInfo, &vmaAllocInfo, &img.handle, &img.allocation, nullptr);
-        VkImageViewCreateInfo viewInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-        viewInfo.image = img.handle;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = format;
-        viewInfo.subresourceRange.aspectMask = VulkanUtils::IsDepthFormat(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-        viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
-        vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &img.view);
-        if (VulkanUtils::IsDepthFormat(format))
-        {
-            viewInfo.components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE };
-            vkCreateImageView(VulkanContext::Get().GetDevice(), &viewInfo, nullptr, &img.debug_view);
-        }
-        else
-        {
-            img.debug_view = img.view;
-        }
-        return img;
+    GraphImage ResourceManager::CreateGraphImage(uint32_t w, uint32_t h, VkFormat f, VkImageUsageFlags u, VkImageLayout iL, VkSampleCountFlagBits s) { 
+        GraphImage i{}; 
+        i.width = w; i.height = h; i.format = f; i.usage = u; 
+        VkImageCreateInfo iI{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, nullptr, 0, VK_IMAGE_TYPE_2D, f, { w, h, 1 }, 1, 1, s, VK_IMAGE_TILING_OPTIMAL, u, VK_SHARING_MODE_EXCLUSIVE, 0, nullptr, VK_IMAGE_LAYOUT_UNDEFINED }; 
+        VmaAllocationCreateInfo vA{ 0, VMA_MEMORY_USAGE_GPU_ONLY }; 
+        vmaCreateImage(VulkanContext::Get().GetAllocator(), &iI, &vA, &i.handle, &i.allocation, nullptr); 
+        VkImageViewCreateInfo vW{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, nullptr, 0, i.handle, VK_IMAGE_VIEW_TYPE_2D, f, { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY }, { (VkImageAspectFlags)(VulkanUtils::IsDepthFormat(f) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, 1 } }; 
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &vW, nullptr, &i.view); 
+        if (VulkanUtils::IsDepthFormat(f)) { 
+            vW.components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE }; 
+            vkCreateImageView(VulkanContext::Get().GetDevice(), &vW, nullptr, &i.debug_view); 
+        } else i.debug_view = i.view; 
+        return i; 
     }
-
-    void ResourceManager::DestroyGraphImage(GraphImage& image)
-    {
-        if (image.handle == VK_NULL_HANDLE)
-        {
-            return;
-        }
-        vkDestroyImageView(VulkanContext::Get().GetDevice(), image.view, nullptr);
-        if (image.debug_view != image.view)
-        {
-            vkDestroyImageView(VulkanContext::Get().GetDevice(), image.debug_view, nullptr);
-        }
-        vmaDestroyImage(VulkanContext::Get().GetAllocator(), image.handle, image.allocation);
-        image.handle = VK_NULL_HANDLE;
-    }
-
-    TextureHandle ResourceManager::LoadTexture(const std::string& path)
-    {
-        if (m_TextureMap.count(path))
-        {
-            return m_TextureMap[path];
-        }
-        int tw, th, tc;
-        stbi_uc* pixels = stbi_load(path.c_str(), &tw, &th, &tc, STBI_rgb_alpha);
-        if (!pixels)
-        {
-            return TextureHandle();
-        }
-        VkDeviceSize size = tw * th * 4;
-        Buffer staging(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-        staging.Update(pixels, size);
-        stbi_image_free(pixels);
-        
-        auto image = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-        {
-            ScopedCommandBuffer cmd;
-            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
-            VkBufferImageCopy region{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tw, (uint32_t)th, 1 } };
-            vkCmdCopyBufferToImage(cmd, BUF(staging.GetBuffer()), IMG(image->GetImage()), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-        }
-        return AddTexture(std::move(image), path);
-    }
-
-    TextureHandle ResourceManager::LoadHDRTexture(const std::string& path)
-    {
-        if (m_TextureMap.count(path))
-        {
-            return m_TextureMap[path];
-        }
-        int tw, th, tc;
-        float* pixels = stbi_loadf(path.c_str(), &tw, &th, &tc, STBI_rgb_alpha);
-        if (!pixels)
-        {
-            return TextureHandle();
-        }
-        VkDeviceSize size = tw * th * 4 * sizeof(float);
-        Buffer staging(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-        staging.Update(pixels, size);
-        stbi_image_free(pixels);
-        auto image = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-        {
-            ScopedCommandBuffer cmd;
-            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
-            VkBufferImageCopy region{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tw, (uint32_t)th, 1 } };
-            vkCmdCopyBufferToImage(cmd, BUF(staging.GetBuffer()), IMG(image->GetImage()), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-            VulkanUtils::TransitionImageLayout(cmd, IMG(image->GetImage()), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
-        }
-        return AddTexture(std::move(image), path);
-    }
-
-    TextureHandle ResourceManager::AddTexture(std::unique_ptr<Image> tex, const std::string& name)
-    {
-        uint32_t idx = (uint32_t)m_Textures.size();
-        m_Textures.push_back(std::move(tex));
-        m_TextureRefCount.push_back(1);
-        if (!name.empty())
-        {
-            m_TextureMap[name] = TextureHandle(idx);
-        }
-        return TextureHandle(idx);
-    }
-
-    MaterialHandle ResourceManager::CreateMaterial(const std::string& n)
-    {
-        return AddMaterial(std::make_unique<Material>(n), n);
-    }
-
-    MaterialHandle ResourceManager::AddMaterial(std::unique_ptr<Material> m, const std::string& n)
-    {
-        uint32_t idx = (uint32_t)m_Materials.size();
-        m_Materials.push_back(std::move(m));
-        m_MaterialRefCount.push_back(1);
-        if (!n.empty())
-        {
-            m_MaterialMap[n] = MaterialHandle(idx);
-        }
-        return MaterialHandle(idx);
-    }
-
-    void ResourceManager::AddRef(TextureHandle h)
-    {
-        if (h.id < m_TextureRefCount.size())
-        {
-            m_TextureRefCount[h.id]++;
-        }
-    }
-
-    void ResourceManager::Release(TextureHandle h)
-    {
-        if (h.id < m_TextureRefCount.size() && --m_TextureRefCount[h.id] == 0 && h.id != 0)
-        {
-            Image* r = m_Textures[h.id].release();
-            SubmitResourceFree([r](){ delete r; });
-        }
-    }
-
-    uint32_t ResourceManager::GetRefCount(TextureHandle h)
-    {
-        return h.id < m_TextureRefCount.size() ? m_TextureRefCount[h.id] : 0;
-    }
-
-    void ResourceManager::AddRef(BufferHandle h)
-    {
-        if (h.id < m_BufferRefCount.size())
-        {
-            m_BufferRefCount[h.id]++;
-        }
-    }
-
-    void ResourceManager::Release(BufferHandle h)
-    {
-        if (h.id < m_BufferRefCount.size() && --m_BufferRefCount[h.id] == 0)
-        {
-            Buffer* r = m_Buffers[h.id].release();
-            SubmitResourceFree([r](){ delete r; });
-        }
-    }
-
-    void ResourceManager::AddRef(MaterialHandle h)
-    {
-        if (h.id < m_MaterialRefCount.size())
-        {
-            m_MaterialRefCount[h.id]++;
-        }
-    }
-
-    void ResourceManager::Release(MaterialHandle h)
-    {
-        if (h.id < m_MaterialRefCount.size() && --m_MaterialRefCount[h.id] == 0 && h.id != 0)
-        {
-            Material* r = m_Materials[h.id].release();
-            SubmitResourceFree([r](){ delete r; });
-        }
-    }
-
-    void ResourceManager::SubmitResourceFree(std::function<void()>&& f)
-    {
-        if (s_Instance)
-        {
-            s_Instance->m_ResourceFreeQueue[s_Instance->m_CurrentFrameIndex].push_back(std::move(f));
-        }
-    }
-
-    void ResourceManager::ClearResourceFreeQueue(uint32_t fIdx)
-    {
-        for (auto& f : m_ResourceFreeQueue[fIdx])
-        {
-            f();
-        }
-        m_ResourceFreeQueue[fIdx].clear();
-    }
-
-    void ResourceManager::CreateDescriptorPool()
-    {
-        std::vector<VkDescriptorPoolSize> p = { {VK_DESCRIPTOR_TYPE_SAMPLER, 1000}, {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000}, {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 100} };
-        VkDescriptorPoolCreateInfo i{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT | VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT, 1000, (uint32_t)p.size(), p.data()};
-        vkCreateDescriptorPool(VulkanContext::Get().GetDevice(), &i, nullptr, &m_DescriptorPool);
-    }
-
-    void ResourceManager::CreateTransientDescriptorPool()
-    {
-        std::vector<VkDescriptorPoolSize> p = { {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4000}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4000}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4000}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4000}, {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 100} };
-        VkDescriptorPoolCreateInfo i{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT, 4000, (uint32_t)p.size(), p.data()};
-        vkCreateDescriptorPool(VulkanContext::Get().GetDevice(), &i, nullptr, &m_TransientDescriptorPool);
-    }
-
-    void ResourceManager::CreateTextureSampler()
-    {
-        VkSamplerCreateInfo i{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-        i.magFilter = VK_FILTER_LINEAR;
-        i.minFilter = VK_FILTER_LINEAR;
-        i.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        i.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        i.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        i.anisotropyEnable = VK_TRUE;
-        i.maxAnisotropy = VulkanContext::Get().GetDeviceProperties().limits.maxSamplerAnisotropy;
-        vkCreateSampler(VulkanContext::Get().GetDevice(), &i, nullptr, &m_TextureSampler);
-    }
-
+    void ResourceManager::DestroyGraphImage(GraphImage& i) { if (i.handle == VK_NULL_HANDLE) return; vkDestroyImageView(VulkanContext::Get().GetDevice(), i.view, nullptr); if (i.debug_view != i.view && i.debug_view != VK_NULL_HANDLE) vkDestroyImageView(VulkanContext::Get().GetDevice(), i.debug_view, nullptr); vmaDestroyImage(VulkanContext::Get().GetAllocator(), i.handle, i.allocation); i.handle = VK_NULL_HANDLE; }
+    TextureHandle ResourceManager::LoadTexture(const std::string& p) { if (m_TextureMap.count(p)) return m_TextureMap[p]; int tw, th, tc; stbi_uc* px = stbi_load(p.c_str(), &tw, &th, &tc, STBI_rgb_alpha); if (!px) return TextureHandle(); VkDeviceSize s = tw * th * 4; Buffer st(s, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU); st.Update(px, s); stbi_image_free(px); auto im = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT); { ScopedCommandBuffer c; VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1); VkBufferImageCopy r{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tw, (uint32_t)th, 1 } }; vkCmdCopyBufferToImage(c, (VkBuffer)st.GetBuffer(), (VkImage)im->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r); VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1); } return AddTexture(std::move(im), p); }
+    TextureHandle ResourceManager::LoadHDRTexture(const std::string& p) { if (m_TextureMap.count(p)) return m_TextureMap[p]; int tw, th, tc; float* px = stbi_loadf(p.c_str(), &tw, &th, &tc, STBI_rgb_alpha); if (!px) return TextureHandle(); VkDeviceSize s = (VkDeviceSize)tw * th * 4 * sizeof(float); Buffer st(s, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU); st.Update(px, s); stbi_image_free(px); auto im = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT); { ScopedCommandBuffer c; VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1); VkBufferImageCopy r{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tw, (uint32_t)th, 1 } }; vkCmdCopyBufferToImage(c, (VkBuffer)st.GetBuffer(), (VkImage)im->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r); VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1); } return AddTexture(std::move(im), p); }
+    TextureHandle ResourceManager::AddTexture(std::unique_ptr<Image> t, const std::string& n) { uint32_t idx = (uint32_t)m_Textures.size(); m_Textures.push_back(std::move(t)); m_TextureRefCount.push_back(1); if (!n.empty()) m_TextureMap[n] = TextureHandle(idx); return TextureHandle(idx); }
+    MaterialHandle ResourceManager::CreateMaterial(const std::string& n) { return AddMaterial(std::make_unique<Material>(n), n); }
+    MaterialHandle ResourceManager::AddMaterial(std::unique_ptr<Material> m, const std::string& n) { uint32_t idx = (uint32_t)m_Materials.size(); m_Materials.push_back(std::move(m)); m_MaterialRefCount.push_back(1); if (!n.empty()) m_MaterialMap[n] = MaterialHandle(idx); return MaterialHandle(idx); }
+    void ResourceManager::AddRef(TextureHandle h) { if (h.id < m_TextureRefCount.size()) m_TextureRefCount[h.id]++; }
+    void ResourceManager::Release(TextureHandle h) { if (h.id < m_TextureRefCount.size() && --m_TextureRefCount[h.id] == 0 && h.id != 0) { Image* r = m_Textures[h.id].release(); SubmitResourceFree([r](){ delete r; }); } }
+    uint32_t ResourceManager::GetRefCount(TextureHandle h) { return h.id < m_TextureRefCount.size() ? m_TextureRefCount[h.id] : 0; }
+    void ResourceManager::AddRef(BufferHandle h) { if (h.id < m_BufferRefCount.size()) m_BufferRefCount[h.id]++; }
+    void ResourceManager::Release(BufferHandle h) { if (h.id < m_BufferRefCount.size() && --m_BufferRefCount[h.id] == 0) { Buffer* r = m_Buffers[h.id].release(); SubmitResourceFree([r](){ delete r; }); } }
+    void ResourceManager::AddRef(MaterialHandle h) { if (h.id < m_MaterialRefCount.size()) m_MaterialRefCount[h.id]++; }
+    void ResourceManager::Release(MaterialHandle h) { if (h.id < m_MaterialRefCount.size() && --m_MaterialRefCount[h.id] == 0 && h.id != 0) { Material* r = m_Materials[h.id].release(); SubmitResourceFree([r](){ delete r; }); } }
+    void ResourceManager::SubmitResourceFree(std::function<void()>&& f) { if (s_Instance) s_Instance->m_ResourceFreeQueue[s_Instance->m_CurrentFrameIndex].push_back(std::move(f)); }
+    void ResourceManager::ClearResourceFreeQueue(uint32_t fI) { for (auto& f : m_ResourceFreeQueue[fI]) f(); m_ResourceFreeQueue[fI].clear(); }
     Image* ResourceManager::GetTexture(TextureHandle h) { return (h.id < m_Textures.size() && m_Textures[h.id]) ? m_Textures[h.id].get() : m_Textures[0].get(); }
     Material* ResourceManager::GetMaterial(MaterialHandle h) { return (h.id < m_Materials.size() && m_Materials[h.id]) ? m_Materials[h.id].get() : m_Materials[0].get(); }
     Buffer* ResourceManager::GetBuffer(BufferHandle h) { return (h.id < m_Buffers.size() && m_Buffers[h.id]) ? m_Buffers[h.id].get() : nullptr; }
     TextureHandle ResourceManager::GetTextureIndex(const std::string& n) { return m_TextureMap.count(n) ? m_TextureMap[n] : TextureHandle(); }
 
+    // [FIX] 补全外部辅助函数
     void AddRefInternal(Handle<Image> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().AddRef(h); }
     void ReleaseInternal(Handle<Image> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().Release(h); }
     void AddRefInternal(Handle<Buffer> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().AddRef(h); }

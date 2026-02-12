@@ -26,6 +26,8 @@ namespace Chimera
 
     VulkanDevice::~VulkanDevice()
     {
+        CH_CORE_INFO("VulkanDevice: Finalizing device destruction...");
+        
         vmaDestroyAllocator(m_Allocator);
         vkDestroyDevice(m_LogicalDevice, nullptr);
     }
@@ -128,6 +130,7 @@ namespace Chimera
         descriptorIndexing.descriptorBindingPartiallyBound = VK_TRUE;
         descriptorIndexing.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
         descriptorIndexing.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+        descriptorIndexing.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
 
         // 2. Buffer Device Address
         VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddress{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
@@ -148,6 +151,7 @@ namespace Chimera
             
             asFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
             asFeatures.accelerationStructure = VK_TRUE;
+            asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
             asFeatures.pNext = &rtPipelineFeatures;
             pNextChain = &asFeatures;
         }

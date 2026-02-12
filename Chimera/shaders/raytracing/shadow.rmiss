@@ -1,10 +1,10 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 
-// Standard Payload Location 1 for Shadows
-layout(location = 1) rayPayloadInEXT bool isShadowed;
+layout(location = 0) rayPayloadInEXT int isShadowed;
 
 void main() 
 {
-    isShadowed = false;
+    // 如果触发了 Miss，说明光线没被挡住 -> 没阴影
+    isShadowed = 0;
 }
