@@ -6,9 +6,12 @@
 namespace Chimera
 {
     class VulkanContext;
+    class Buffer;
 
     namespace VulkanUtils
     {
+        struct RaytracingPipeline; // Forward declaration
+
         VkImageMemoryBarrier CreateImageBarrier(
             VkImage image,
             VkImageLayout oldLayout,
@@ -61,5 +64,14 @@ namespace Chimera
 
         bool IsDepthFormat(VkFormat format);
         bool IsSRGBFormat(VkFormat format);
+
+        uint32_t AlignUp(uint32_t value, uint32_t alignment);
+
+        // Uses internal struct from PipelineManager
+        std::unique_ptr<Buffer> CreateSBT(VkPipeline pipeline, uint32_t raygenCount, uint32_t missCount, uint32_t hitCount, VkStridedDeviceAddressRegionKHR& outRaygen, VkStridedDeviceAddressRegionKHR& outMiss, VkStridedDeviceAddressRegionKHR& outHit);
     }
 }
+
+                
+
+        

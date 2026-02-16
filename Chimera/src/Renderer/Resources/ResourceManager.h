@@ -21,7 +21,7 @@ namespace Chimera
         void UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo);
         
         void UpdateSceneDescriptorSet(class Scene* scene, uint32_t frameIndex);
-        void UpdateSceneDescriptorSet(class Scene* scene) { UpdateSceneDescriptorSet(scene, 0); }
+        void UpdateSceneDescriptorSet(class Scene* scene) { UpdateSceneDescriptorSet(scene, 0xFFFFFFFF); }
 
         VkDescriptorSet GetSceneDescriptorSet(uint32_t frameIndex) const { return m_SceneDescriptorSets[frameIndex]; }
         VkDescriptorSet GetSceneDescriptorSet() const { return m_SceneDescriptorSets[0]; }
@@ -33,6 +33,7 @@ namespace Chimera
 
         VkSampler GetDefaultSampler() const { return m_TextureSampler; }
         Image* GetDefaultTexture() const { return m_Textures.empty() ? nullptr : m_Textures[0].get(); }
+        Image& GetBlackTexture() const { return *m_Textures[0]; }
 
         GraphImage CreateGraphImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageLayout initialLayout, VkSampleCountFlagBits samples);
         void DestroyGraphImage(GraphImage& image);
@@ -45,7 +46,7 @@ namespace Chimera
         Material* GetMaterial(MaterialHandle handle);
         Buffer* GetBuffer(BufferHandle handle);
 
-        TextureHandle LoadTexture(const std::string& path);
+        TextureHandle LoadTexture(const std::string& path, bool srgb = true);
         TextureHandle LoadHDRTexture(const std::string& path);
         TextureHandle AddTexture(std::unique_ptr<Image> texture, const std::string& name = "");
         TextureHandle GetTextureIndex(const std::string& name);
@@ -55,6 +56,11 @@ namespace Chimera
         
         VkBuffer GetMaterialBuffer() const { return (VkBuffer)m_MaterialBuffer->GetBuffer(); }
         void SyncMaterialsToGPU();
+
+        void AddTransientBuffer(std::shared_ptr<Buffer> buffer)
+        {
+            m_TransientBuffers[m_CurrentFrameIndex].push_back(buffer);
+        }
 
         void AddRef(TextureHandle handle);
         void Release(TextureHandle handle);
@@ -103,8 +109,9 @@ namespace Chimera
         std::vector<uint32_t> m_MaterialRefCount;
         std::unique_ptr<Buffer> m_MaterialBuffer;
 
-        std::vector<std::unique_ptr<Buffer>> m_Buffers;
+        std::vector<std::shared_ptr<Buffer>> m_Buffers;
         std::vector<uint32_t> m_BufferRefCount;
+        std::vector<std::shared_ptr<Buffer>> m_TransientBuffers[MAX_FRAMES_IN_FLIGHT];
 
         std::vector<std::vector<std::function<void()>>> m_ResourceFreeQueue;
         uint32_t m_CurrentFrameIndex = 0;

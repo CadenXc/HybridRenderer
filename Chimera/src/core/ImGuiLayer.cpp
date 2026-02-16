@@ -31,6 +31,31 @@ namespace Chimera
         ImGui::StyleColorsDark();
         SetDarkThemeColors();
 
+        // Create a dedicated descriptor pool for ImGui
+        VkDescriptorPoolSize pool_sizes[] =
+        {
+            { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+            { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+            { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 }
+        };
+        
+        VkDescriptorPoolCreateInfo pool_info = {};
+        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        pool_info.maxSets = 1000 * (uint32_t)IM_ARRAYSIZE(pool_sizes);
+        pool_info.poolSizeCount = (uint32_t)IM_ARRAYSIZE(pool_sizes);
+        pool_info.pPoolSizes = pool_sizes;
+        
+        vkCreateDescriptorPool(m_Context->GetDevice(), &pool_info, nullptr, &m_Pool);
+
         ImGui_ImplGlfw_InitForVulkan(m_Context->GetWindow(), false);
         
         ImGui_ImplVulkan_InitInfo init_info = {};
@@ -39,12 +64,14 @@ namespace Chimera
         init_info.Device = m_Context->GetDevice();
         init_info.QueueFamily = m_Context->GetGraphicsQueueFamily();
         init_info.Queue = m_Context->GetGraphicsQueue();
-        init_info.DescriptorPool = ResourceManager::Get().GetDescriptorPool();
+        init_info.DescriptorPool = m_Pool;
         init_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
         init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
         init_info.UseDynamicRendering = true;
+        
+        // --- [FIX] Correct Pipeline Rendering Info Placement ---
         init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-        init_info.PipelineInfoMain.PipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+        init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
         init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
         
         static VkFormat swapchainFormat; 
@@ -61,17 +88,17 @@ namespace Chimera
         ImGui_ImplVulkan_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
+
+        if (m_Pool != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorPool(m_Context->GetDevice(), m_Pool, nullptr);
+            m_Pool = VK_NULL_HANDLE;
+        }
     }
 
     void ImGuiLayer::OnEvent(Event& e)
     {
         ImGuiIO& io = ImGui::GetIO();
-        
-        if (e.GetEventType() == EventType::MouseScrolled)
-        {
-            return;
-        }
-
         e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
         e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
     }
@@ -81,7 +108,6 @@ namespace Chimera
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_None);
     }
 
     void ImGuiLayer::End(VkCommandBuffer commandBuffer)
@@ -90,18 +116,15 @@ namespace Chimera
 
         VkExtent2D extent = m_Context->GetSwapChainExtent();
         uint32_t imageIndex = Application::Get().GetCurrentImageIndex();
-        
-        VkImage targetImage = m_Context->GetSwapChainImages()[imageIndex];
         VkImageView targetView = m_Context->GetSwapchain()->GetImageViews()[imageIndex];
-        VkFormat format = m_Context->GetSwapChainImageFormat();
 
-        VkRenderingAttachmentInfoKHR colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR };
+        VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
         colorAttachment.imageView = targetView;
         colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; 
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         
-        VkRenderingInfoKHR renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO_KHR };
+        VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
         renderingInfo.renderArea = { {0, 0}, extent };
         renderingInfo.layerCount = 1;
         renderingInfo.colorAttachmentCount = 1;
@@ -110,8 +133,6 @@ namespace Chimera
         vkCmdBeginRendering(commandBuffer, &renderingInfo);
         ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
         vkCmdEndRendering(commandBuffer);
-
-        VulkanUtils::TransitionImageLayout(commandBuffer, targetImage, format, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {
@@ -122,26 +143,17 @@ namespace Chimera
 
     ImTextureID ImGuiLayer::GetTextureID(VkImageView view, VkSampler sampler)
     {
-        if (view == VK_NULL_HANDLE)
-        {
-            return (ImTextureID)0;
-        }
-        if (sampler == VK_NULL_HANDLE)
-        {
-            sampler = ResourceManager::Get().GetDefaultSampler();
-        }
+        if (view == VK_NULL_HANDLE) return (ImTextureID)0;
+        if (sampler == VK_NULL_HANDLE) sampler = ResourceManager::Get().GetDefaultSampler();
         
-        if (m_TextureCache.count(view))
-        {
-            return m_TextureCache[view];
-        }
+        if (m_TextureCache.count(view)) return m_TextureCache[view];
         
         ImTextureID id = (ImTextureID)ImGui_ImplVulkan_AddTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         m_TextureCache[view] = id;
         return id;
     }
 
-    void ImGuiLayer::ClearTextureCache()
+    void Chimera::ImGuiLayer::ClearTextureCache()
     {
         for (auto& [view, id] : m_TextureCache)
         {

@@ -6,10 +6,11 @@ namespace Chimera
     struct QueueFamilyIndices
     {
         std::optional<uint32_t> graphicsFamily;
+        std::optional<uint32_t> computeFamily;
         std::optional<uint32_t> presentFamily;
         bool isComplete()
         {
-            return graphicsFamily.has_value() && presentFamily.has_value();
+            return graphicsFamily.has_value() && computeFamily.has_value() && presentFamily.has_value();
         }
     };
 
@@ -19,30 +20,13 @@ namespace Chimera
         VulkanDevice(VkInstance instance, VkSurfaceKHR surface);
         ~VulkanDevice();
 
-        VkDevice GetHandle() const
-        {
-            return m_LogicalDevice;
-        }
-
-        VkPhysicalDevice GetPhysicalDevice() const
-        {
-            return m_PhysicalDevice;
-        }
-
-        VkQueue GetGraphicsQueue() const
-        {
-            return m_GraphicsQueue;
-        }
-
-        uint32_t GetGraphicsQueueFamily() const
-        {
-            return m_GraphicsQueueFamily;
-        }
-
-        VkQueue GetPresentQueue() const
-        {
-            return m_PresentQueue;
-        }
+        VkDevice GetHandle() const { return m_LogicalDevice; }
+        VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
+        VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
+        VkQueue GetComputeQueue() const { return m_ComputeQueue; }
+        uint32_t GetGraphicsQueueFamily() const { return m_GraphicsQueueFamily; }
+        uint32_t GetComputeQueueFamily() const { return m_ComputeQueueFamily; }
+        VkQueue GetPresentQueue() const { return m_PresentQueue; }
 
         VmaAllocator GetAllocator() const
         {
@@ -88,8 +72,10 @@ namespace Chimera
         VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RayTracingProperties{};
         
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
+        VkQueue m_ComputeQueue = VK_NULL_HANDLE;
         VkQueue m_PresentQueue = VK_NULL_HANDLE;
         uint32_t m_GraphicsQueueFamily = 0;
+        uint32_t m_ComputeQueueFamily = 0;
         
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         bool m_RayTracingSupported = false;

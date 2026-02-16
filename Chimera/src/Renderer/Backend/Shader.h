@@ -22,6 +22,7 @@ namespace Chimera
         Shader(const std::string& path);
         ~Shader();
 
+        const std::string& GetPath() const { return m_Path; }
         const std::vector<uint32_t>& GetBytecode() const { return m_Bytecode; }
         const std::unordered_map<std::string, ShaderResource>& GetReflectionData() const { return m_ReflectionData; }
         

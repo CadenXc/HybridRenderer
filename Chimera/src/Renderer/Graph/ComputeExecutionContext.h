@@ -1,36 +1,25 @@
 #pragma once
-
-#include "RenderGraphCommon.h"
-#include <string>
-#include <vector>
+#include "Renderer/Graph/RenderGraphCommon.h"
 
 namespace Chimera
 {
-    class RenderGraph;
-    struct RenderPass;
-    class Shader;
-
-    /**
-     * @brief Granite-style Execution Context that automates pipeline fetching and binding.
-     */
     class ComputeExecutionContext
     {
     public:
-        ComputeExecutionContext(RenderGraph& graph, RenderPass& pass, VkCommandBuffer cmd);
+        ComputeExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd);
+        
+        void BindPipeline(const std::string& shaderName);
+        void Dispatch(const std::string& shaderName, uint32_t groupX, uint32_t groupY, uint32_t groupZ = 1);
+        void PushConstants(VkShaderStageFlags stages, const void* data, uint32_t size);
+        template<typename T> void PushConstants(VkShaderStageFlags stages, const T& data) { PushConstants(stages, &data, sizeof(T)); }
 
-        // [AUTOMATED] 自动处理一切绑定并执行光追
-        void DispatchRays(const RaytracingPipelineDescription& desc);
-
-        // [AUTOMATED] 自动处理一切绑定并执行计算
-        void Dispatch(const std::string& shaderName, uint32_t groupX, uint32_t groupY, uint32_t groupZ);
-
-    private:
-        // [FIX] 修正签名，匹配实现
-        void BindAutomaticSets(VkPipelineBindPoint bindPoint, const std::vector<const Shader*>& shaders, VkPipelineLayout layout);
+        VkCommandBuffer GetCommandBuffer() { return m_Cmd; }
+        RenderGraph& GetGraph() { return m_Graph; }
 
     private:
         RenderGraph& m_Graph;
-        RenderPass& m_Pass;
+        struct RenderPass& m_Pass;
         VkCommandBuffer m_Cmd;
+        VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE;
     };
 }

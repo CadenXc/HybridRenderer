@@ -10,7 +10,7 @@ namespace Chimera
         RayTracedRenderPath(VulkanContext& context, std::shared_ptr<Scene> scene);
         virtual ~RayTracedRenderPath();
 
-        virtual void Render(const RenderFrameInfo& frameInfo) override;
+        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) override;
         virtual RenderPathType GetType() const override { return RenderPathType::RayTracing; }
     };
 }

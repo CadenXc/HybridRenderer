@@ -1,37 +1,24 @@
 #pragma once
-
-#include "RenderGraphCommon.h"
-#include <string>
-#include <vector>
+#include "Renderer/Graph/RenderGraphCommon.h"
 
 namespace Chimera
 {
-    class RenderGraph;
-    struct RenderPass;
     class Shader;
 
-    /**
-     * @brief 自动化执行上下文：统一处理管线、描述符绑定、以及底层绘制指令
-     */
     class GraphicsExecutionContext
     {
     public:
-        GraphicsExecutionContext(RenderGraph& graph, RenderPass& pass, VkCommandBuffer cmd);
-
-        // --- 核心绘制方法 ---
-        void DrawMeshes(const GraphicsPipelineDescription& desc, class Scene* scene);
-        void DispatchRays(const RaytracingPipelineDescription& desc);
-
-        // --- 底层封装 (供 Scene 等类内部调用) ---
-        VkCommandBuffer GetCommandBuffer() const { return m_Cmd; }
-        VkPipelineLayout GetActiveLayout() const { return m_ActiveLayout; } // [NEW] 用于状态同步
+        GraphicsExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd);
+        
+        void BindPipeline(const struct GraphicsPipelineDescription& desc);
+        void BindPipelineAndDescriptorSets(VkPipelineBindPoint bindPoint, VkPipeline handle, VkPipelineLayout layout, const std::vector<const Shader*>& shaders);
         
         template<typename T>
-        void PushConstants(VkShaderStageFlags stages, const T& data)
+        void PushConstants(VkShaderStageFlags stages, const T& constants)
         {
             if (m_ActiveLayout != VK_NULL_HANDLE)
             {
-                vkCmdPushConstants(m_Cmd, m_ActiveLayout, stages, 0, sizeof(T), &data);
+                vkCmdPushConstants(m_Cmd, m_ActiveLayout, VK_SHADER_STAGE_ALL, 0, sizeof(T), &constants);
             }
         }
 
@@ -40,13 +27,26 @@ namespace Chimera
             vkCmdDrawIndexed(m_Cmd, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
         }
 
-    private:
-        void BindPipelineAndDescriptorSets(VkPipelineBindPoint bindPoint, VkPipeline handle, VkPipelineLayout layout, const std::vector<const Shader*>& shaders);
+        void BindVertexBuffers(uint32_t firstBinding, uint32_t bindingCount, const VkBuffer* pBuffers, const VkDeviceSize* pOffsets)
+        {
+            vkCmdBindVertexBuffers(m_Cmd, firstBinding, bindingCount, pBuffers, pOffsets);
+        }
+
+        void BindIndexBuffer(VkBuffer buffer, VkDeviceSize offset, VkIndexType indexType)
+        {
+            vkCmdBindIndexBuffer(m_Cmd, buffer, offset, indexType);
+        }
+
+        void DrawMeshes(const struct GraphicsPipelineDescription& desc, class Scene* scene);
+        void DispatchRays(const struct RaytracingPipelineDescription& desc);
+
+        VkCommandBuffer GetCommandBuffer() { return m_Cmd; }
+        RenderGraph& GetGraph() { return m_Graph; }
 
     private:
         RenderGraph& m_Graph;
-        RenderPass& m_Pass;
+        struct RenderPass& m_Pass;
         VkCommandBuffer m_Cmd;
-        VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE; // [NEW]
+        VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE;
     };
 }

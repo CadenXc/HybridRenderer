@@ -2,10 +2,35 @@
 #include "Utils/VulkanBarrier.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Backend/RenderContext.h"
+#include "Renderer/Resources/ResourceManager.h"
+#include "Renderer/Resources/Buffer.h"
 
 namespace Chimera::VulkanUtils
 {
-    // [NEW] Modern Vulkan 1.3 Synchronization 2 implementation
+    VkImageMemoryBarrier CreateImageBarrier(
+        VkImage image,
+        VkImageLayout oldLayout,
+        VkImageLayout newLayout,
+        VkAccessFlags srcAccess,
+        VkAccessFlags dstAccess,
+        VkImageAspectFlags aspectMask)
+    {
+        VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = newLayout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = aspectMask;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = srcAccess;
+        barrier.dstAccessMask = dstAccess;
+        return barrier;
+    }
+
     void TransitionImage(
         VkCommandBuffer commandBuffer,
         VkImage image,
@@ -22,8 +47,6 @@ namespace Chimera::VulkanUtils
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 
-        // Automatically determine stage and access masks based on layouts
-        // Source
         switch (oldLayout)
         {
             case VK_IMAGE_LAYOUT_UNDEFINED:
@@ -64,7 +87,6 @@ namespace Chimera::VulkanUtils
                 break;
         }
 
-        // Destination
         switch (newLayout)
         {
             case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
@@ -108,7 +130,6 @@ namespace Chimera::VulkanUtils
         vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
     }
 
-    // Legacy wrapper
     void TransitionImageLayout(VkCommandBuffer cmd, VkImage img, VkFormat fmt, VkImageLayout oldL, VkImageLayout newL, uint32_t mip)
     {
         VkImageAspectFlags aspect = IsDepthFormat(fmt) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
@@ -131,5 +152,73 @@ namespace Chimera::VulkanUtils
     {
         static const std::vector<VkFormat> srgbFormats = { VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8_SRGB, VK_FORMAT_R8G8B8_SRGB, VK_FORMAT_B8G8R8_SRGB };
         return std::find(srgbFormats.begin(), srgbFormats.end(), format) != srgbFormats.end();
+    }
+
+    uint32_t AlignUp(uint32_t value, uint32_t alignment)
+    {
+        return (value + alignment - 1) & ~(alignment - 1);
+    }
+
+    std::unique_ptr<Buffer> CreateSBT(VkPipeline pipeline, uint32_t raygenCount, uint32_t missCount, uint32_t hitCount, VkStridedDeviceAddressRegionKHR& outRaygen, VkStridedDeviceAddressRegionKHR& outMiss, VkStridedDeviceAddressRegionKHR& outHit)
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        auto rayTracingProperties = VulkanContext::Get().GetRayTracingProperties();
+
+        uint32_t handleSize = rayTracingProperties.shaderGroupHandleSize;
+        uint32_t handleSizeAligned = AlignUp(handleSize, rayTracingProperties.shaderGroupHandleAlignment);
+
+        uint32_t groupCount = raygenCount + missCount + hitCount;
+        uint32_t sbtSize = groupCount * handleSizeAligned;
+
+        std::vector<uint8_t> shaderHandleStorage(sbtSize);
+        vkGetRayTracingShaderGroupHandlesKHR(device, pipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
+
+        // Aligned offsets for each section
+        uint32_t raygenSize = AlignUp(raygenCount * handleSizeAligned, rayTracingProperties.shaderGroupBaseAlignment);
+        uint32_t missSize   = AlignUp(missCount   * handleSizeAligned, rayTracingProperties.shaderGroupBaseAlignment);
+        uint32_t hitSize    = AlignUp(hitCount    * handleSizeAligned, rayTracingProperties.shaderGroupBaseAlignment);
+
+        uint32_t totalSBTSize = raygenSize + missSize + hitSize;
+
+        auto sbtBuffer = std::make_unique<Buffer>(
+            totalSBTSize,
+            VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            VMA_MEMORY_USAGE_CPU_TO_GPU
+        );
+
+        uint8_t* pData = (uint8_t*)sbtBuffer->Map();
+        memset(pData, 0, totalSBTSize);
+
+        VkDeviceAddress baseAddr = sbtBuffer->GetDeviceAddress();
+
+        // 1. Raygen
+        if (raygenCount > 0)
+        {
+            memcpy(pData, shaderHandleStorage.data(), raygenCount * handleSize);
+            outRaygen.deviceAddress = baseAddr;
+            outRaygen.stride = handleSizeAligned;
+            outRaygen.size   = handleSizeAligned; // Raygen size MUST equal stride
+        }
+
+        // 2. Miss
+        if (missCount > 0)
+        {
+            memcpy(pData + raygenSize, shaderHandleStorage.data() + raygenCount * handleSize, missCount * handleSize);
+            outMiss.deviceAddress = baseAddr + raygenSize;
+            outMiss.stride = handleSizeAligned;
+            outMiss.size   = missSize;
+        }
+
+        // 3. Hit
+        if (hitCount > 0)
+        {
+            memcpy(pData + raygenSize + missSize, shaderHandleStorage.data() + (raygenCount + missCount) * handleSize, hitCount * handleSize);
+            outHit.deviceAddress = baseAddr + raygenSize + missSize;
+            outHit.stride = handleSizeAligned;
+            outHit.size   = hitSize;
+        }
+
+        sbtBuffer->Unmap();
+        return sbtBuffer;
     }
 }

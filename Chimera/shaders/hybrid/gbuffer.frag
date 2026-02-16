@@ -7,6 +7,7 @@ layout(location = 1) in vec2 inTexCoord;
 layout(location = 2) in flat int inMaterialIdx;
 layout(location = 3) in vec4 inCurPos;
 layout(location = 4) in vec4 inPrevPos;
+layout(location = 5) in vec4 inTangent;
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     PBRMaterial materials[];
@@ -22,19 +23,43 @@ layout(location = 3) out vec4 outMotion;
 void main() {
     PBRMaterial mat = matBuf.materials[inMaterialIdx];
     
+    // 1. Albedo
     vec4 albedo = mat.albedo;
     if (mat.albedoTex >= 0) {
         albedo *= texture(textureArray[nonuniformEXT(mat.albedoTex)], inTexCoord);
     }
     if (albedo.a < 0.1) discard;
 
-    // --- 计算 Motion Vector ---
+    // 2. Normal Mapping
+    vec3 N = normalize(inNormal);
+    if (mat.normalTex >= 0) {
+        vec3 tangent = normalize(inTangent.xyz);
+        vec3 bitangent = normalize(cross(N, tangent) * inTangent.w);
+        mat3 TBN = mat3(tangent, bitangent, N);
+        
+        vec3 mappedNormal = texture(textureArray[nonuniformEXT(mat.normalTex)], inTexCoord).rgb;
+        mappedNormal = mappedNormal * 2.0 - 1.0;
+        N = normalize(TBN * mappedNormal);
+    }
+
+    // 3. Metallic-Roughness
+    float metallic = mat.metallic;
+    float roughness = mat.roughness;
+    if (mat.metalRoughTex >= 0) {
+        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.metalRoughTex)], inTexCoord);
+        // glTF standard: Green = Roughness, Blue = Metallic
+        roughness *= mrSample.g;
+        metallic *= mrSample.b;
+    }
+
+    // 4. Motion Vector
     vec2 a = (inCurPos.xy / inCurPos.w) * 0.5 + 0.5;
     vec2 b = (inPrevPos.xy / inPrevPos.w) * 0.5 + 0.5;
-    // 恢复为标准的原始 UV 差值，供后续降噪/TAA 使用
     outMotion = vec4(a - b, 0.0, 1.0);
 
     outAlbedo = vec4(albedo.rgb, 1.0);
-    outNormal = vec4(normalize(inNormal) * 0.5 + 0.5, 1.0);
-    outMaterial = vec4(mat.metallic, mat.roughness, 0.0, 1.0);
+    // [FIX] Restore robust mapping to ensure no negative truncation regardless of buffer format
+    outNormal = vec4(N * 0.5 + 0.5, 1.0);
+    // Standardize: R = Roughness, G = Metallic
+    outMaterial = vec4(roughness, metallic, 0.0, 1.0);
 }

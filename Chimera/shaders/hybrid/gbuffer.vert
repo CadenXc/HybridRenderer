@@ -19,6 +19,7 @@ layout(location = 1) out vec2 outTexCoord;
 layout(location = 2) out flat int outMaterialIdx;
 layout(location = 3) out vec4 outCurPos;
 layout(location = 4) out vec4 outPrevPos;
+layout(location = 5) out vec4 outTangent;
 
 void main() {
     vec4 worldPos = push.pc.model * vec4(inPos, 1.0);
@@ -29,7 +30,10 @@ void main() {
     
     gl_Position = outCurPos;
     
-    outNormal = normalize(mat3(push.pc.normalMatrix) * inNormal);
+    mat3 normalMat = mat3(push.pc.normalMatrix);
+    outNormal = normalize(normalMat * inNormal);
+    outTangent = vec4(normalize(normalMat * inTangent.xyz), inTangent.w);
+    
     outTexCoord = inTexCoord;
     outMaterialIdx = push.pc.materialIndex;
 }

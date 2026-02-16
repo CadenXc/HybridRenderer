@@ -3,6 +3,9 @@
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Passes/ForwardPass.h"
+#include "Renderer/Graph/GraphicsExecutionContext.h"
+#include "Renderer/Backend/Renderer.h"
 
 namespace Chimera
 {
@@ -13,27 +16,39 @@ namespace Chimera
 
     ForwardRenderPath::~ForwardRenderPath()
     {
+        m_RenderGraph.reset();
     }
 
-    void ForwardRenderPath::Render(const RenderFrameInfo& frameInfo)
+    VkSemaphore ForwardRenderPath::Render(const RenderFrameInfo& frameInfo)
     {
-        if (m_NeedsResize) {
+        if (m_NeedsResize)
+        {
+            if (!m_Context) return VK_NULL_HANDLE;
             m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
             m_NeedsResize = false;
         }
 
+        if (!m_RenderGraph) return VK_NULL_HANDLE;
         m_RenderGraph->Reset();
-        
-        struct ForwardData {};
-        m_RenderGraph->AddPass<ForwardData>("ForwardPass",
-            [&](ForwardData& data, RenderGraph::PassBuilder& builder) {
+
+        // 1. Main Forward Pass
+        if (m_Scene) ForwardPass::AddToGraph(*m_RenderGraph, m_Scene);
+
+        // 2. Final Blit to swapchain
+        struct FinalData { RGResourceHandle src; };
+        m_RenderGraph->AddPass<FinalData>("FinalBlit",
+            [&](FinalData& data, RenderGraph::PassBuilder& builder) {
+                // Use FinalColor which is typically what ForwardPass writes to
+                data.src = builder.Read(RS::FinalColor);
                 builder.Write(RS::RENDER_OUTPUT);
             },
-            [=](const ForwardData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+            [=](const FinalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
+                ctx.DrawMeshes({ "FinalBlit", "common/fullscreen.vert", "postprocess/blit.frag", false, false }, nullptr);
             }
         );
 
         m_RenderGraph->Compile();
-        m_RenderGraph->Execute(frameInfo.commandBuffer);
+        return m_RenderGraph->Execute(frameInfo.commandBuffer);
     }
 }

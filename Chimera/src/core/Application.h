@@ -32,6 +32,18 @@ namespace Chimera
         float DeltaTime;
         float Time;
         uint32_t FrameIndex;
+        uint32_t DisplayMode = 0;
+        uint32_t RenderFlags = 1; // Bit 0 enabled by default
+        float Exposure = 1.0f;
+        float AmbientStrength = 1.0f;
+        float BloomStrength = 0.5f;
+
+        float SVGFAlphaColor = 0.05f;
+        float SVGFAlphaMoments = 0.2f;
+        float SVGFPhiColor = 10.0f;
+        float SVGFPhiNormal = 128.0f;
+        float SVGFPhiDepth = 0.1f;
+        float LightRadius = 0.05f;
     };
 
     class Application
@@ -73,7 +85,9 @@ namespace Chimera
         std::shared_ptr<VulkanContext> GetContext() { return m_Context; }
         Renderer* GetRenderer() { return m_Renderer.get(); }
         RenderState* GetRenderState() { return m_RenderState.get(); }
+        ResourceManager* GetResourceManager() { return m_ResourceManager.get(); }
         std::shared_ptr<ImGuiLayer> GetImGuiLayer() { return m_ImGuiLayer; }
+        class RenderPath* GetActiveRenderPath() { return m_RenderPath.get(); }
 
         uint32_t GetCurrentImageIndex() const;
         uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
@@ -82,6 +96,8 @@ namespace Chimera
         void SetActiveScene(Scene* scene) { m_ActiveScene = scene; }
         float GetDepthScale() const { return m_DepthScale; }
         void SetDepthScale(float scale) { m_DepthScale = scale; }
+
+        void SwitchRenderPath(std::unique_ptr<class RenderPath> path);
 
         void QueueEvent(std::function<void()>&& func)
         {
@@ -111,6 +127,7 @@ namespace Chimera
         std::unique_ptr<PipelineManager> m_PipelineManager;
         std::unique_ptr<RenderState> m_RenderState;
         std::unique_ptr<Renderer> m_Renderer;
+        std::unique_ptr<class RenderPath> m_RenderPath;
         
         std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
         

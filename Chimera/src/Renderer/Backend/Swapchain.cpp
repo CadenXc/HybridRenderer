@@ -56,21 +56,25 @@ namespace Chimera
         createInfo.imageExtent = extent;
         createInfo.imageArrayLayers = 1;
         createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-
-        // Note: For simplicity, assuming graphics and present families are handled correctly externally or we find them here.
-        // In the original VulkanContext, it checked if they were different.
-        // We'll use VK_SHARING_MODE_EXCLUSIVE as most modern hardware supports it on the same queue.
         createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
         createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         createInfo.presentMode = presentMode;
         createInfo.clipped = VK_TRUE;
+        createInfo.oldSwapchain = m_SwapChain;
 
-        if (vkCreateSwapchainKHR(m_Device, &createInfo, nullptr, &m_SwapChain) != VK_SUCCESS)
+        VkSwapchainKHR newSwapChain;
+        if (vkCreateSwapchainKHR(m_Device, &createInfo, nullptr, &newSwapChain) != VK_SUCCESS)
         {
             throw std::runtime_error("failed to create swap chain!");
         }
+
+        // Now we can safely destroy the old one
+        if (m_SwapChain != VK_NULL_HANDLE)
+        {
+            vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
+        }
+        m_SwapChain = newSwapChain;
 
         vkGetSwapchainImagesKHR(m_Device, m_SwapChain, &imageCount, nullptr);
         m_SwapChainImages.resize(imageCount);
@@ -87,12 +91,8 @@ namespace Chimera
             vkDestroyImageView(m_Device, imageView, nullptr);
         }
         m_SwapChainImageViews.clear();
-
-        if (m_SwapChain != VK_NULL_HANDLE)
-        {
-            vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
-            m_SwapChain = VK_NULL_HANDLE;
-        }
+        
+        // Note: m_SwapChain is now handled by oldSwapchain in Create() or destructor
     }
 
     void Swapchain::CreateImageViews()
@@ -102,7 +102,6 @@ namespace Chimera
         for (size_t i = 0; i < m_SwapChainImages.size(); i++)
         {
             VkImageViewCreateInfo viewInfo{};
-            viewInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
             viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             viewInfo.image = m_SwapChainImages[i];
             viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;

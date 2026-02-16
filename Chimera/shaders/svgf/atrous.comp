@@ -1,0 +1,83 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform GlobalUBO { UniformBufferObject ubo; } global;
+
+layout(set = 2, binding = 0) uniform sampler2D gInputColor;   // 待滤波颜色
+layout(set = 2, binding = 1) uniform sampler2D gInputMoments; // 包含方差
+layout(set = 2, binding = 2) uniform sampler2D gNormal;       
+layout(set = 2, binding = 3) uniform sampler2D gDepth;        
+
+layout(set = 2, binding = 4, rgba16f) uniform image2D outFiltered;
+
+layout(push_constant) uniform Constants {
+    int stepSize;
+} pc;
+
+void main() 
+{
+    ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    if (ipos.x >= global.ubo.displaySize.x || ipos.y >= global.ubo.displaySize.y) 
+    {
+        return;
+    }
+
+    vec2 uv = (vec2(ipos) + 0.5) / global.ubo.displaySize;
+    
+    vec4 centerColor = texture(gInputColor, uv);
+    float centerVar  = texture(gInputMoments, uv).b;
+    vec3 centerNorm  = texture(gNormal, uv).rgb * 2.0 - 1.0;
+    float centerDepth = texture(gDepth, uv).r;
+
+    if (centerDepth == 0.0) 
+    {
+        imageStore(outFiltered, ipos, centerColor);
+        return;
+    }
+
+    // 5x5 À-Trous kernel weights
+    float kernel[25] = {
+        1.0/256.0,  4.0/256.0,  6.0/256.0,  4.0/256.0, 1.0/256.0,
+        4.0/256.0, 16.0/256.0, 24.0/256.0, 16.0/256.0, 4.0/256.0,
+        6.0/256.0, 24.0/256.0, 36.0/256.0, 24.0/256.0, 6.0/256.0,
+        4.0/256.0, 16.0/256.0, 24.0/256.0, 16.0/256.0, 4.0/256.0,
+        1.0/256.0,  4.0/256.0,  6.0/256.0,  4.0/256.0, 1.0/256.0
+    };
+
+    vec4 sumColor = vec4(0.0);
+    float sumWeight = 0.0;
+
+    // Use parameters from UBO
+    float phiColor = global.ubo.svgfPhiColor;
+    float phiNormal = global.ubo.svgfPhiNormal;
+    float phiDepth = global.ubo.svgfPhiDepth;
+
+    for (int y = -2; y <= 2; y++) 
+    {
+        for (int x = -2; x <= 2; x++) 
+        {
+            ivec2 offset = ivec2(x, y) * pc.stepSize;
+            ivec2 p = ipos + offset;
+            vec2 pUV = (vec2(p) + 0.5) / global.ubo.displaySize;
+
+            vec4 pColor = texture(gInputColor, pUV);
+            vec3 pNorm = texture(gNormal, pUV).rgb * 2.0 - 1.0;
+            float pDepth = texture(gDepth, pUV).r;
+
+            // Edge-stopping functions
+            float wNormal = pow(max(0.0, dot(centerNorm, pNorm)), phiNormal);
+            float wDepth = (phiDepth > 0.0) ? exp(-abs(centerDepth - pDepth) / phiDepth) : 1.0;
+            float wLuma = exp(-abs(centerColor.r - pColor.r) / (phiColor * sqrt(max(0.0001, centerVar)) + 0.001));
+            
+            float weight = wNormal * wDepth * wLuma * kernel[(y+2)*5 + (x+2)];
+            
+            sumColor += pColor * weight;
+            sumWeight += weight;
+        }
+    }
+
+    imageStore(outFiltered, ipos, sumColor / max(sumWeight, 0.001));
+}

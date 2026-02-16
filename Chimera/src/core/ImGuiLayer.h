@@ -26,6 +26,7 @@ namespace Chimera
 
     private:
         std::shared_ptr<VulkanContext> m_Context;
+        VkDescriptorPool m_Pool = VK_NULL_HANDLE;
         std::unordered_map<VkImageView, ImTextureID> m_TextureCache;
     };
 }

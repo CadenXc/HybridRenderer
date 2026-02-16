@@ -17,6 +17,16 @@ namespace Chimera
         return state == GLFW_PRESS || state == GLFW_REPEAT;
     }
 
+    bool Input::IsKeyPressed(KeyCode key)
+    {
+        static std::unordered_map<KeyCode, bool> s_KeyState;
+        bool currentlyDown = IsKeyDown(key);
+        bool wasDown = s_KeyState[key];
+        s_KeyState[key] = currentlyDown;
+
+        return currentlyDown && !wasDown;
+    }
+
     bool Input::IsMouseButtonDown(MouseButton button)
     {
         auto window = Application::Get().GetWindow().GetNativeWindow();

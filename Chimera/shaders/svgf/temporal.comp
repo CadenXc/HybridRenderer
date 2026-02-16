@@ -1,0 +1,60 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform GlobalUBO { UniformBufferObject ubo; } global;
+
+layout(set = 2, binding = 0) uniform sampler2D gCurColor;    
+layout(set = 2, binding = 1) uniform sampler2D gMotion;      
+layout(set = 2, binding = 2) uniform sampler2D gHistoryColor; 
+layout(set = 2, binding = 3) uniform sampler2D gHistoryMoments; 
+
+layout(set = 2, binding = 4, rgba16f) uniform image2D outColor;   
+layout(set = 2, binding = 5, rgba16f) uniform image2D outMoments; 
+
+void main() 
+{
+    ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    if (ipos.x >= global.ubo.displaySize.x || ipos.y >= global.ubo.displaySize.y) 
+    {
+        return;
+    }
+
+    vec2 uv = (vec2(ipos) + 0.5) / global.ubo.displaySize;
+    vec2 motion = texture(gMotion, uv).xy;
+    vec2 prevUV = uv - motion;
+
+    float curVal = texture(gCurColor, uv).r;
+    
+    // Check history validity
+    bool historyValid = prevUV.x >= 0.0 && prevUV.x <= 1.0 && prevUV.y >= 0.0 && prevUV.y <= 1.0;
+    
+    float accumColor = curVal;
+    float moment1 = curVal;
+    float moment2 = curVal * curVal;
+    float historyLen = 0.0;
+
+    if (historyValid) 
+    {
+        float hColor = texture(gHistoryColor, prevUV).r;
+        vec4 hMoments = texture(gHistoryMoments, prevUV);
+        historyLen = hMoments.a;
+
+        // Dynamic Alpha using UBO parameters
+        float successAlpha = max(1.0 / (historyLen + 1.0), global.ubo.svgfAlphaColor);
+        float momentsAlpha = max(1.0 / (historyLen + 1.0), global.ubo.svgfAlphaMoments);
+        
+        accumColor = mix(hColor, curVal, successAlpha);
+        moment1 = mix(hMoments.r, curVal, momentsAlpha);
+        moment2 = mix(hMoments.g, curVal * curVal, momentsAlpha);
+        historyLen = min(historyLen + 1.0, 64.0);
+    }
+
+    // Var(X) = E(X^2) - E(X)^2
+    float variance = max(0.0, moment2 - moment1 * moment1);
+
+    imageStore(outColor, ipos, vec4(accumColor, 0.0, 0.0, 1.0));
+    imageStore(outMoments, ipos, vec4(moment1, moment2, variance, historyLen));
+}

@@ -34,8 +34,10 @@ namespace Chimera
         // [Queue & Command Management]
         // ---------------------------------------------------------------------------------------------------------------------
         VkQueue GetGraphicsQueue() const { return m_Device->GetGraphicsQueue(); }
+        VkQueue GetComputeQueue() const { return m_Device->GetComputeQueue(); }
         VkQueue GetPresentQueue() const { return m_Device->GetPresentQueue(); }
         uint32_t GetGraphicsQueueFamily() const { return m_Device->GetGraphicsQueueFamily(); }
+        uint32_t GetComputeQueueFamily() const { return m_Device->GetComputeQueueFamily(); }
         VkCommandPool GetCommandPool() const { return m_CommandPool; }
 
         // ---------------------------------------------------------------------------------------------------------------------

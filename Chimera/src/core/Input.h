@@ -9,6 +9,7 @@ namespace Chimera
     {
     public:
         static bool IsKeyDown(KeyCode key);
+        static bool IsKeyPressed(KeyCode key);
         static bool IsMouseButtonDown(MouseButton button);
 
         static glm::vec2 GetMousePosition();

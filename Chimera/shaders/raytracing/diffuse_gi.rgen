@@ -1,0 +1,97 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
+
+layout(set = 0, binding = 0) uniform GlobalUBO {
+    UniformBufferObject ubo;
+} global;
+
+layout(set = 1, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout(set = 1, binding = 3) uniform sampler2D textureArray[];
+
+layout(set = 2, binding = 0, rgba16f) uniform image2D giOutput;
+layout(set = 2, binding = 1) uniform sampler2D gNormal;
+layout(set = 2, binding = 2) uniform sampler2D gDepth;
+
+layout(push_constant) uniform PushConstants {
+    int skyboxIndex;
+} pc;
+
+layout(location = 0) rayPayloadEXT HitPayload payload;
+
+// --- Random Number Generator (PCG) ---
+uint seed;
+uint pcg_hash(uint v) {
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+float rand() {
+    seed = pcg_hash(seed);
+    return float(seed) * (1.0 / 4294967296.0);
+}
+
+// --- Sampling Functions ---
+vec3 SafeNormalize(vec3 v) {
+    float l = length(v);
+    return (l > 0.00001) ? v / l : vec3(0, 1, 0);
+}
+
+vec3 GetOrthoVector(vec3 n) {
+    vec3 v = abs(n.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
+    return normalize(cross(v, n));
+}
+
+vec3 SampleHemisphere(vec3 n) {
+    float u1 = rand();
+    float u2 = rand();
+    float r = sqrt(u1);
+    float phi = 2.0 * 3.14159265 * u2;
+    vec3 localDir = vec3(r * cos(phi), r * sin(phi), sqrt(1.0 - u1));
+    
+    vec3 tangent = GetOrthoVector(n);
+    vec3 bitangent = cross(n, tangent);
+    return SafeNormalize(tangent * localDir.x + bitangent * localDir.y + n * localDir.z);
+}
+
+vec2 SampleEquirectangular(vec3 v) {
+    vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
+    uv *= vec2(0.1591, 0.3183); 
+    uv += 0.5;
+    return uv;
+}
+
+void main() 
+{
+    const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
+    seed = pcg_hash(uint(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x) ^ pcg_hash(global.ubo.frameCount));
+
+    float depth = texture(gDepth, inUV).r;
+    if (depth == 0.0) {
+        imageStore(giOutput, ivec2(gl_LaunchIDEXT.xy), vec4(0.0));
+        return;
+    }
+
+    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.viewProjInverse);
+    vec3 normal = normalize(texture(gNormal, inUV).xyz * 2.0 - 1.0);
+
+    // 随机发射一根射线进行漫反射采样
+    vec3 rayDir = SampleHemisphere(normal);
+    vec3 origin = worldPos + normal * 0.002;
+    
+    payload.hit = false;
+    payload.color = vec3(0.0);
+
+    traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, 0.001, rayDir, 10000.0, 0);
+
+    if (!payload.hit && pc.skyboxIndex >= 0) {
+        payload.color = texture(textureArray[nonuniformEXT(pc.skyboxIndex)], SampleEquirectangular(rayDir)).rgb;
+    } else if (!payload.hit) {
+        payload.color = vec3(0.02);
+    }
+
+    // 1-Bounce 间接光贡献
+    imageStore(giOutput, ivec2(gl_LaunchIDEXT.xy), vec4(payload.color, 1.0));
+}

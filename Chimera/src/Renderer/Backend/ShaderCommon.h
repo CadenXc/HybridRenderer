@@ -48,8 +48,21 @@ struct UniformBufferObject {
     vec2 displaySizeInverse;
     uint frameIndex;
     uint frameCount;
-    uint displayMode;
-    float padding;
+    uint displayMode; // 0: Final, 1: Albedo, 2: Normal, 3: Material, 4: Motion, 5: Depth, 6: ShadowAO, 7: Reflection
+    uint renderFlags;  // Bit 0: Enable SVGF, Bit 1: Enable GI, Bit 2: Show Denoising Variance
+    float exposure;
+    float ambientStrength;
+    float bloomStrength;
+
+    // --- SVGF & Light Parameters ---
+    float svgfAlphaColor;
+    float svgfAlphaMoments;
+    float svgfPhiColor;
+    float svgfPhiNormal;
+    float svgfPhiDepth;
+    float lightRadius;
+    float padding1;
+    float padding2;
 };
 
 struct PBRMaterial {

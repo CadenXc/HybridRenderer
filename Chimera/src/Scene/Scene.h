@@ -20,6 +20,7 @@ namespace Chimera
 
         std::shared_ptr<Model> LoadModel(const std::string& path);
         void LoadSkybox(const std::string& path);
+        void ClearSkybox();
         void AddEntity(std::shared_ptr<Model> model, const glm::mat4& transform = glm::mat4(1.0f), const std::string& name = "Entity");
 
         const std::vector<Entity>& GetEntities() const

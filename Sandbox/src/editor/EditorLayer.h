@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/Layer.h"
+#include "Core/Application.h"
 #include "Scene/EditorCamera.h"
 #include "Scene/Scene.h"
 #include "Renderer/Pipelines/RenderPath.h"
@@ -29,20 +30,22 @@ namespace Chimera {
 		void LoadScene(const std::string& path);
 		void ClearScene();
 		void LoadSkybox(const std::string& path);
+		void ClearSkybox();
 
 		std::shared_ptr<Scene> GetActiveScene() { return m_Scene; }
-		RenderPath* GetRenderPath() { return m_RenderPath.get(); }
+		RenderPath* GetRenderPath() { return Application::Get().GetActiveRenderPath(); }
 
 	private:
 		void RefreshModelList();
+		void RefreshSkyboxList();
 		void LoadModel(const std::string& relativePath);
 
 		// UI Panels		 
 		void DrawMenuBar();
-		void DrawStatsPanel();
 		void DrawRenderPathPanel();
 		void DrawModelSelectionPanel();
-		void DrawViewport();
+		void DrawViewportContent();
+		void DrawControlPanelContent();
 		void DrawSceneHierarchy();
 		void DrawPropertiesPanel();
 		void DrawLightSettings();
@@ -57,8 +60,30 @@ namespace Chimera {
 		glm::vec2 m_ViewportSize = { 0, 0 };
 		bool m_ViewportHovered = false;
 		bool m_ViewportFocused = false;
+        
+                // UI Visibility
+        
+                bool m_ShowControlPanel = true;
+        
+                bool m_ShowViewport = true;
+				        uint32_t m_DisplayMode = 0;
+				        uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
+				
+				        float m_Exposure = 1.0f;
+        float m_AmbientStrength = 1.0f;
+        float m_BloomStrength = 0.5f;
 
-		// Model/Scene Management
+        // --- SVGF Parameters ---
+        float m_SVGFAlphaColor = 0.05f;
+        float m_SVGFAlphaMoments = 0.2f;
+        float m_SVGFPhiColor = 10.0f;
+        float m_SVGFPhiNormal = 128.0f;
+        float m_SVGFPhiDepth = 0.1f;
+
+        // --- Light Parameters ---
+        float m_LightRadius = 0.05f;
+
+        // Model/Scene Management
 		struct ModelAsset 
 		{
 			std::string Name;
@@ -67,6 +92,10 @@ namespace Chimera {
 		std::vector<ModelAsset> m_AvailableModels;
 		std::string m_ActiveModelPath = "";
 		int m_SelectedModelIndex = -1;
+
+		std::vector<std::string> m_AvailableSkyboxes;
+		int m_SelectedSkyboxIndex = 0;
+
 		int m_SelectedInstanceIndex = -1;
 
 		// Performance Metrics
@@ -81,7 +110,6 @@ namespace Chimera {
 
 		// Rendering & Scene (Migrated from Application)
 		std::shared_ptr<Scene> m_Scene;
-		std::unique_ptr<RenderPath> m_RenderPath;
 	};
 
 }

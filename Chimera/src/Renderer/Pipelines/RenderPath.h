@@ -15,7 +15,7 @@ namespace Chimera
         virtual ~RenderPath();
 
         virtual void Init();
-        virtual void Render(const RenderFrameInfo& frameInfo) = 0;
+        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) = 0;
 
         void SetViewportSize(uint32_t width, uint32_t height) { m_Width = width; m_Height = height; m_NeedsResize = true; }
         virtual RenderPathType GetType() const = 0;

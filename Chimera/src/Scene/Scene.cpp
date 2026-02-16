@@ -62,6 +62,11 @@ namespace Chimera
 
     void Scene::LoadSkybox(const std::string& path) { m_SkyboxRef = ResourceManager::Get().LoadHDRTexture(path); }
 
+    void Scene::ClearSkybox()
+    {
+        m_SkyboxRef = TextureRef();
+    }
+
     void Scene::AddEntity(std::shared_ptr<Model> model, const glm::mat4& transform, const std::string& name)
     {
         Entity e;
@@ -90,53 +95,88 @@ namespace Chimera
         auto vkCmdBuildAS = (PFN_vkCmdBuildAccelerationStructuresKHR)vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR");
 
         std::vector<VkAccelerationStructureInstanceKHR> instances;
+        std::vector<RTInstanceData> rtInstanceData;
+
         for (uint32_t i = 0; i < (uint32_t)m_Entities.size(); ++i)
         {
             auto& entity = m_Entities[i];
             if (!entity.mesh.model) continue;
             const auto& blasHandles = entity.mesh.model->GetBLASHandles();
+            const auto& meshes = entity.mesh.model->GetMeshes();
             glm::mat4 trs = entity.transform.GetTransform();
+
             for (uint32_t j = 0; j < (uint32_t)blasHandles.size(); ++j)
             {
+                // 1. Vulkan AS Instance
                 VkAccelerationStructureInstanceKHR inst{};
-                glm::mat4 transpose = glm::transpose(trs * entity.mesh.model->GetMeshes()[j].transform);
+                glm::mat4 transpose = glm::transpose(trs * meshes[j].transform);
                 memcpy(&inst.transform, &transpose, sizeof(inst.transform));
-                inst.instanceCustomIndex = i;
+                
+                // instanceCustomIndex points to our rtInstanceData array
+                inst.instanceCustomIndex = (uint32_t)rtInstanceData.size();
                 inst.mask = 0xFF;
+                
                 VkAccelerationStructureDeviceAddressInfoKHR addrInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR, nullptr, blasHandles[j] };
                 inst.accelerationStructureReference = vkGetASDeviceAddress(device, &addrInfo);
                 inst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
                 instances.push_back(inst);
+
+                // 2. Custom RT Instance Data for Shader
+                RTInstanceData data{};
+                data.vertexAddress = entity.mesh.model->GetVertexBuffer()->GetDeviceAddress();
+                data.indexAddress  = entity.mesh.model->GetIndexBuffer()->GetDeviceAddress();
+                data.materialIndex = meshes[j].materialIndex;
+                rtInstanceData.push_back(data);
             }
         }
 
         if (instances.empty()) return;
-        VkDeviceSize instSize = instances.size() * sizeof(VkAccelerationStructureInstanceKHR);
-        Buffer staging(instSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-        staging.UploadData(instances.data(), instSize);
-        auto instanceBuffer = std::make_unique<Buffer>(instSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        { ScopedCommandBuffer cmd; VkBufferCopy copy{ 0, 0, instSize }; vkCmdCopyBuffer(cmd, (VkBuffer)staging.GetBuffer(), (VkBuffer)instanceBuffer->GetBuffer(), 1, &copy); }
 
+        // --- 1. Upload Vulkan Instances ---
+        VkDeviceSize instSize = instances.size() * sizeof(VkAccelerationStructureInstanceKHR);
+        Buffer instStaging(instSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        instStaging.UploadData(instances.data(), instSize);
+        auto asInstanceBuffer = std::make_unique<Buffer>(instSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        { ScopedCommandBuffer cmd; VkBufferCopy copy{ 0, 0, instSize }; vkCmdCopyBuffer(cmd, (VkBuffer)instStaging.GetBuffer(), (VkBuffer)asInstanceBuffer->GetBuffer(), 1, &copy); }
+
+        // --- 2. Upload Custom RTInstanceData ---
+        VkDeviceSize rtInstSize = rtInstanceData.size() * sizeof(RTInstanceData);
+        Buffer rtStaging(rtInstSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        rtStaging.UploadData(rtInstanceData.data(), rtInstSize);
+        m_InstanceDataBuffer = std::make_unique<Buffer>(rtInstSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        { ScopedCommandBuffer cmd; VkBufferCopy copy{ 0, 0, rtInstSize }; vkCmdCopyBuffer(cmd, (VkBuffer)rtStaging.GetBuffer(), (VkBuffer)m_InstanceDataBuffer->GetBuffer(), 1, &copy); }
+
+        // --- 3. Build TLAS ---
         VkAccelerationStructureBuildGeometryInfoKHR buildInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
         VkAccelerationStructureGeometryKHR geom{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
         geom.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
         geom.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-        geom.geometry.instances.data.deviceAddress = instanceBuffer->GetDeviceAddress();
-        buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR; buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR; buildInfo.geometryCount = 1; buildInfo.pGeometries = &geom; buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        geom.geometry.instances.data.deviceAddress = asInstanceBuffer->GetDeviceAddress();
+        buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR; 
+        buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR; 
+        buildInfo.geometryCount = 1; 
+        buildInfo.pGeometries = &geom; 
+        buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 
         uint32_t count = (uint32_t)instances.size();
         VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
         vkGetASBuildSizes(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &count, &sizeInfo);
+        
         m_TLASBuffer = std::make_unique<Buffer>(sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        
         VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
-        createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR; createInfo.buffer = (VkBuffer)m_TLASBuffer->GetBuffer(); createInfo.size = sizeInfo.accelerationStructureSize;
+        createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR; 
+        createInfo.buffer = (VkBuffer)m_TLASBuffer->GetBuffer(); 
+        createInfo.size = sizeInfo.accelerationStructureSize;
         vkCreateAS(device, &createInfo, nullptr, &m_TopLevelAS);
+        
         Buffer scratch(sizeInfo.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        buildInfo.dstAccelerationStructure = m_TopLevelAS; buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
-        VkAccelerationStructureBuildRangeInfoKHR rangeInfo{ (uint32_t)instances.size(), 0, 0, 0 };
+        buildInfo.dstAccelerationStructure = m_TopLevelAS; 
+        buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
+        
+        VkAccelerationStructureBuildRangeInfoKHR rangeInfo{ count, 0, 0, 0 };
         const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
         { ScopedCommandBuffer cmd; vkCmdBuildAS(cmd, 1, &buildInfo, &pRange); }
-        m_InstanceDataBuffer = std::move(instanceBuffer);
     }
 
     void Scene::RenderMeshes(GraphicsExecutionContext& ctx)

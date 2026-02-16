@@ -55,6 +55,7 @@ namespace Chimera
 
     private:
         size_t CalculateShaderHash(const std::vector<const Shader*>& shaders);
+        static VkShaderModule CreateShaderModule(VkDevice device, const std::vector<uint32_t>& code);
 
     private:
         static PipelineManager* s_Instance;

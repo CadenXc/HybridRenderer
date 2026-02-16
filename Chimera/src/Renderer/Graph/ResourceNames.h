@@ -23,14 +23,16 @@ namespace Chimera
 
         // --- 光追与中间件 ---
         inline static const std::string RTOutput      = "RTOutput";
-        inline static const std::string ShadowAO      = "ShadowAO";
+        inline static const std::string CurColor      = "CurColor"; // Changed from ShadowAO
         inline static const std::string Reflections   = "Reflections";
+        inline static const std::string ReflectionRaw = "ReflectionRaw";
         
         // --- SVGF / 降噪 ---
         inline static const std::string SVGFOutput    = "SVGFOutput";
-        inline static const std::string PrevNormal    = "PrevNormal";
-        inline static const std::string PrevDepth     = "PrevDepth";
-        inline static const std::string History       = "History";
+        inline static const std::string InputColor    = "InputColor";
+        inline static const std::string InputMoments  = "InputMoments";
+        inline static const std::string HistoryColor  = "HistoryColor";
+        inline static const std::string HistoryMoments = "HistoryMoments";
         inline static const std::string Moments       = "Moments";
 
         // --- 后处理 ---
@@ -39,6 +41,7 @@ namespace Chimera
         inline static const std::string FinalColor    = "FinalColor";
 
         // Compatibility aliases
+        inline static const std::string ShadowAO      = CurColor;
         inline static const std::string FINAL_COLOR   = FinalColor;
         inline static const std::string DEPTH         = Depth;
         inline static const std::string FORWARD_COLOR = FinalColor; // Assuming Forward writes to FinalColor

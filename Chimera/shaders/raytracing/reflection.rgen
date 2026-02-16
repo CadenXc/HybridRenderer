@@ -1,0 +1,85 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
+
+layout(set = 0, binding = 0) uniform GlobalUBO 
+{
+    UniformBufferObject ubo;
+} global;
+
+layout(set = 1, binding = 0) uniform accelerationStructureEXT topLevelAS;
+layout(set = 1, binding = 3) uniform sampler2D textureArray[];
+
+layout(set = 2, binding = 0, rgba16f) uniform image2D reflectionOutput;
+layout(set = 2, binding = 1) uniform sampler2D gNormal;
+layout(set = 2, binding = 2) uniform sampler2D gDepth;
+layout(set = 2, binding = 3) uniform sampler2D gMaterial;
+layout(set = 2, binding = 4) uniform sampler2D gAlbedo;
+
+layout(push_constant) uniform PushConstants 
+{
+    int skyboxIndex;
+} pc;
+
+layout(location = 0) rayPayloadEXT HitPayload payload;
+
+const float PI = 3.14159265359;
+
+vec2 SampleEquirectangular(vec3 v) 
+{
+    vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
+    uv *= vec2(0.1591, 0.3183); 
+    uv += 0.5;
+    return uv;
+}
+
+void main() 
+{
+    const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
+    
+    float depth = texture(gDepth, inUV).r;
+    if (depth == 0.0) 
+    {
+        imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(0.0));
+        return;
+    }
+
+    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.viewProjInverse);
+    vec3 normal = normalize(texture(gNormal, inUV).xyz * 2.0 - 1.0);
+    vec4 material = texture(gMaterial, inUV);
+    vec3 albedo = texture(gAlbedo, inUV).rgb;
+    
+    // Standardized: R = Roughness, G = Metallic
+    float roughness = material.r;
+    float metallic = material.g;
+    
+    vec3 viewDir = normalize(worldPos - global.ubo.cameraPos.xyz);
+    
+    // Simple specular reflection direction
+    vec3 reflectDir = reflect(viewDir, normal);
+
+    vec3 origin = worldPos + normal * 0.001;
+    
+    payload.hit = false;
+    payload.color = vec3(0.0);
+
+    traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, 0.001, reflectDir, 10000.0, 0);
+
+    vec3 outColor = vec3(0.0);
+    if (payload.hit) 
+    {
+        outColor = payload.color;
+    }
+    else if (pc.skyboxIndex >= 0) 
+    {
+        outColor = texture(textureArray[nonuniformEXT(pc.skyboxIndex)], SampleEquirectangular(reflectDir)).rgb;
+    } 
+    else 
+    {
+        outColor = vec3(0.02);
+    }
+
+    imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(outColor, 1.0));
+}

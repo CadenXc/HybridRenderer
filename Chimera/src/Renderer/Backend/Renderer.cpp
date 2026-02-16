@@ -135,6 +135,22 @@ namespace Chimera
     void Renderer::EndFrame()
     {
         auto& frameResource = m_FrameResources[m_CurrentFrameIndex];
+        
+        // [FIX] Final Layout Transition: COLOR_ATTACHMENT -> PRESENT_SRC
+        VkImage image = VulkanContext::Get().GetSwapChainImages()[m_CurrentImageIndex];
+        VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+        barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = 0;
+        barrier.image = image;
+        barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        
+        vkCmdPipelineBarrier(frameResource.commandBuffer, 
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
+            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
         VK_CHECK(vkEndCommandBuffer(frameResource.commandBuffer));
         m_ActiveCommandBuffer = VK_NULL_HANDLE;
         VkSemaphore waitSemaphores[] = { frameResource.imageAvailableSemaphore };

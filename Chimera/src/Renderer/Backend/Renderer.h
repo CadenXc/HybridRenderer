@@ -63,6 +63,8 @@ namespace Chimera
             return m_IsFrameInProgress;
         }
 
+        void SetComputeWaitSemaphore(VkSemaphore sem) { m_ComputeWaitSemaphore = sem; }
+
     private:
         void CreateFrameResources();
         void FreeFrameResources();
@@ -73,6 +75,7 @@ namespace Chimera
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
         std::vector<FrameResource> m_FrameResources;
         VkCommandBuffer m_ActiveCommandBuffer = VK_NULL_HANDLE;
+        VkSemaphore m_ComputeWaitSemaphore = VK_NULL_HANDLE;
 
         uint32_t m_CurrentFrameIndex = 0;
         uint32_t m_CurrentImageIndex = 0;

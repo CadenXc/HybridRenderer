@@ -91,15 +91,32 @@ namespace Chimera
     void VulkanDevice::CreateLogicalDevice(VkSurfaceKHR surface)
     {
         QueueFamilyIndices indices = FindQueueFamilies(m_PhysicalDevice, surface);
-        std::set<uint32_t> uniqueQueueFamilies = { indices.graphicsFamily.value(), indices.presentFamily.value() };
+        
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        float queuePriority = 1.0f;
+        std::set<uint32_t> uniqueQueueFamilies = { 
+            indices.graphicsFamily.value(), 
+            indices.computeFamily.value(), 
+            indices.presentFamily.value() 
+        };
+
+        float queuePriorities[] = { 1.0f, 1.0f }; // Request up to 2 queues if in same family
         for (uint32_t queueFamily : uniqueQueueFamilies)
         {
             VkDeviceQueueCreateInfo queueCreateInfo{ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
             queueCreateInfo.queueFamilyIndex = queueFamily;
-            queueCreateInfo.queueCount = 1;
-            queueCreateInfo.pQueuePriorities = &queuePriority;
+            
+            // If compute and graphics are in the same family, we try to get 2 queues for async overlap
+            uint32_t count = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &count, nullptr);
+            std::vector<VkQueueFamilyProperties> families(count);
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &count, families.data());
+            
+            uint32_t requestedCount = 1;
+            if (queueFamily == indices.graphicsFamily && queueFamily == indices.computeFamily && families[queueFamily].queueCount > 1)
+                requestedCount = 2;
+
+            queueCreateInfo.queueCount = requestedCount;
+            queueCreateInfo.pQueuePriorities = queuePriorities;
             queueCreateInfos.push_back(queueCreateInfo);
         }
 
@@ -120,55 +137,37 @@ namespace Chimera
             }
         }
 
-        // --- Feature Chain Construction ---
-        
-        // 1. Descriptor Indexing
-        VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexing{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES };
-        descriptorIndexing.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-        descriptorIndexing.runtimeDescriptorArray = VK_TRUE;
-        descriptorIndexing.descriptorBindingVariableDescriptorCount = VK_TRUE;
-        descriptorIndexing.descriptorBindingPartiallyBound = VK_TRUE;
-        descriptorIndexing.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-        descriptorIndexing.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
-        descriptorIndexing.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+        // --- Feature Chain Construction (Spec Compliant) ---
+        VkPhysicalDeviceVulkan12Features vulkan12Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+        vulkan12Features.bufferDeviceAddress = VK_TRUE;
+        vulkan12Features.descriptorIndexing = VK_TRUE;
+        vulkan12Features.scalarBlockLayout = VK_TRUE;
+        vulkan12Features.hostQueryReset = VK_TRUE;
+        vulkan12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+        vulkan12Features.runtimeDescriptorArray = VK_TRUE;
+        vulkan12Features.descriptorBindingVariableDescriptorCount = VK_TRUE;
+        vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
+        vulkan12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+        vulkan12Features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+        vulkan12Features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
 
-        // 2. Buffer Device Address
-        VkPhysicalDeviceBufferDeviceAddressFeatures bufferDeviceAddress{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES };
-        bufferDeviceAddress.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
-        bufferDeviceAddress.bufferDeviceAddress = VK_TRUE;
-        bufferDeviceAddress.pNext = &descriptorIndexing;
-
-        void* pNextChain = &bufferDeviceAddress;
-
-        // 3. Ray Tracing (Optional)
         VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+        rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
+
         VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
-        if (m_RayTracingSupported)
-        {
-            rtPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-            rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
-            rtPipelineFeatures.pNext = pNextChain;
-            
-            asFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-            asFeatures.accelerationStructure = VK_TRUE;
-            asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
-            asFeatures.pNext = &rtPipelineFeatures;
-            pNextChain = &asFeatures;
-        }
+        asFeatures.accelerationStructure = VK_TRUE;
+        asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
 
-        // 4. Scalar Layout
-        VkPhysicalDeviceScalarBlockLayoutFeatures scalarLayout{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES };
-        scalarLayout.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES;
-        scalarLayout.scalarBlockLayout = VK_TRUE;
-        scalarLayout.pNext = pNextChain;
-
-        // 5. Vulkan 1.3 Core Features (including Dynamic Rendering and Sync 2)
         VkPhysicalDeviceVulkan13Features vulkan13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-        vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         vulkan13Features.dynamicRendering = VK_TRUE;
         vulkan13Features.synchronization2 = VK_TRUE;
         vulkan13Features.shaderDemoteToHelperInvocation = VK_TRUE;
-        vulkan13Features.pNext = &scalarLayout;
+
+        // Build Chain: 13 -> 12 -> RT -> AS
+        vulkan13Features.pNext = &vulkan12Features;
+        vulkan12Features.pNext = &rtPipelineFeatures;
+        rtPipelineFeatures.pNext = &asFeatures;
+        asFeatures.pNext = nullptr;
 
         VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
         createInfo.queueCreateInfoCount = (uint32_t)queueCreateInfos.size();
@@ -183,9 +182,27 @@ namespace Chimera
             throw std::runtime_error("failed to create logical device!");
         }
 
-        vkGetDeviceQueue(m_LogicalDevice, indices.graphicsFamily.value(), 0, &m_GraphicsQueue);
-        vkGetDeviceQueue(m_LogicalDevice, indices.presentFamily.value(), 0, &m_PresentQueue);
         m_GraphicsQueueFamily = indices.graphicsFamily.value();
+        m_ComputeQueueFamily = indices.computeFamily.value();
+
+        vkGetDeviceQueue(m_LogicalDevice, m_GraphicsQueueFamily, 0, &m_GraphicsQueue);
+        
+        // If same family and multiple queues requested, take index 1 for compute
+        if (m_GraphicsQueueFamily == m_ComputeQueueFamily) {
+            uint32_t count = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &count, nullptr);
+            std::vector<VkQueueFamilyProperties> families(count);
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &count, families.data());
+            
+            if (families[m_GraphicsQueueFamily].queueCount > 1)
+                vkGetDeviceQueue(m_LogicalDevice, m_ComputeQueueFamily, 1, &m_ComputeQueue);
+            else
+                m_ComputeQueue = m_GraphicsQueue;
+        } else {
+            vkGetDeviceQueue(m_LogicalDevice, m_ComputeQueueFamily, 0, &m_ComputeQueue);
+        }
+
+        vkGetDeviceQueue(m_LogicalDevice, indices.presentFamily.value(), 0, &m_PresentQueue);
     }
 
     void VulkanDevice::CreateAllocator(VkInstance instance)
@@ -238,23 +255,35 @@ namespace Chimera
         vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
         std::vector<VkQueueFamilyProperties> families(count);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &count, families.data());
+        
         for (int i = 0; i < (int)count; ++i)
         {
             if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
             {
                 indices.graphicsFamily = i;
             }
+            
+            // Prefer a dedicated compute queue (one that doesn't have graphics bit)
+            if ((families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) && !(families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+            {
+                indices.computeFamily = i;
+            }
+
             VkBool32 presentSupport = false;
             vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
             if (presentSupport)
             {
                 indices.presentFamily = i;
             }
-            if (indices.isComplete())
-            {
+            
+            if (indices.graphicsFamily.has_value() && indices.presentFamily.has_value() && indices.computeFamily.has_value())
                 break;
-            }
         }
+
+        // If no dedicated compute queue, use the graphics one
+        if (!indices.computeFamily.has_value())
+            indices.computeFamily = indices.graphicsFamily;
+
         return indices;
     }
 

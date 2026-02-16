@@ -10,7 +10,7 @@ namespace Chimera
         HybridRenderPath(VulkanContext& context, std::shared_ptr<Scene> scene);
         virtual ~HybridRenderPath();
 
-        virtual void Render(const RenderFrameInfo& frameInfo) override;
+        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) override;
         virtual RenderPathType GetType() const override { return RenderPathType::Hybrid; }
     };
 }

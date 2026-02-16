@@ -1,0 +1,111 @@
+#version 460
+#include "ShaderCommon.h"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0) uniform GlobalUBO 
+{
+    UniformBufferObject ubo;
+} global;
+
+layout(set = 2, binding = 0) uniform sampler2D curColor;    // FinalColor (HDR)
+layout(set = 2, binding = 1) uniform sampler2D historyColor; // TAA History (HDR)
+layout(set = 2, binding = 2) uniform sampler2D gMotion;
+layout(set = 2, binding = 3) uniform sampler2D gDepth;
+layout(set = 2, binding = 4) uniform sampler2D gBloom;      // BloomBlurV (HDR)
+
+layout(set = 2, binding = 5, rgba16f) uniform image2D outColor; // Final Output (SDR)
+
+// --- Helper Functions ---
+vec3 RGBToYCoCg(vec3 rgb) 
+{
+    float y  =  0.25 * rgb.r + 0.5 * rgb.g + 0.25 * rgb.b;
+    float co =  0.5  * rgb.r - 0.5 * rgb.b;
+    float cg = -0.25 * rgb.r + 0.5 * rgb.g - 0.25 * rgb.b;
+    return vec3(y, co, cg);
+}
+
+vec3 YCoCgToRGB(vec3 ycocg) 
+{
+    float r = ycocg.x + ycocg.y - ycocg.z;
+    float g = ycocg.x + ycocg.z;
+    float b = ycocg.x - ycocg.y - ycocg.z;
+    return vec3(r, g, b);
+}
+
+vec3 ACESToneMapping(vec3 x) 
+{
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+void main() 
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= global.ubo.displaySize.x || pixel.y >= global.ubo.displaySize.y) 
+    {
+        return;
+    }
+
+    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displaySize;
+    vec3 currentRGB = texture(curColor, uv).rgb;
+    
+    // 1. TAA Disable Check
+    if ((global.ubo.renderFlags & 2) == 0) 
+    {
+        // Even if TAA is off, we still need to add Bloom and ToneMap
+        vec3 bloom = texture(gBloom, uv).rgb;
+        vec3 result = currentRGB + bloom * global.ubo.bloomStrength;
+        result *= global.ubo.exposure;
+        result = ACESToneMapping(result);
+        imageStore(outColor, pixel, vec4(pow(result, vec3(1.0/2.2)), 1.0));
+        return;
+    }
+
+    // 2. TAA Logic
+    vec2 motion = texture(gMotion, uv).xy;
+    vec2 prevUV = uv - motion;
+
+    // Variance Clamping in YCoCg space
+    vec3 currentYCoCg = RGBToYCoCg(currentRGB);
+    vec3 m1 = vec3(0.0);
+    vec3 m2 = vec3(0.0);
+    
+    for (int x = -1; x <= 1; ++x) 
+    {
+        for (int y = -1; y <= 1; ++y) 
+        {
+            vec3 c = RGBToYCoCg(texture(curColor, uv + vec2(x, y) * global.ubo.displaySizeInverse).rgb);
+            m1 += c;
+            m2 += c * c;
+        }
+    }
+    
+    vec3 mu = m1 / 9.0;
+    vec3 sigma = sqrt(max(vec3(0.0), m2 / 9.0 - mu * mu));
+    vec3 boxMin = mu - 1.25 * sigma;
+    vec3 boxMax = mu + 1.25 * sigma;
+
+    vec3 historyRGB = texture(historyColor, prevUV).rgb;
+    vec3 historyYCoCg = RGBToYCoCg(historyRGB);
+    historyYCoCg = clamp(historyYCoCg, boxMin, boxMax);
+
+    float alpha = (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) ? 1.0 : 0.05;
+    vec3 resolvedYCoCg = mix(historyYCoCg, currentYCoCg, alpha);
+    vec3 resolvedRGB = YCoCgToRGB(resolvedYCoCg);
+
+    // 3. Add Bloom (in linear HDR space)
+    vec3 bloom = texture(gBloom, uv).rgb;
+    vec3 finalHDR = resolvedRGB + bloom * global.ubo.bloomStrength;
+
+    // 4. Final Tone Mapping (Keep in linear space, FinalBlit handles SRGB)
+    finalHDR *= global.ubo.exposure;
+    vec3 finalSDR = ACESToneMapping(finalHDR);
+    // [FIX] DO NOT pow(1/2.2) here because the Swapchain is already _SRGB!
+
+    imageStore(outColor, pixel, vec4(finalSDR, 1.0));
+}

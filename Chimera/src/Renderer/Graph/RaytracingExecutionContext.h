@@ -1,31 +1,32 @@
 #pragma once
-#include "volk.h"
+#include "Renderer/Graph/RenderGraphCommon.h"
 
 namespace Chimera
 {
     class RaytracingExecutionContext
     {
     public:
-        RaytracingExecutionContext(VkCommandBuffer cmd, class VulkanContext& ctx, struct RaytracingPipeline& pipe) 
-            : m_Cmd(cmd), m_Context(ctx), m_Pipe(pipe)
+        RaytracingExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd);
+        
+        void BindPipeline(const struct RaytracingPipelineDescription& desc);
+        void TraceRays(uint32_t width, uint32_t height, uint32_t depth = 1);
+        
+        template<typename T>
+        void PushConstants(VkShaderStageFlags stages, const T& data)
         {
+            if (m_ActiveLayout != VK_NULL_HANDLE)
+            {
+                vkCmdPushConstants(m_Cmd, m_ActiveLayout, VK_SHADER_STAGE_ALL, 0, sizeof(T), &data);
+            }
         }
-            
-        void Dispatch(uint32_t w, uint32_t h, uint32_t d);
 
-        VkCommandBuffer GetCommandBuffer() const
-        {
-            return m_Cmd;
-        }
-
-        struct RaytracingPipeline& GetPipeline()
-        {
-            return m_Pipe;
-        }
+        RenderGraph& GetGraph() { return m_Graph; }
+        VkCommandBuffer GetCommandBuffer() { return m_Cmd; }
 
     private:
+        RenderGraph& m_Graph;
+        struct RenderPass& m_Pass;
         VkCommandBuffer m_Cmd;
-        class VulkanContext& m_Context;
-        struct RaytracingPipeline& m_Pipe;
+        VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE;
     };
 }

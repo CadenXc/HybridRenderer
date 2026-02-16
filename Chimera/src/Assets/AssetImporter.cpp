@@ -29,7 +29,7 @@ namespace Chimera
 
         // 1. Load Materials
         std::unordered_map<cgltf_image*, TextureHandle> textureCache;
-        auto LoadTex = [&](cgltf_texture* tex)
+        auto LoadTex = [&](cgltf_texture* tex, bool srgb)
         {
             if (!tex || !tex->image || !tex->image->uri)
             {
@@ -46,7 +46,7 @@ namespace Chimera
             std::replace(relativeUri.begin(), relativeUri.end(), '\\', '/');
             
             std::string texPath = baseDir + relativeUri;
-            TextureHandle h = resourceManager->LoadTexture(texPath);
+            TextureHandle h = resourceManager->LoadTexture(texPath, srgb);
             textureCache[tex->image] = h;
             return h;
         };
@@ -70,14 +70,14 @@ namespace Chimera
                 mat.metallic = pbr.metallic_factor;
                 mat.roughness = pbr.roughness_factor;
                 
-                auto h = LoadTex(pbr.base_color_texture.texture);
+                auto h = LoadTex(pbr.base_color_texture.texture, true);
                 mat.albedoTex = h.IsValid() ? (int)h.id : -1;
                 
-                auto hm = LoadTex(pbr.metallic_roughness_texture.texture);
+                auto hm = LoadTex(pbr.metallic_roughness_texture.texture, false);
                 mat.metalRoughTex = hm.IsValid() ? (int)hm.id : -1;
             }
             
-            auto hn = LoadTex(gMat.normal_texture.texture);
+            auto hn = LoadTex(gMat.normal_texture.texture, false);
             mat.normalTex = hn.IsValid() ? (int)hn.id : -1;
             
             mat.emission = glm::vec4(glm::make_vec3(gMat.emissive_factor), 1.0f);

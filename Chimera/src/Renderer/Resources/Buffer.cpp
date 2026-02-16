@@ -51,6 +51,7 @@ namespace Chimera {
 			deviceAddressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
 			deviceAddressInfo.buffer = m_Buffer;
 			m_DeviceAddress = vkGetBufferDeviceAddress(VulkanContext::Get().GetDevice(), &deviceAddressInfo);
+            CH_CORE_TRACE("Buffer: Created with Device Address [0x{:x}], size: {}", m_DeviceAddress, m_Size);
 		}
 	}
 
@@ -58,6 +59,10 @@ namespace Chimera {
 	{
 		if (m_Buffer != VK_NULL_HANDLE && m_Allocator != nullptr)
 		{
+            if (m_DeviceAddress != 0)
+            {
+                CH_CORE_TRACE("Buffer: Destroying with Device Address [0x{:x}]", m_DeviceAddress);
+            }
 			vmaDestroyBuffer(m_Allocator, m_Buffer, m_Allocation);
 		}
 	}

@@ -1,17 +1,17 @@
 #include "pch.h"
 #include "Application.h"
 #include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Backend/Renderer.h"
+#include "Renderer/RenderState.h"
 #include "Renderer/Resources/ResourceManager.h"
 #include "Renderer/Backend/PipelineManager.h"
-#include "Renderer/Backend/RenderContext.h"
-#include "Renderer/RenderState.h"
-#include "Renderer/Backend/Renderer.h"
-#include "Renderer/Pipelines/RenderPathFactory.h"
+#include "Renderer/Backend/ShaderManager.h"
+#include "Renderer/Pipelines/RenderPath.h"
 #include "Core/ImGuiLayer.h"
 #include "Scene/Scene.h"
+#include "Scene/EditorCamera.h"
 #include "Core/Input.h"
-#include "Core/EngineConfig.h"
-#include <GLFW/glfw3.h>
+#include <imgui.h>
 
 namespace Chimera
 {
@@ -21,171 +21,152 @@ namespace Chimera
         : m_Specification(spec)
     {
         s_Instance = this;
-        Config::Init();
 
         CH_CORE_INFO("Application: Booting engine...");
 
-        // 1. Foundation
         m_Window = Window::Create(WindowProps(spec.Name, spec.Width, spec.Height));
-        m_Window->SetEventCallback(BIND_EVENT_FN(Application::OnEvent));
+        m_Window->SetEventCallback([this](Event& e) { OnEvent(e); });
 
-        // 2. Vulkan Core & Singletons
         m_Context = std::make_shared<VulkanContext>(m_Window->GetNativeWindow());
-        
+        m_Renderer = std::make_unique<Renderer>();
         m_ResourceManager = std::make_unique<ResourceManager>();
-        m_ResourceManager->InitGlobalResources();
+        m_ResourceManager->InitGlobalResources(); // [FIX] Initialize pools and basic resources
         
         m_PipelineManager = std::make_unique<PipelineManager>();
-        
         m_RenderState = std::make_unique<RenderState>();
         
-        // 3. Rendering Frontend
-        m_Renderer = std::make_unique<Renderer>();
-        
-        // 4. UI & High-level Systems
         m_ImGuiLayer = std::make_shared<ImGuiLayer>(m_Context);
-
-        PushOverlay(m_ImGuiLayer);
+        PushLayer(m_ImGuiLayer);
     }
 
     Application::~Application()
     {
         CH_CORE_INFO("Application: Shutting down...");
-        
-        if (m_Context) {
-            vkDeviceWaitIdle(m_Context->GetDevice());
-        }
+        if (m_Context) vkDeviceWaitIdle(m_Context->GetDevice());
 
-        // 1. NOTIFY AND CLEAR LAYERS - Must call OnDetach explicitly!
-        for (auto& layer : m_LayerStack) {
-            CH_CORE_TRACE("Application: Detaching layer '{0}'", layer->GetName());
-            layer->OnDetach();
-        }
-        
-        m_ImGuiLayer.reset();
-        m_LayerStack.clear(); 
-        
-        CH_CORE_INFO("Application: Layers cleared.");
+        m_LayerStack.clear();
 
-        // 3. Destroy Renderer (Critical for CommandBuffers/Semaphores)
-        m_Renderer.reset();
-
-        // 4. Destroy Managers
+        m_RenderPath.reset();
+        m_RenderState.reset();
         m_PipelineManager.reset();
         m_ResourceManager.reset();
-        m_RenderState.reset();
-
-        // 5. Finally destroy Context (VkDevice)
+        m_Renderer.reset();
         m_Context.reset();
-        
-        CH_CORE_INFO("Application: Shutdown complete.");
     }
 
     void Application::Run()
     {
         while (m_Running)
         {
+            // Process queued events
+            {
+                std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
+                while (!m_EventQueue.empty())
+                {
+                    auto& func = m_EventQueue.front();
+                    if (func) func();
+                    m_EventQueue.pop_front();
+                }
+            }
+
             float time = (float)glfwGetTime();
-            Timestep timestep = time - m_LastFrameTime;
+            float deltaTime = time - m_LastFrameTime;
             m_LastFrameTime = time;
 
             if (!m_Minimized)
             {
-                ProcessEventQueue();
-                DrawFrame(timestep);
+                // 2. Rendering
+                VkCommandBuffer cmd = m_Renderer->BeginFrame();
+                if (cmd != VK_NULL_HANDLE)
+                {
+                    uint32_t frameIndex = m_Renderer->GetCurrentFrameIndex();
+
+                    // 1. Logic Update (Now within BeginFrame/EndFrame so IsFrameInProgress is true)
+                    for (auto& layer : m_LayerStack)
+                    {
+                        layer->OnUpdate(deltaTime);
+                    }
+                    
+                    // Sync UBO
+                    UpdateGlobalUBO(frameIndex);
+
+                    // UI Overlay
+                    m_ImGuiLayer->Begin();
+                    for (auto& layer : m_LayerStack)
+                    {
+                        layer->OnImGuiRender();
+                    }
+                    m_ImGuiLayer->End(cmd);
+
+                    m_Renderer->EndFrame();
+                    m_TotalFrameCount++;
+                }
             }
 
             m_Window->OnUpdate();
         }
     }
 
-    void Application::DrawFrame(Timestep ts)
+    void Application::OnEvent(Event& e)
     {
-        uint32_t frameIndex = m_TotalFrameCount % MAX_FRAMES_IN_FLIGHT;
+        EventDispatcher dispatcher(e);
+        dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent& ev) { return OnWindowClose(ev); });
+        dispatcher.Dispatch<WindowResizeEvent>([this](WindowResizeEvent& ev) { return OnWindowResize(ev); });
 
-        // 1. Begin Frame FIRST - This waits for the GPU fence
-        VkCommandBuffer cmd = m_Renderer->BeginFrame();
-        if (cmd == VK_NULL_HANDLE)
+        for (auto it = m_LayerStack.rbegin(); it != m_LayerStack.rend(); ++it)
         {
-            return;
+            if (e.Handled) break;
+            (*it)->OnEvent(e);
         }
-
-        // 2. Update Global State AFTER waiting for GPU
-        UpdateGlobalUBO(frameIndex);
-
-        // 3. Update Layers
-        for (auto& layer : m_LayerStack)
-        {
-            layer->OnUpdate(ts);
-        }
-
-        // 4. Render UI
-        m_ImGuiLayer->Begin();
-        for (auto& layer : m_LayerStack)
-        {
-            layer->OnImGuiRender();
-        }
-        m_ImGuiLayer->End(cmd);
-
-        // 5. Submit
-        m_Renderer->EndFrame();
-        
-        m_TotalFrameCount++;
     }
 
     void Application::UpdateGlobalUBO(uint32_t frameIndex)
     {
         UniformBufferObject ubo{};
         
-        // Safety: Ensure we have a valid camera view
-        if (glm::length(m_FrameContext.View[0]) < 0.001f) {
-            m_FrameContext.View = glm::mat4(1.0f);
-            m_FrameContext.Projection = glm::perspective(glm::radians(45.0f), 1.77f, 0.1f, 1000.0f);
-        }
-
         ubo.view = m_FrameContext.View;
         ubo.proj = m_FrameContext.Projection;
+        ubo.cameraPos = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
         ubo.viewInverse = glm::inverse(ubo.view);
         ubo.projInverse = glm::inverse(ubo.proj);
-        ubo.viewProjInverse = ubo.viewInverse * ubo.projInverse;
-        ubo.cameraPos = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
+        ubo.viewProjInverse = glm::inverse(ubo.proj * ubo.view);
         
         ubo.prevView = m_PrevView;
         ubo.prevProj = m_PrevProj;
-        
-        ubo.displaySize = { (float)m_Specification.Width, (float)m_Specification.Height };
-        ubo.displaySizeInverse = { 1.0f / ubo.displaySize.x, 1.0f / ubo.displaySize.y };
+
+        ubo.directionalLight.direction = glm::vec4(glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f)), 0.0f);
+        ubo.directionalLight.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        ubo.directionalLight.intensity = glm::vec4(3.0f);
+
+        ubo.displaySize = m_FrameContext.ViewportSize;
+        ubo.displaySizeInverse = 1.0f / ubo.displaySize;
         ubo.frameIndex = frameIndex;
         ubo.frameCount = m_TotalFrameCount;
         
-        ResourceManager::Get().UpdateFrameIndex(frameIndex);
-        
-        if (m_ActiveScene)
-        {
-            ResourceManager::Get().UpdateSceneDescriptorSet(m_ActiveScene, frameIndex);
-            ubo.directionalLight = m_ActiveScene->GetLight();
-        }
+        ubo.displayMode = m_FrameContext.DisplayMode;
+        ubo.renderFlags = m_FrameContext.RenderFlags;
+        ubo.exposure = m_FrameContext.Exposure;
+        ubo.ambientStrength = m_FrameContext.AmbientStrength;
+        ubo.bloomStrength = m_FrameContext.BloomStrength;
 
+        ubo.svgfAlphaColor = m_FrameContext.SVGFAlphaColor;
+        ubo.svgfAlphaMoments = m_FrameContext.SVGFAlphaMoments;
+        ubo.svgfPhiColor = m_FrameContext.SVGFPhiColor;
+        ubo.svgfPhiNormal = m_FrameContext.SVGFPhiNormal;
+        ubo.svgfPhiDepth = m_FrameContext.SVGFPhiDepth;
+        ubo.lightRadius = m_FrameContext.LightRadius;
+
+        m_ResourceManager->UpdateFrameIndex(frameIndex);
         m_RenderState->Update(frameIndex, ubo);
 
         m_PrevView = ubo.view;
         m_PrevProj = ubo.proj;
     }
 
-    void Application::OnEvent(Event& e)
+    bool Application::OnWindowClose(WindowCloseEvent& e)
     {
-        EventDispatcher dispatcher(e);
-        dispatcher.Dispatch<WindowCloseEvent>(BIND_EVENT_FN(Application::OnWindowClose));
-        dispatcher.Dispatch<WindowResizeEvent>(BIND_EVENT_FN(Application::OnWindowResize));
-
-        for (auto it = m_LayerStack.rbegin(); it != m_LayerStack.rend(); ++it)
-        {
-            if (e.Handled)
-            {
-                break;
-            }
-            (*it)->OnEvent(e);
-        }
+        m_Running = false;
+        return true;
     }
 
     bool Application::OnWindowResize(WindowResizeEvent& e)
@@ -200,53 +181,33 @@ namespace Chimera
         m_Specification.Width = e.GetWidth();
         m_Specification.Height = e.GetHeight();
 
-        QueueEvent([this, w = e.GetWidth(), h = e.GetHeight()]()
-        {
-            vkDeviceWaitIdle(m_Context->GetDevice());
-            m_Context->RecreateSwapChain();
-        });
-
+        m_Renderer->OnResize(e.GetWidth(), e.GetHeight());
         return false;
     }
 
-    void Application::ProcessEventQueue()
+    void Application::PushLayer(std::shared_ptr<Layer> layer)
     {
-        std::lock_guard<std::mutex> lock(m_EventQueueMutex);
-        if (!m_EventQueue.empty()) {
-            CH_CORE_TRACE("Application: Processing {0} events in queue...", m_EventQueue.size());
-        }
-        
-        while (!m_EventQueue.empty())
+        m_LayerStack.emplace_back(layer);
+        layer->OnAttach();
+    }
+
+    void Application::SwitchRenderPath(std::unique_ptr<RenderPath> path)
+    {
+        if (m_Context) vkDeviceWaitIdle(m_Context->GetDevice());
+        m_RenderPath = std::move(path);
+        if (m_RenderPath)
         {
-            auto func = std::move(m_EventQueue.front());
-            m_EventQueue.pop_front();
-            
-            CH_CORE_TRACE("Application: Executing event task...");
-            func();
-            CH_CORE_TRACE("Application: Event task finished.");
+            m_RenderPath->SetViewportSize(m_Specification.Width, m_Specification.Height);
         }
     }
 
-    void Application::Close() 
-    { 
-        m_Running = false; 
+    void Application::Close()
+    {
+        m_Running = false;
     }
 
-    void Application::PushLayer(std::shared_ptr<Layer> layer) 
-    { 
-        m_LayerStack.emplace(m_LayerStack.begin() + m_LayerIndex, layer); 
-        m_LayerIndex++; 
-        layer->OnAttach(); 
+    uint32_t Application::GetCurrentImageIndex() const
+    {
+        return m_Renderer->GetCurrentImageIndex();
     }
-
-    void Application::PushOverlay(std::shared_ptr<Layer> layer) 
-    { 
-        m_LayerStack.emplace_back(layer); 
-        layer->OnAttach(); 
-    }
-
-    VkCommandBuffer Application::GetCommandBuffer(bool begin) { return m_Renderer->BeginFrame(); }
-    void Application::FlushCommandBuffer(VkCommandBuffer cmd) { m_Renderer->EndFrame(); }
-    uint32_t Application::GetCurrentImageIndex() const { return m_Renderer->GetCurrentImageIndex(); }
-    bool Application::OnWindowClose(WindowCloseEvent& e) { m_Running = false; return true; }
 }

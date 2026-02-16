@@ -7,7 +7,6 @@
 
 #include "ShaderCommon.h"
 
-// [FIX] 确保引用的是头文件里定义的 Vertex
 layout(buffer_reference, scalar) readonly buffer Vertices { Vertex v[]; };
 layout(buffer_reference, scalar) readonly buffer Indices { uint i[]; };
 
@@ -39,12 +38,31 @@ void main()
     const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
     vec2 uv = v0.texCoord * barycentrics.x + v1.texCoord * barycentrics.y + v2.texCoord * barycentrics.z;
 
+    // 1. Albedo
     vec3 color = mat.albedo.rgb;
     if (mat.albedoTex >= 0) {
         color *= texture(textureArray[nonuniformEXT(mat.albedoTex)], uv).rgb;
     }
     
+    // 2. Normal Mapping (Simplified)
+    vec3 N = normalize(v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z);
+    if (mat.normalTex >= 0) {
+        vec4 T_quat = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
+        vec3 tangent = normalize(T_quat.xyz);
+        vec3 bitangent = normalize(cross(N, tangent) * T_quat.w);
+        mat3 TBN = mat3(tangent, bitangent, N);
+        vec3 mappedNormal = texture(textureArray[nonuniformEXT(mat.normalTex)], uv).rgb * 2.0 - 1.0;
+        N = normalize(TBN * mappedNormal);
+    }
+
+    // 3. Roughness (for payload)
+    float roughness = mat.roughness;
+    if (mat.metalRoughTex >= 0) {
+        roughness *= texture(textureArray[nonuniformEXT(mat.metalRoughTex)], uv).g;
+    }
+    
     payload.color = color;
-    payload.normal = normalize(v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z);
+    payload.normal = N;
     payload.distance = gl_HitTEXT;
+    payload.roughness = roughness;
 }
