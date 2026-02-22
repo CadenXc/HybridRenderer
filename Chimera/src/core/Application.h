@@ -59,7 +59,7 @@ namespace Chimera
 
         void Run();
         void OnEvent(Event& e);
-        
+
         void PushLayer(std::shared_ptr<Layer> layer);
         void PushOverlay(std::shared_ptr<Layer> layer);
 
@@ -81,21 +81,57 @@ namespace Chimera
         void Close();
 
         // --- Getters ---
-        Window& GetWindow() { return *m_Window; }
-        std::shared_ptr<VulkanContext> GetContext() { return m_Context; }
-        Renderer* GetRenderer() { return m_Renderer.get(); }
-        RenderState* GetRenderState() { return m_RenderState.get(); }
-        ResourceManager* GetResourceManager() { return m_ResourceManager.get(); }
-        std::shared_ptr<ImGuiLayer> GetImGuiLayer() { return m_ImGuiLayer; }
-        class RenderPath* GetActiveRenderPath() { return m_RenderPath.get(); }
+        Window& GetWindow()
+        {
+            return *m_Window;
+        }
+        std::shared_ptr<VulkanContext> GetContext()
+        {
+            return m_Context;
+        }
+        Renderer* GetRenderer()
+        {
+            return m_Renderer.get();
+        }
+        RenderState* GetRenderState()
+        {
+            return m_RenderState.get();
+        }
+        ResourceManager* GetResourceManager()
+        {
+            return m_ResourceManager.get();
+        }
+        std::shared_ptr<ImGuiLayer> GetImGuiLayer()
+        {
+            return m_ImGuiLayer;
+        }
+        class RenderPath* GetActiveRenderPath()
+        {
+            return m_RenderPath.get();
+        }
 
         uint32_t GetCurrentImageIndex() const;
-        uint32_t GetTotalFrameCount() const { return m_TotalFrameCount; }
+        uint32_t GetTotalFrameCount() const
+        {
+            return m_TotalFrameCount;
+        }
 
-        void SetFrameContext(const AppFrameContext& ctx) { m_FrameContext = ctx; }
-        void SetActiveScene(Scene* scene) { m_ActiveScene = scene; }
-        float GetDepthScale() const { return m_DepthScale; }
-        void SetDepthScale(float scale) { m_DepthScale = scale; }
+        void SetFrameContext(const AppFrameContext& ctx)
+        {
+            m_FrameContext = ctx;
+        }
+        void SetActiveScene(Scene* scene)
+        {
+            m_ActiveScene = scene;
+        }
+        float GetDepthScale() const
+        {
+            return m_DepthScale;
+        }
+        void SetDepthScale(float scale)
+        {
+            m_DepthScale = scale;
+        }
 
         void SwitchRenderPath(std::unique_ptr<class RenderPath> path);
 
@@ -109,33 +145,33 @@ namespace Chimera
         void FlushCommandBuffer(VkCommandBuffer cmd);
 
     private:
-        void DrawFrame(Timestep ts); 
+        void DrawFrame(Timestep ts);
         void ProcessEventQueue();
         void UpdateGlobalUBO(uint32_t frameIndex);
-        
+
         bool OnWindowClose(WindowCloseEvent& e);
         bool OnWindowResize(WindowResizeEvent& e);
 
     private:
         static Application* s_Instance;
         ApplicationSpecification m_Specification;
-        
+
         std::unique_ptr<Window> m_Window;
         std::shared_ptr<VulkanContext> m_Context;
-        
+
         std::unique_ptr<ResourceManager> m_ResourceManager;
         std::unique_ptr<PipelineManager> m_PipelineManager;
         std::unique_ptr<RenderState> m_RenderState;
         std::unique_ptr<Renderer> m_Renderer;
         std::unique_ptr<class RenderPath> m_RenderPath;
-        
+
         std::shared_ptr<ImGuiLayer> m_ImGuiLayer;
-        
+
         std::vector<std::shared_ptr<Layer>> m_LayerStack;
         unsigned int m_LayerIndex = 0;
         AppFrameContext m_FrameContext;
         Scene* m_ActiveScene = nullptr;
-        
+
         std::deque<std::function<void()>> m_EventQueue;
         std::mutex m_EventQueueMutex;
 

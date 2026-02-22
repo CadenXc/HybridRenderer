@@ -91,7 +91,7 @@ namespace Chimera
             vkDestroyImageView(m_Device, imageView, nullptr);
         }
         m_SwapChainImageViews.clear();
-        
+
         // Note: m_SwapChain is now handled by oldSwapchain in Create() or destructor
     }
 

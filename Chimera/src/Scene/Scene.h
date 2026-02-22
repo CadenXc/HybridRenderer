@@ -67,12 +67,12 @@ namespace Chimera
             return m_Camera;
         }
 
-        DirectionalLight& GetLight()
+        LightData& GetLight()
         {
             return m_Light;
         }
 
-        const DirectionalLight& GetLight() const
+        const LightData& GetLight() const
         {
             return m_Light;
         }
@@ -96,7 +96,7 @@ namespace Chimera
         std::unique_ptr<Buffer> m_TLASBuffer;
 
         Camera m_Camera;
-        DirectionalLight m_Light;
+        LightData m_Light;
         TextureRef m_SkyboxRef;
     };
 }

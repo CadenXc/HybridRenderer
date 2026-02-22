@@ -48,24 +48,48 @@ namespace Chimera
 
     Image::~Image()
     {
-        if (m_View != VK_NULL_HANDLE) vkDestroyImageView(m_Device, m_View, nullptr);
-        if (m_Image != VK_NULL_HANDLE) vmaDestroyImage(m_Allocator, m_Image, m_Allocation);
+        if (m_View != VK_NULL_HANDLE)
+        {
+            vkDestroyImageView(m_Device, m_View, nullptr);
+        }
+        if (m_Image != VK_NULL_HANDLE)
+        {
+            vmaDestroyImage(m_Allocator, m_Image, m_Allocation);
+        }
     }
 
     Image::Image(Image&& other) noexcept
         : m_Device(other.m_Device), m_Allocator(other.m_Allocator), m_Image(other.m_Image), m_Allocation(other.m_Allocation), m_View(other.m_View), m_Width(other.m_Width), m_Height(other.m_Height), m_Format(other.m_Format), m_MipLevels(other.m_MipLevels)
     {
-        other.m_Image = VK_NULL_HANDLE; other.m_Allocation = VK_NULL_HANDLE; other.m_View = VK_NULL_HANDLE;
+        other.m_Image = VK_NULL_HANDLE;
+        other.m_Allocation = VK_NULL_HANDLE;
+        other.m_View = VK_NULL_HANDLE;
     }
 
     Image& Image::operator=(Image&& other) noexcept
     {
         if (this != &other)
         {
-            if (m_View != VK_NULL_HANDLE) vkDestroyImageView(m_Device, m_View, nullptr);
-            if (m_Image != VK_NULL_HANDLE) vmaDestroyImage(m_Allocator, m_Image, m_Allocation);
-            m_Device = other.m_Device; m_Allocator = other.m_Allocator; m_Image = other.m_Image; m_Allocation = other.m_Allocation; m_View = other.m_View; m_Width = other.m_Width; m_Height = other.m_Height; m_Format = other.m_Format; m_MipLevels = other.m_MipLevels;
-            other.m_Image = VK_NULL_HANDLE; other.m_Allocation = VK_NULL_HANDLE; other.m_View = VK_NULL_HANDLE;
+            if (m_View != VK_NULL_HANDLE)
+            {
+                vkDestroyImageView(m_Device, m_View, nullptr);
+            }
+            if (m_Image != VK_NULL_HANDLE)
+            {
+                vmaDestroyImage(m_Allocator, m_Image, m_Allocation);
+            }
+            m_Device = other.m_Device;
+            m_Allocator = other.m_Allocator;
+            m_Image = other.m_Image;
+            m_Allocation = other.m_Allocation;
+            m_View = other.m_View;
+            m_Width = other.m_Width;
+            m_Height = other.m_Height;
+            m_Format = other.m_Format;
+            m_MipLevels = other.m_MipLevels;
+            other.m_Image = VK_NULL_HANDLE;
+            other.m_Allocation = VK_NULL_HANDLE;
+            other.m_View = VK_NULL_HANDLE;
         }
         return *this;
     }

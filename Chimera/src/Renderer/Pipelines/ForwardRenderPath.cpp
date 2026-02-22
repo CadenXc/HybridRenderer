@@ -9,8 +9,8 @@
 
 namespace Chimera
 {
-    ForwardRenderPath::ForwardRenderPath(VulkanContext& context, std::shared_ptr<Scene> scene)
-        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}), scene)
+    ForwardRenderPath::ForwardRenderPath(VulkanContext& context)
+        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}))
     {
     }
 
@@ -23,26 +23,38 @@ namespace Chimera
     {
         if (m_NeedsResize)
         {
-            if (!m_Context) return VK_NULL_HANDLE;
+            if (!m_Context)
+            {
+                return VK_NULL_HANDLE;
+            }
             m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
             m_NeedsResize = false;
         }
 
-        if (!m_RenderGraph) return VK_NULL_HANDLE;
+        if (!m_RenderGraph)
+        {
+            return VK_NULL_HANDLE;
+        }
         m_RenderGraph->Reset();
 
         // 1. Main Forward Pass
-        if (m_Scene) ForwardPass::AddToGraph(*m_RenderGraph, m_Scene);
+        auto scene = GetSceneShared();
+        if (scene)
+        {
+            ForwardPass::AddToGraph(*m_RenderGraph, scene);
+        }
 
         // 2. Final Blit to swapchain
         struct FinalData { RGResourceHandle src; };
         m_RenderGraph->AddPass<FinalData>("FinalBlit",
-            [&](FinalData& data, RenderGraph::PassBuilder& builder) {
+            [&](FinalData& data, RenderGraph::PassBuilder& builder)
+            {
                 // Use FinalColor which is typically what ForwardPass writes to
                 data.src = builder.Read(RS::FinalColor);
                 builder.Write(RS::RENDER_OUTPUT);
             },
-            [=](const FinalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+            [=](const FinalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+            {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
                 ctx.DrawMeshes({ "FinalBlit", "common/fullscreen.vert", "postprocess/blit.frag", false, false }, nullptr);
             }

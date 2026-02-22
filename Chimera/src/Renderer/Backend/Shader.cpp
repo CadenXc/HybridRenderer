@@ -7,6 +7,17 @@ namespace Chimera
 {
     Shader::Shader(const std::string& path) : m_Path(path)
     {
+        // Extract filename from path
+        size_t lastSlash = path.find_last_of("/\\");
+        m_Name = (lastSlash == std::string::npos) ? path : path.substr(lastSlash + 1);
+        
+        // Remove .spv if present
+        size_t spvExt = m_Name.find(".spv");
+        if (spvExt != std::string::npos)
+        {
+            m_Name = m_Name.substr(0, spvExt);
+        }
+
         std::ifstream file(path, std::ios::ate | std::ios::binary);
         
         // [FIX] 增加安全检查，防止 bad_array_new_length 闪退
@@ -33,15 +44,23 @@ namespace Chimera
         Reflect();
     }
 
-    Shader::~Shader() {}
+    Shader::~Shader()
+    {
+    }
 
     void Shader::Reflect()
     {
-        if (m_Bytecode.empty()) return;
+        if (m_Bytecode.empty())
+        {
+            return;
+        }
 
         SpvReflectShaderModule module;
         SpvReflectResult result = spvReflectCreateShaderModule(m_Bytecode.size() * 4, m_Bytecode.data(), &module);
-        if (result != SPV_REFLECT_RESULT_SUCCESS) return;
+        if (result != SPV_REFLECT_RESULT_SUCCESS)
+        {
+            return;
+        }
         
         uint32_t count = 0;
         spvReflectEnumerateDescriptorBindings(&module, &count, nullptr);
@@ -55,8 +74,14 @@ namespace Chimera
             
             // 增强版名称清理逻辑
             std::string cleanName = rawName;
-            if (cleanName.find("rt") == 0 && cleanName.size() > 2 && isupper(cleanName[2])) cleanName = cleanName.substr(2);
-            else if (cleanName.find("g") == 0 && cleanName.size() > 1 && isupper(cleanName[1])) cleanName = cleanName.substr(1);
+            if (cleanName.find("rt") == 0 && cleanName.size() > 2 && isupper(cleanName[2]))
+            {
+                cleanName = cleanName.substr(2);
+            }
+            else if (cleanName.find("g") == 0 && cleanName.size() > 1 && isupper(cleanName[1]))
+            {
+                cleanName = cleanName.substr(1);
+            }
             
             res.name = cleanName;
             res.set = b->set;
@@ -74,7 +99,10 @@ namespace Chimera
         std::vector<ShaderResource> result;
         for (const auto& [name, res] : m_ReflectionData)
         {
-            if (res.set == setIndex) result.push_back(res);
+            if (res.set == setIndex)
+            {
+                result.push_back(res);
+            }
         }
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.binding < b.binding; });
         return result;

@@ -9,7 +9,10 @@ namespace Chimera
 {
     void RTDiffuseGIPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
     {
-        if (!scene) return;
+        if (!scene)
+        {
+            return;
+        }
 
         graph.AddPass<RTDiffuseGIData>("RTDiffuseGIPass",
             [](RTDiffuseGIData& data, RenderGraph::PassBuilder& builder) 

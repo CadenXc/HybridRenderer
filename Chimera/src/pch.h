@@ -38,7 +38,8 @@
 
 #include "Core/Log.h"
 
-namespace Chimera {
+namespace Chimera
+{
 
 	template<typename T>
 	using Scope = std::unique_ptr<T>;

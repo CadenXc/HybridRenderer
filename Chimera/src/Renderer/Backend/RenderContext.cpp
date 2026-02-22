@@ -26,7 +26,10 @@ namespace Chimera
 
     ScopedCommandBuffer::~ScopedCommandBuffer()
     {
-        if (m_CommandBuffer == VK_NULL_HANDLE) return;
+        if (m_CommandBuffer == VK_NULL_HANDLE)
+        {
+            return;
+        }
 
         vkEndCommandBuffer(m_CommandBuffer);
 

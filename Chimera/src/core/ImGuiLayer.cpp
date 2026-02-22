@@ -143,10 +143,19 @@ namespace Chimera
 
     ImTextureID ImGuiLayer::GetTextureID(VkImageView view, VkSampler sampler)
     {
-        if (view == VK_NULL_HANDLE) return (ImTextureID)0;
-        if (sampler == VK_NULL_HANDLE) sampler = ResourceManager::Get().GetDefaultSampler();
+        if (view == VK_NULL_HANDLE)
+        {
+            return (ImTextureID)0;
+        }
+        if (sampler == VK_NULL_HANDLE)
+        {
+            sampler = ResourceManager::Get().GetDefaultSampler();
+        }
         
-        if (m_TextureCache.count(view)) return m_TextureCache[view];
+        if (m_TextureCache.count(view))
+        {
+            return m_TextureCache[view];
+        }
         
         ImTextureID id = (ImTextureID)ImGui_ImplVulkan_AddTexture(sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         m_TextureCache[view] = id;

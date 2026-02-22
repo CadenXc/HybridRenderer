@@ -3,16 +3,18 @@
 #include <filesystem>
 #include <unordered_map>
 
-namespace Chimera {
+namespace Chimera
+{
 
-    class ShaderManager {
+    class ShaderManager
+    {
     public:
         static void Init(const std::string& shaderDir, const std::string& sourceDir);
-        
+
         // Returns a shader object containing bytecode and reflection data
         static std::shared_ptr<Shader> GetShader(const std::string& name);
-        
-        static bool CheckForUpdates(); 
+
+        static bool CheckForUpdates();
         static void RecompileAll();
 
     private:

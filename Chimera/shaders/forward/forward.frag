@@ -10,29 +10,33 @@ layout(location = 2) in vec3 inWorldPos;
 
 layout(location = 0) out vec4 outColor;
 
-layout(set = 0, binding = 0) uniform GlobalUBO {
+layout(set = 0, binding = 0) uniform GlobalUBO 
+{
     UniformBufferObject ubo;
 } global;
 
-layout(set = 1, binding = 1, scalar) readonly buffer MaterialBuffer { PBRMaterial m[]; } materialBuffer;
+layout(set = 1, binding = 1, scalar) readonly buffer MaterialBuffer { GpuMaterial m[]; } materialBuffer;
 layout(set = 1, binding = 3) uniform sampler2D textureArray[];
 
-layout(push_constant) uniform PushConstants {
+layout(push_constant) uniform PushConstants 
+{
     GBufferPushConstants pc;
 };
 
-void main() {
-    PBRMaterial mat = materialBuffer.m[pc.materialIndex];
+void main() 
+{
+    GpuMaterial mat = materialBuffer.m[pc.materialIndex];
     vec4 albedo = mat.albedo;
-    if (mat.albedoTex >= 0) {
+    if (mat.albedoTex >= 0) 
+    {
         albedo *= texture(textureArray[nonuniformEXT(mat.albedoTex)], inUV);
     }
 
     vec3 N = normalize(inNormal);
-    vec3 L = normalize(-global.ubo.directionalLight.direction.xyz);
+    vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
     float diff = max(dot(N, L), 0.0);
     
-    vec3 diffuse = diff * global.ubo.directionalLight.color.rgb * global.ubo.directionalLight.intensity.x;
+    vec3 diffuse = diff * global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
     vec3 ambient = vec3(0.1) * albedo.rgb;
     
     outColor = vec4(ambient + diffuse * albedo.rgb, albedo.a);

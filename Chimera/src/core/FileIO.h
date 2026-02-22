@@ -2,8 +2,10 @@
 
 #include "pch.h"
 
-namespace Chimera {
-	namespace FileIO {
+namespace Chimera
+{
+	namespace FileIO
+	{
 		/**
 		 * Read entire file into a vector of bytes
 		 * @param filename Path to the file

@@ -43,21 +43,22 @@ namespace Chimera
 
         void* Map();
         void Unmap();
-        
+
         // Both names for compatibility
         void Update(const void* data, VkDeviceSize size, VkDeviceSize offset = 0);
-        
+
         void UploadData(const void* data, VkDeviceSize size)
         {
             Update(data, size, 0);
         }
-        
+
         void Flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
 
-    	private:
-    		VmaAllocator m_Allocator = nullptr;
-    		VkBuffer m_Buffer = VK_NULL_HANDLE;
-    		VmaAllocation m_Allocation = VK_NULL_HANDLE;        VkDeviceSize m_Size = 0;
+    private:
+        VmaAllocator m_Allocator = nullptr;
+        VkBuffer m_Buffer = VK_NULL_HANDLE;
+        VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        VkDeviceSize m_Size = 0;
         uint64_t m_DeviceAddress = 0;
         void* m_MappedData = nullptr;
         bool m_PersistentlyMapped = false;

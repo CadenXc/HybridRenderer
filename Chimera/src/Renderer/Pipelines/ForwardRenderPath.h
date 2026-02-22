@@ -7,10 +7,13 @@ namespace Chimera
     class ForwardRenderPath : public RenderPath
     {
     public:
-        ForwardRenderPath(VulkanContext& context, std::shared_ptr<Scene> scene);
+        ForwardRenderPath(VulkanContext& context);
         virtual ~ForwardRenderPath();
 
         virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) override;
-        virtual RenderPathType GetType() const override { return RenderPathType::Forward; }
+        virtual RenderPathType GetType() const override
+        {
+            return RenderPathType::Forward;
+        }
     };
 }

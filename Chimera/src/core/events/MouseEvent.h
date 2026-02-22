@@ -4,7 +4,8 @@
 #include "Core/KeyCodes.h"
 #include <sstream>
 
-namespace Chimera {
+namespace Chimera
+{
 
 	class MouseMovedEvent : public Event
 	{
@@ -12,8 +13,14 @@ namespace Chimera {
 		MouseMovedEvent(float x, float y)
 			: m_MouseX(x), m_MouseY(y) {}
 
-		float GetX() const { return m_MouseX; }
-		float GetY() const { return m_MouseY; }
+		float GetX() const
+		{
+			return m_MouseX;
+		}
+		float GetY() const
+		{
+			return m_MouseY;
+		}
 
 		std::string ToString() const override
 		{
@@ -34,8 +41,14 @@ namespace Chimera {
 		MouseScrolledEvent(float xOffset, float yOffset)
 			: m_XOffset(xOffset), m_YOffset(yOffset) {}
 
-		float GetXOffset() const { return m_XOffset; }
-		float GetYOffset() const { return m_YOffset; }
+		float GetXOffset() const
+		{
+			return m_XOffset;
+		}
+		float GetYOffset() const
+		{
+			return m_YOffset;
+		}
 
 		std::string ToString() const override
 		{
@@ -53,7 +66,10 @@ namespace Chimera {
 	class MouseButtonEvent : public Event
 	{
 	public:
-		MouseButton GetMouseButton() const { return m_Button; }
+		MouseButton GetMouseButton() const
+		{
+			return m_Button;
+		}
 
 		EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput | EventCategoryMouseButton)
 	protected:

@@ -10,10 +10,10 @@ namespace Chimera
     class VulkanScreenshot
     {
     public:
-        static void SaveToPPM(VkImage sourceImage, 
-                              VkFormat sourceImageFormat, 
-                              VkExtent2D extent, 
-                              VkImageLayout currentLayout, 
+        static void SaveToPPM(VkImage sourceImage,
+                              VkFormat sourceImageFormat,
+                              VkExtent2D extent,
+                              VkImageLayout currentLayout,
                               const std::string& filename);
     };
 }

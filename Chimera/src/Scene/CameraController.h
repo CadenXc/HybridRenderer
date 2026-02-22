@@ -5,7 +5,8 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
-namespace Chimera {
+namespace Chimera
+{
 
 	class CameraController
 	{
@@ -13,7 +14,10 @@ namespace Chimera {
 		CameraController();
 
 		void OnUpdate(float ts);
-		void SetCamera(Camera* camera) { m_Camera = camera; }
+		void SetCamera(Camera* camera)
+		{
+			m_Camera = camera;
+		}
 
 		// Input callbacks (to be called from Application)
 		void OnCursorPos(double xpos, double ypos);

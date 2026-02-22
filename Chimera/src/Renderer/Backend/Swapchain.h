@@ -17,7 +17,7 @@ namespace Chimera
         ~Swapchain();
 
         void Recreate();
-        
+
         VkSwapchainKHR GetHandle() const
         {
             return m_SwapChain;

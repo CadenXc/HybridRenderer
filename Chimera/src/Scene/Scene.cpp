@@ -13,6 +13,7 @@
 
 namespace Chimera
 {
+
     Scene::Scene(std::shared_ptr<VulkanContext> context) : m_Context(context)
     {
         m_Light.direction = glm::vec4(1.0f, -1.0f, 1.0f, 0.0f);
@@ -37,7 +38,10 @@ namespace Chimera
     std::shared_ptr<Model> Scene::LoadModel(const std::string& path)
     {
         auto imported = AssetImporter::ImportScene(path, &ResourceManager::Get());
-        if (!imported) return nullptr;
+        if (!imported)
+        {
+            return nullptr;
+        }
 
         std::vector<uint32_t> globalIndices;
         for (size_t i = 0; i < imported->Materials.size(); ++i)
@@ -60,7 +64,13 @@ namespace Chimera
         return model;
     }
 
-    void Scene::LoadSkybox(const std::string& path) { m_SkyboxRef = ResourceManager::Get().LoadHDRTexture(path); }
+        void Scene::LoadSkybox(const std::string& path)
+
+        {
+
+            m_SkyboxRef = ResourceManager::Get().LoadHDRTexture(path);
+
+        }
 
     void Scene::ClearSkybox()
     {
@@ -100,7 +110,10 @@ namespace Chimera
         for (uint32_t i = 0; i < (uint32_t)m_Entities.size(); ++i)
         {
             auto& entity = m_Entities[i];
-            if (!entity.mesh.model) continue;
+            if (!entity.mesh.model)
+            {
+                continue;
+            }
             const auto& blasHandles = entity.mesh.model->GetBLASHandles();
             const auto& meshes = entity.mesh.model->GetMeshes();
             glm::mat4 trs = entity.transform.GetTransform();
@@ -130,7 +143,16 @@ namespace Chimera
             }
         }
 
-        if (instances.empty()) return;
+        if (instances.empty())
+        {
+            if (m_TopLevelAS != VK_NULL_HANDLE)
+            {
+                auto vkDestroyAS = (PFN_vkDestroyAccelerationStructureKHR)vkGetDeviceProcAddr(m_Context->GetDevice(), "vkDestroyAccelerationStructureKHR");
+                vkDestroyAS(m_Context->GetDevice(), m_TopLevelAS, nullptr);
+                m_TopLevelAS = VK_NULL_HANDLE;
+            }
+            return;
+        }
 
         // --- 1. Upload Vulkan Instances ---
         VkDeviceSize instSize = instances.size() * sizeof(VkAccelerationStructureInstanceKHR);
@@ -184,7 +206,10 @@ namespace Chimera
         VkCommandBuffer cmd = ctx.GetCommandBuffer();
         for (auto& entity : m_Entities)
         {
-            if (!entity.mesh.model) continue;
+            if (!entity.mesh.model)
+            {
+                continue;
+            }
             VkBuffer vBuf = (VkBuffer)entity.mesh.model->GetVertexBuffer()->GetBuffer();
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &vBuf, &offset);
@@ -205,5 +230,11 @@ namespace Chimera
         }
     }
 
-    void Scene::CreateDummyResources() { m_DummyBuffer = std::make_unique<Buffer>(1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY); }
+        void Scene::CreateDummyResources()
+
+        {
+
+            m_DummyBuffer = std::make_unique<Buffer>(1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+        }
 }

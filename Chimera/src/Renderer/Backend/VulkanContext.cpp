@@ -16,7 +16,7 @@ namespace Chimera
         m_Device = std::make_unique<VulkanDevice>(m_Instance->GetHandle(), m_Surface);
 
         CreateCommandPool();
-        m_DeletionQueue.Init(3); 
+        m_DeletionQueue.Init(3);
         m_Swapchain = std::make_shared<Swapchain>(GetDevice(), GetPhysicalDevice(), m_Surface, m_Window);
 
         CreateEmptyLayout();
@@ -27,7 +27,7 @@ namespace Chimera
     VulkanContext::~VulkanContext()
     {
         CH_CORE_INFO("VulkanContext: Finalizing shutdown...");
-        
+
         // [FIX 1] Flush ALL pending deletions while Device is still alive
         m_DeletionQueue.FlushAll();
 
@@ -44,15 +44,15 @@ namespace Chimera
         {
             vkDestroyCommandPool(GetDevice(), m_CommandPool, nullptr);
         }
-        
+
         // Logical device destruction happens here via unique_ptr
         m_Device.reset();
-        
+
         if (m_Surface != VK_NULL_HANDLE)
         {
             vkDestroySurfaceKHR(m_Instance->GetHandle(), m_Surface, nullptr);
         }
-        
+
         m_Instance.reset();
         s_Instance = nullptr;
         CH_CORE_INFO("VulkanContext: Device and Instance destroyed.");
@@ -112,7 +112,10 @@ namespace Chimera
 
     void VulkanContext::SetDebugName(uint64_t handle, VkObjectType type, const char* name)
     {
-        if (handle == 0 || name == nullptr) return;
+        if (handle == 0 || name == nullptr)
+        {
+            return;
+        }
         auto func = (PFN_vkSetDebugUtilsObjectNameEXT)vkGetDeviceProcAddr(GetDevice(), "vkSetDebugUtilsObjectNameEXT");
         if (func)
         {

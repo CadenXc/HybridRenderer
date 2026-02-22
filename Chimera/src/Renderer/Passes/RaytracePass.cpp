@@ -9,13 +9,18 @@ namespace Chimera
 {
     void RaytracePass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
     {
+        if (!scene || scene->GetTLAS() == VK_NULL_HANDLE) return;
+
         struct PassData { RGResourceHandle output; };
 
         graph.AddPass<PassData>("RaytracePass",
-            [&](PassData& data, RenderGraph::PassBuilder& builder) {
+            [&](PassData& data, RenderGraph::PassBuilder& builder)
+            {
+                // Raytracing usually writes to a storage image
                 data.output = builder.WriteStorage(RS::FinalColor, VK_FORMAT_R16G16B16A16_SFLOAT);
             },
-            [=](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+            [=](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+            {
                 RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
                 RaytracingPipelineDescription desc;

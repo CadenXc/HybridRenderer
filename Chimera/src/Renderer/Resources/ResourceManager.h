@@ -81,6 +81,12 @@ namespace Chimera
         const std::vector<std::unique_ptr<Image>>& GetTextures() const { return m_Textures; }
         const std::vector<std::unique_ptr<Material>>& GetMaterials() const { return m_Materials; }
 
+        // --- Scene Management [NEW] ---
+        void SetActiveScene(std::shared_ptr<class Scene> scene) { m_ActiveScene = scene; }
+        class Scene* GetActiveScene() const { return m_ActiveScene.get(); }
+        std::shared_ptr<class Scene> GetActiveSceneShared() const { return m_ActiveScene; }
+        bool HasActiveScene() const { return m_ActiveScene != nullptr; }
+
     private:
         void CreateDescriptorPool();
         void CreateTransientDescriptorPools(); // [FIX] Plural
@@ -114,6 +120,7 @@ namespace Chimera
         std::vector<std::shared_ptr<Buffer>> m_TransientBuffers[MAX_FRAMES_IN_FLIGHT];
 
         std::vector<std::vector<std::function<void()>>> m_ResourceFreeQueue;
+        std::shared_ptr<class Scene> m_ActiveScene; // [CENTRALIZED OWNERSHIP]
         uint32_t m_CurrentFrameIndex = 0;
     };
 

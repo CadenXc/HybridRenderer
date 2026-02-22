@@ -40,7 +40,9 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
 		{
 			auto editorLayer = app->GetLayer<Chimera::EditorLayer>();
 			if (editorLayer)
+			{
 				editorLayer->LoadScene(std::string(argv[1]));
+			}
 		}
 		catch (...)
 		{

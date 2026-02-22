@@ -21,8 +21,14 @@ namespace Chimera
         Renderer(const Renderer&) = delete;
         Renderer& operator=(const Renderer&) = delete;
 
-        static Renderer& Get() { return *s_Instance; }
-        static bool HasInstance() { return s_Instance != nullptr; }
+        static Renderer& Get()
+        {
+            return *s_Instance;
+        }
+        static bool HasInstance()
+        {
+            return s_Instance != nullptr;
+        }
 
         // Core rendering loop: begin frame
         // Returns command buffer for recording. Returns VK_NULL_HANDLE if swapchain is out of date
@@ -41,6 +47,7 @@ namespace Chimera
 
         // Called when window is resized
         void OnResize(uint32_t width, uint32_t height);
+        void ResetSwapchainLayouts(); // [STABILITY] Fix for path switching layout mismatches
 
         // Getters
         uint32_t GetCurrentFrameIndex() const
@@ -63,7 +70,10 @@ namespace Chimera
             return m_IsFrameInProgress;
         }
 
-        void SetComputeWaitSemaphore(VkSemaphore sem) { m_ComputeWaitSemaphore = sem; }
+        void SetComputeWaitSemaphore(VkSemaphore sem)
+        {
+            m_ComputeWaitSemaphore = sem;
+        }
 
     private:
         void CreateFrameResources();
@@ -79,7 +89,7 @@ namespace Chimera
 
         uint32_t m_CurrentFrameIndex = 0;
         uint32_t m_CurrentImageIndex = 0;
-        
+
         bool m_IsFrameInProgress = false;
         bool m_NeedResize = false;
     };

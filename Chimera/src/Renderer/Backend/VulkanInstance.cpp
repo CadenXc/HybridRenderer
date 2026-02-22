@@ -7,11 +7,11 @@ namespace Chimera
         "VK_LAYER_KHRONOS_validation"
     };
 
-    #ifdef NDEBUG
+#ifdef NDEBUG
     const bool enableValidationLayers = false;
-    #else
-    bool enableValidationLayers = true; 
-    #endif
+#else
+    bool enableValidationLayers = true;
+#endif
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity, VkDebugUtilsMessageTypeFlagsEXT messageType, const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData)
     {

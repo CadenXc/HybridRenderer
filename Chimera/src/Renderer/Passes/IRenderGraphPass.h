@@ -1,7 +1,8 @@
 #pragma once
 #include "Renderer/Graph/RenderGraph.h"
 
-namespace Chimera {
+namespace Chimera
+{
 
 	class IRenderGraphPass
 	{

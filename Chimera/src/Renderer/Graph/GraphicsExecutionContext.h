@@ -9,10 +9,10 @@ namespace Chimera
     {
     public:
         GraphicsExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd);
-        
+
         void BindPipeline(const struct GraphicsPipelineDescription& desc);
         void BindPipelineAndDescriptorSets(VkPipelineBindPoint bindPoint, VkPipeline handle, VkPipelineLayout layout, const std::vector<const Shader*>& shaders);
-        
+
         template<typename T>
         void PushConstants(VkShaderStageFlags stages, const T& constants)
         {
@@ -40,8 +40,14 @@ namespace Chimera
         void DrawMeshes(const struct GraphicsPipelineDescription& desc, class Scene* scene);
         void DispatchRays(const struct RaytracingPipelineDescription& desc);
 
-        VkCommandBuffer GetCommandBuffer() { return m_Cmd; }
-        RenderGraph& GetGraph() { return m_Graph; }
+        VkCommandBuffer GetCommandBuffer()
+        {
+            return m_Cmd;
+        }
+        RenderGraph& GetGraph()
+        {
+            return m_Graph;
+        }
 
     private:
         RenderGraph& m_Graph;

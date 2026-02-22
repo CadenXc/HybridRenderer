@@ -6,6 +6,7 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform sampler2D gFinalColor;
 
-void main() {
+void main() 
+{
     outColor = texture(gFinalColor, inUV);
 }

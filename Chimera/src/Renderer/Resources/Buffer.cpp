@@ -3,7 +3,8 @@
 #include "Core/Application.h"
 #include "Renderer/Backend/VulkanContext.h"
 
-namespace Chimera {
+namespace Chimera
+{
 
 	Buffer::Buffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
 		: m_Size(size)
@@ -16,7 +17,7 @@ namespace Chimera {
 
 		VmaAllocationCreateInfo allocInfo = {};
 		allocInfo.usage = memoryUsage;
-		
+
 		if (memoryUsage == VMA_MEMORY_USAGE_CPU_TO_GPU || memoryUsage == VMA_MEMORY_USAGE_CPU_ONLY)
 		{
 			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
@@ -41,7 +42,8 @@ namespace Chimera {
 			throw std::runtime_error("Failed to create buffer!");
 		}
 
-		if (allocationResultInfo.pMappedData) {
+		if (allocationResultInfo.pMappedData)
+		{
 			m_MappedData = allocationResultInfo.pMappedData;
 		}
 
@@ -87,7 +89,8 @@ namespace Chimera {
 	{
 		if (this != &other)
 		{
-			if (m_Buffer != VK_NULL_HANDLE && m_Allocator != nullptr) {
+			if (m_Buffer != VK_NULL_HANDLE && m_Allocator != nullptr)
+            {
 				vmaDestroyBuffer(m_Allocator, m_Buffer, m_Allocation);
 			}
 
@@ -110,14 +113,20 @@ namespace Chimera {
 
 	void* Buffer::Map()
 	{
-		if (m_MappedData) return m_MappedData;
+		if (m_MappedData)
+        {
+            return m_MappedData;
+        }
 		vmaMapMemory(m_Allocator, m_Allocation, &m_MappedData);
 		return m_MappedData;
 	}
 
 	void Buffer::Unmap()
 	{
-		if (m_PersistentlyMapped) return;
+		if (m_PersistentlyMapped)
+        {
+            return;
+        }
 		vmaUnmapMemory(m_Allocator, m_Allocation);
 		m_MappedData = nullptr;
 	}
@@ -127,20 +136,25 @@ namespace Chimera {
 		void* mapped = Map();
 		memcpy((uint8_t*)mapped + offset, data, size);
 		
-		if (!m_IsCoherent) {
+		if (!m_IsCoherent)
+        {
 			Flush(size, offset);
 		}
 	}
 
 	void Buffer::Flush(VkDeviceSize size, VkDeviceSize offset)
 	{
-		if (m_IsCoherent) return;
+		if (m_IsCoherent)
+        {
+            return;
+        }
 		vmaFlushAllocation(m_Allocator, m_Allocation, offset, size);
 	}
 
 	void Buffer::SetDebugName(const std::string& name)
 	{
-		if (VulkanContext::HasInstance()) {
+		if (VulkanContext::HasInstance())
+        {
 			VulkanContext::Get().SetDebugName((uint64_t)m_Buffer, VK_OBJECT_TYPE_BUFFER, name.c_str());
 		}
 	}

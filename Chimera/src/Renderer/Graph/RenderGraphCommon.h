@@ -84,6 +84,7 @@ namespace Chimera
     {
         std::string name;
         bool isCompute = false;
+        std::vector<std::string> shaderNames; // [NEW] Track shaders for documentation/Mermaid
         std::vector<ResourceRequest> inputs;
         std::vector<ResourceRequest> outputs;
         std::function<void(RenderGraphRegistry&, VkCommandBuffer)> executeFunc;
@@ -99,10 +100,11 @@ namespace Chimera
         float durationMS;
     };
 
-    struct PooledImage { 
-        GraphImage image; 
+    struct PooledImage
+    {
+        GraphImage image;
         ResourceState state; // [FIX] Track physical state
-        int32_t lastUsedPass; 
+        int32_t lastUsedPass;
     };
 
     class RenderGraph
@@ -124,8 +126,8 @@ namespace Chimera
         ~RenderGraph();
 
         template<typename PassData>
-        void AddPass(const std::string& name, 
-                    std::function<void(PassData&, PassBuilder&)> setup, 
+        void AddPass(const std::string& name,
+                    std::function<void(PassData&, PassBuilder&)> setup,
                     std::function<void(const PassData&, RenderGraphRegistry&, VkCommandBuffer)> execute)
         {
             auto& pass = m_PassStack.emplace_back();
@@ -137,8 +139,8 @@ namespace Chimera
         }
 
         template<typename PassData>
-        void AddComputePass(const std::string& name, 
-                           std::function<void(PassData&, PassBuilder&)> setup, 
+        void AddComputePass(const std::string& name,
+                           std::function<void(PassData&, PassBuilder&)> setup,
                            std::function<void(const PassData&, ComputeExecutionContext&)> execute);
 
         void Reset();
@@ -149,17 +151,27 @@ namespace Chimera
         void SetExternalResource(const std::string& name, VkImage image, VkImageView view, VkImageLayout layout, const struct ImageDescription& desc);
 
         RGResourceHandle GetResourceHandle(const std::string& name);
-        uint32_t GetWidth() const { return m_Width; }
-        uint32_t GetHeight() const { return m_Height; }
+        uint32_t GetWidth() const
+        {
+            return m_Width;
+        }
+        uint32_t GetHeight() const
+        {
+            return m_Height;
+        }
         bool ContainsImage(const std::string& name);
         const GraphImage& GetImage(const std::string& name) const;
-        std::vector<std::string> GetColorAttachments() const;
-        const std::vector<PassTiming>& GetLatestTimings() const { return m_LatestTimings; }
+        std::vector<std::string> GetDebuggableResources() const;
+        const std::vector<PassTiming>& GetLatestTimings() const
+        {
+            return m_LatestTimings;
+        }
         void DrawPerformanceStatistics();
         std::string ExportToMermaid() const;
 
     private:
-        struct PhysicalResource { 
+        struct PhysicalResource
+        {
             std::string name; GraphImage image; ResourceState currentState; bool isExternal = false;
             uint32_t firstPass = 0xFFFFFFFF; uint32_t lastPass = 0;
         };
@@ -171,8 +183,11 @@ namespace Chimera
         std::vector<RenderPass> m_PassStack;
         std::vector<PhysicalResource> m_Resources;
         std::unordered_map<std::string, RGResourceHandle> m_ResourceMap;
-        
-        struct HistoryResource { GraphImage image; ResourceState state; };
+
+        struct HistoryResource
+        {
+            GraphImage image; ResourceState state;
+        };
         std::unordered_map<std::string, HistoryResource> m_HistoryResources;
         std::unordered_map<VkImage, ResourceState> m_ExternalImageStates;
         std::unordered_map<VkImage, ResourceState> m_PhysicalImageStates; // [NEW] Track actual physical layout of images
@@ -188,7 +203,7 @@ namespace Chimera
         uint32_t m_PreviousPassCount = 0;
 
         std::vector<PooledImage> m_ImagePool;
-        
+
         friend class GraphicsExecutionContext;
         friend class ComputeExecutionContext;
         friend class RaytracingExecutionContext;

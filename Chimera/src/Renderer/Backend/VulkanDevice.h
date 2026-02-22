@@ -20,19 +20,40 @@ namespace Chimera
         VulkanDevice(VkInstance instance, VkSurfaceKHR surface);
         ~VulkanDevice();
 
-        VkDevice GetHandle() const { return m_LogicalDevice; }
-        VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
-        VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
-        VkQueue GetComputeQueue() const { return m_ComputeQueue; }
-        uint32_t GetGraphicsQueueFamily() const { return m_GraphicsQueueFamily; }
-        uint32_t GetComputeQueueFamily() const { return m_ComputeQueueFamily; }
-        VkQueue GetPresentQueue() const { return m_PresentQueue; }
+        VkDevice GetHandle() const
+        {
+            return m_LogicalDevice;
+        }
+        VkPhysicalDevice GetPhysicalDevice() const
+        {
+            return m_PhysicalDevice;
+        }
+        VkQueue GetGraphicsQueue() const
+        {
+            return m_GraphicsQueue;
+        }
+        VkQueue GetComputeQueue() const
+        {
+            return m_ComputeQueue;
+        }
+        uint32_t GetGraphicsQueueFamily() const
+        {
+            return m_GraphicsQueueFamily;
+        }
+        uint32_t GetComputeQueueFamily() const
+        {
+            return m_ComputeQueueFamily;
+        }
+        VkQueue GetPresentQueue() const
+        {
+            return m_PresentQueue;
+        }
 
         VmaAllocator GetAllocator() const
         {
             return m_Allocator;
         }
-        
+
         bool IsRayTracingSupported() const
         {
             return m_RayTracingSupported;
@@ -61,7 +82,7 @@ namespace Chimera
         void PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface);
         void CreateLogicalDevice(VkSurfaceKHR surface);
         void CreateAllocator(VkInstance instance);
-        
+
         int RateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface);
         bool CheckDeviceExtensionSupport(VkPhysicalDevice device);
 
@@ -70,13 +91,13 @@ namespace Chimera
         VkDevice m_LogicalDevice = VK_NULL_HANDLE;
         VkPhysicalDeviceProperties m_DeviceProperties{};
         VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RayTracingProperties{};
-        
+
         VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
         VkQueue m_ComputeQueue = VK_NULL_HANDLE;
         VkQueue m_PresentQueue = VK_NULL_HANDLE;
         uint32_t m_GraphicsQueueFamily = 0;
         uint32_t m_ComputeQueueFamily = 0;
-        
+
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         bool m_RayTracingSupported = false;
     };

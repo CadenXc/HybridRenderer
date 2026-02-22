@@ -4,12 +4,16 @@
 #include "Core/KeyCodes.h"
 #include <sstream>
 
-namespace Chimera {
+namespace Chimera
+{
 
 	class KeyEvent : public Event
 	{
 	public:
-		KeyCode GetKeyCode() const { return m_KeyCode; }
+		KeyCode GetKeyCode() const
+		{
+			return m_KeyCode;
+		}
 
 		EVENT_CLASS_CATEGORY(EventCategoryKeyboard | EventCategoryInput)
 	protected:
@@ -25,7 +29,10 @@ namespace Chimera {
 		KeyPressedEvent(KeyCode keycode, int repeatCount)
 			: KeyEvent(keycode), m_RepeatCount(repeatCount) {}
 
-		int GetRepeatCount() const { return m_RepeatCount; }
+		int GetRepeatCount() const
+		{
+			return m_RepeatCount;
+		}
 
 		std::string ToString() const override
 		{

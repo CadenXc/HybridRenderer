@@ -23,7 +23,7 @@ namespace Chimera
         VkPipelineLayout layout = VK_NULL_HANDLE;
         RaytracingPipelineDescription description;
         std::vector<const Shader*> shaders; // [NEW] 包含 Raygen, Miss, Hit
-        
+
         struct SBT { VkStridedDeviceAddressRegionKHR raygen{}, miss{}, hit{}, callable{}; } sbt;
         std::unique_ptr<class Buffer> sbt_buffer;
     };
@@ -51,7 +51,10 @@ namespace Chimera
         VkPipelineLayout GetReflectionLayout(const std::vector<const Shader*>& shaders);
         VkDescriptorSetLayout GetSet2Layout(const std::vector<const Shader*>& shaders);
 
-        static PipelineManager& Get() { return *s_Instance; }
+        static PipelineManager& Get()
+        {
+            return *s_Instance;
+        }
 
     private:
         size_t CalculateShaderHash(const std::vector<const Shader*>& shaders);
@@ -62,7 +65,7 @@ namespace Chimera
         std::unordered_map<std::string, std::unique_ptr<GraphicsPipeline>> m_GraphicsCache;
         std::unordered_map<std::string, std::unique_ptr<RaytracingPipeline>> m_RaytracingCache;
         std::unordered_map<std::string, std::unique_ptr<ComputePipeline>> m_ComputeCache;
-        
+
         std::unordered_map<size_t, VkPipelineLayout> m_LayoutCache;
         std::unordered_map<size_t, VkDescriptorSetLayout> m_Set2LayoutCache;
     };

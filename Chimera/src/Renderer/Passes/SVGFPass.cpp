@@ -16,6 +16,8 @@ namespace Chimera
             RGResourceHandle motion; 
             RGResourceHandle history; 
             RGResourceHandle historyMoments; 
+            RGResourceHandle depth; // [NEW]
+            RGResourceHandle normal; // [NEW]
             RGResourceHandle output; 
             RGResourceHandle outMoments; 
         };
@@ -25,14 +27,17 @@ namespace Chimera
         graph.AddComputePass<TemporalData>(prefix + "_Temporal",
             [&](TemporalData& data, RenderGraph::PassBuilder& builder)
             {
-                // Match temporal.comp bindings:
-                // 0: gCurColor, 1: gMotion, 2: gHistoryColor, 3: gHistoryMoments
-                // 4: outColor, 5: outMoments
                 data.cur            = builder.ReadCompute(inputName);
                 data.motion         = builder.ReadCompute(RS::Motion);
                 data.history        = builder.ReadHistory(historyBaseName);
                 data.historyMoments = builder.ReadHistory(prefix + "Moments");
+                data.depth          = builder.ReadCompute(RS::Depth); // [NEW]
+                data.normal         = builder.ReadCompute(RS::Normal); // [NEW]
                 
+                // Also need previous frame geometry for validation
+                builder.ReadHistory(RS::Depth); 
+                builder.ReadHistory(RS::Normal);
+
                 data.output         = builder.WriteStorage(prefix + "_TemporalColor",   VK_FORMAT_R16G16B16A16_SFLOAT);
                 data.outMoments     = builder.WriteStorage(temporalMomentsName, VK_FORMAT_R16G16B16A16_SFLOAT);
             },

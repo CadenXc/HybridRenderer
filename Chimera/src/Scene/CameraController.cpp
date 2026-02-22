@@ -4,7 +4,8 @@
 #include "Core/Input.h"
 #include "Core/KeyCodes.h"
 
-namespace Chimera {
+namespace Chimera
+{
 
 	CameraController::CameraController()
 	{
@@ -18,34 +19,62 @@ namespace Chimera {
 
 	void CameraController::OnUpdate(float ts)
 	{
-		if (!m_Camera) return;
+		if (!m_Camera)
+		{
+			return;
+		}
 
 		float velocity = m_MovementSpeed * ts;
-		if (Input::IsKeyDown(KeyCode::LeftShift)) velocity *= 5.0f;
+		if (Input::IsKeyDown(KeyCode::LeftShift))
+		{
+			velocity *= 5.0f;
+		}
 
 		// Calculate Right vector
 		glm::vec3 right = glm::normalize(glm::cross(m_Forward, m_Up));
 
-		if (Input::IsKeyDown(KeyCode::W)) m_Position += m_Forward * velocity;
-		if (Input::IsKeyDown(KeyCode::S)) m_Position -= m_Forward * velocity;
-		if (Input::IsKeyDown(KeyCode::A)) m_Position -= right * velocity;
-		if (Input::IsKeyDown(KeyCode::D)) m_Position += right * velocity;
-		if (Input::IsKeyDown(KeyCode::Q)) m_Position -= m_Up * velocity;
-		if (Input::IsKeyDown(KeyCode::E)) m_Position += m_Up * velocity;
+		if (Input::IsKeyDown(KeyCode::W))
+		{
+			m_Position += m_Forward * velocity;
+		}
+		if (Input::IsKeyDown(KeyCode::S))
+		{
+			m_Position -= m_Forward * velocity;
+		}
+		if (Input::IsKeyDown(KeyCode::A))
+		{
+			m_Position -= right * velocity;
+		}
+		if (Input::IsKeyDown(KeyCode::D))
+		{
+			m_Position += right * velocity;
+		}
+		if (Input::IsKeyDown(KeyCode::Q))
+		{
+			m_Position -= m_Up * velocity;
+		}
+		if (Input::IsKeyDown(KeyCode::E))
+		{
+			m_Position += m_Up * velocity;
+		}
 
 		UpdateView();
 	}
 
 	void CameraController::UpdateView()
 	{
-		if (!m_Camera) return;
+		if (!m_Camera)
+		{
+			return;
+		}
 		m_Camera->view = glm::lookAt(m_Position, m_Position + m_Forward, m_Up);
 		m_Camera->viewInverse = glm::inverse(m_Camera->view);
 	}
 
 	void CameraController::OnCursorPos(double xpos, double ypos)
 	{
-		if (!Input::IsMouseButtonDown(MouseButton::Right)) {
+		if (!Input::IsMouseButtonDown(MouseButton::Right))
+		{
 			m_FirstMouse = true;
 			return;
 		}
@@ -70,8 +99,14 @@ namespace Chimera {
 		m_Pitch += yoffset;
 
 		// Constrain pitch
-		if (m_Pitch > 89.0f) m_Pitch = 89.0f;
-		if (m_Pitch < -89.0f) m_Pitch = -89.0f;
+		if (m_Pitch > 89.0f)
+		{
+			m_Pitch = 89.0f;
+		}
+		if (m_Pitch < -89.0f)
+		{
+			m_Pitch = -89.0f;
+		}
 
 		glm::vec3 front;
 		front.x = cos(glm::radians(m_Yaw)) * cos(glm::radians(m_Pitch));
@@ -95,4 +130,3 @@ namespace Chimera {
 	{
 	}
 }
-

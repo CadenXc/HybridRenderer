@@ -6,7 +6,8 @@
 
 namespace Chimera::VulkanUtils
 {
-    VkShaderModule LoadShaderModule(const std::string& filename, VkDevice device) 
+
+    VkShaderModule LoadShaderModule(const std::string& filename, VkDevice device)
     {
         auto code = FileIO::ReadFile(filename);
         
@@ -27,7 +28,7 @@ namespace Chimera::VulkanUtils
         VkBuffer srcBuffer,
         VkBuffer dstBuffer,
         VkDeviceSize size
-    ) 
+    )
     {
         ScopedCommandBuffer cmd;
         VkBufferCopy copyRegion{};

@@ -17,8 +17,8 @@
 
 namespace Chimera
 {
-    HybridRenderPath::HybridRenderPath(VulkanContext& context, std::shared_ptr<Scene> scene)
-        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}), scene)
+    HybridRenderPath::HybridRenderPath(VulkanContext& context)
+        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}))
     {
     }
 
@@ -50,6 +50,7 @@ namespace Chimera
             return VK_NULL_HANDLE;
         }
         
+        auto scene = GetSceneShared();
         m_RenderGraph->Reset();
 
         // Inform Graph about history buffers
@@ -104,58 +105,57 @@ namespace Chimera
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, colorDesc);
         }
 
-        // [FIX 2.1] Swapchain Transition: UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL
+        // [FIX 2.1] Register Swapchain as external resource. Renderer::BeginFrame already handled transition to COLOR_ATTACHMENT.
         VkImage swapchainImage = m_Context->GetSwapChainImages()[frameInfo.imageIndex];
         VkExtent2D extent = m_Context->GetSwapChainExtent();
         
-        VulkanUtils::TransitionImage(frameInfo.commandBuffer, swapchainImage, 
-            VK_IMAGE_LAYOUT_UNDEFINED, 
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
         ImageDescription swapDesc = { extent.width, extent.height, m_Context->GetSwapChainImageFormat(), VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT };
         m_RenderGraph->SetExternalResource(RS::RENDER_OUTPUT, swapchainImage, m_Context->GetSwapchain()->GetImageViews()[frameInfo.imageIndex],
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, swapDesc);
 
         // 1. G-Buffer
-        if (m_Scene) 
+        if (scene) 
         {
-            GBufferPass::AddToGraph(*m_RenderGraph, m_Scene);
+            GBufferPass::AddToGraph(*m_RenderGraph, scene);
         }
 
+        // Ray Tracing Passes (Only if TLAS exists)
+        bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
+
         // 2. RT Shadow/AO
-        if (m_Scene) 
+        if (hasTLAS) 
         {
-            RTShadowAOPass::AddToGraph(*m_RenderGraph, m_Scene);
+            RTShadowAOPass::AddToGraph(*m_RenderGraph, scene);
         }
 
         // 3. RT Reflections
-        if (m_Scene) 
+        if (hasTLAS) 
         {
-            RTReflectionPass::AddToGraph(*m_RenderGraph, m_Scene);
+            RTReflectionPass::AddToGraph(*m_RenderGraph, scene);
         }
 
         // 4. RT Diffuse GI
-        if (m_Scene) 
+        if (hasTLAS) 
         {
-            RTDiffuseGIPass::AddToGraph(*m_RenderGraph, m_Scene);
+            RTDiffuseGIPass::AddToGraph(*m_RenderGraph, scene);
         }
 
         // 5. SVGF Denoising (Shadows/AO)
-        if (m_Scene) 
+        if (scene) 
         {
-            SVGFPass::AddToGraph(*m_RenderGraph, m_Scene, "CurColor", "Shadow", "ShadowAccum");
+            SVGFPass::AddToGraph(*m_RenderGraph, scene, "CurColor", "Shadow", "ShadowAccum");
         }
 
         // 6. SVGF Denoising (Reflections)
-        if (m_Scene) 
+        if (scene) 
         {
-            SVGFPass::AddToGraph(*m_RenderGraph, m_Scene, "ReflectionRaw", "Refl", "ReflAccum");
+            SVGFPass::AddToGraph(*m_RenderGraph, scene, "ReflectionRaw", "Refl", "ReflAccum");
         }
 
         // 7. SVGF Denoising (Diffuse GI)
-        if (m_Scene) 
+        if (scene) 
         {
-            SVGFPass::AddToGraph(*m_RenderGraph, m_Scene, "GIRaw", "GI", "GIAccum");
+            SVGFPass::AddToGraph(*m_RenderGraph, scene, "GIRaw", "GI", "GIAccum");
         }
 
         // 8. Composition
@@ -187,7 +187,7 @@ namespace Chimera
             {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
-                int skyboxIndex = m_Scene ? m_Scene->GetSkyboxTextureIndex() : -1;
+                int skyboxIndex = GetScene() ? GetScene()->GetSkyboxTextureIndex() : -1;
                 ctx.BindPipeline({ "Composition", "common/fullscreen.vert", "postprocess/composition.frag" });
                 ctx.PushConstants(VK_SHADER_STAGE_ALL, skyboxIndex);
 

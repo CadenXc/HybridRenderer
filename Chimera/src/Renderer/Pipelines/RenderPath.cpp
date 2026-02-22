@@ -5,8 +5,8 @@
 
 namespace Chimera
 {
-    RenderPath::RenderPath(std::shared_ptr<VulkanContext> context, std::shared_ptr<Scene> scene)
-        : m_Context(context), m_Scene(scene)
+    RenderPath::RenderPath(std::shared_ptr<VulkanContext> context)
+        : m_Context(context)
     {
     }
 

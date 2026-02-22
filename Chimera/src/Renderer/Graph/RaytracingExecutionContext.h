@@ -7,10 +7,10 @@ namespace Chimera
     {
     public:
         RaytracingExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd);
-        
+
         void BindPipeline(const struct RaytracingPipelineDescription& desc);
         void TraceRays(uint32_t width, uint32_t height, uint32_t depth = 1);
-        
+
         template<typename T>
         void PushConstants(VkShaderStageFlags stages, const T& data)
         {
@@ -20,8 +20,14 @@ namespace Chimera
             }
         }
 
-        RenderGraph& GetGraph() { return m_Graph; }
-        VkCommandBuffer GetCommandBuffer() { return m_Cmd; }
+        RenderGraph& GetGraph()
+        {
+            return m_Graph;
+        }
+        VkCommandBuffer GetCommandBuffer()
+        {
+            return m_Cmd;
+        }
 
     private:
         RenderGraph& m_Graph;

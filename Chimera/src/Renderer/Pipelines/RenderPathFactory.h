@@ -8,6 +8,6 @@ namespace Chimera
     class RenderPathFactory
     {
     public:
-        static std::unique_ptr<RenderPath> Create(RenderPathType type, std::shared_ptr<class VulkanContext> context, std::shared_ptr<class Scene> scene);
+        static std::unique_ptr<RenderPath> Create(RenderPathType type, std::shared_ptr<class VulkanContext> context);
     };
 }

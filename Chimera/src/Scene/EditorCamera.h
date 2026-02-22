@@ -5,7 +5,8 @@
 #include "Core/Timestep.h"
 #include <glm/glm.hpp>
 
-namespace Chimera {
+namespace Chimera
+{
 
 	class EditorCamera
 	{
@@ -14,40 +15,97 @@ namespace Chimera {
 		EditorCamera(float fov, float aspectRatio, float nearClip, float farClip);
 
 		void OnUpdate(Timestep ts, bool isHovered, bool isFocused);
-		void OnEvent(Event& e); 
+		void OnEvent(Event& e);
 
 		void Reset();
 
-		bool IsUpdated() const { return m_IsUpdated; }
-		void ClearUpdateFlag() { m_IsUpdated = false; }
+		bool IsUpdated() const
+		{
+			return m_IsUpdated;
+		}
+		void ClearUpdateFlag()
+		{
+			m_IsUpdated = false;
+		}
 
-		inline float GetDistance() const { return m_Distance; }
-		inline void SetDistance(float distance) { m_Distance = distance; }
+		inline float GetDistance() const
+		{
+			return m_Distance;
+		}
+		inline void SetDistance(float distance)
+		{
+			m_Distance = distance;
+		}
 
-		inline float GetNearClip() const { return m_NearClip; }
-		inline void SetNearClip(float nearClip) { m_NearClip = nearClip; UpdateProjection(); }
-		inline float GetFarClip() const { return m_FarClip; }
-		inline void SetFarClip(float farClip) { m_FarClip = farClip; UpdateProjection(); }
+		inline float GetNearClip() const
+		{
+			return m_NearClip;
+		}
+		inline void SetNearClip(float nearClip)
+		{
+			m_NearClip = nearClip; UpdateProjection();
+		}
+		inline float GetFarClip() const
+		{
+			return m_FarClip;
+		}
+		inline void SetFarClip(float farClip)
+		{
+			m_FarClip = farClip; UpdateProjection();
+		}
 
-		inline glm::vec3 GetFocalPoint() const { return m_FocalPoint; }
-		inline void SetFocalPoint(const glm::vec3& focalPoint) { m_FocalPoint = focalPoint; }
+		inline glm::vec3 GetFocalPoint() const
+		{
+			return m_FocalPoint;
+		}
+		inline void SetFocalPoint(const glm::vec3& focalPoint)
+		{
+			m_FocalPoint = focalPoint;
+		}
 
-		inline void SetViewportSize(float width, float height) { m_ViewportWidth = width; m_ViewportHeight = height; UpdateProjection(); }
+		inline void SetViewportSize(float width, float height)
+		{
+			m_ViewportWidth = width; m_ViewportHeight = height; UpdateProjection();
+		}
 
-		const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
-		glm::mat4 GetViewProjection() const { return m_Projection * m_ViewMatrix; }
-		const glm::mat4& GetProjection() const { return m_Projection; }
+		const glm::mat4& GetViewMatrix() const
+		{
+			return m_ViewMatrix;
+		}
+		glm::mat4 GetViewProjection() const
+		{
+			return m_Projection * m_ViewMatrix;
+		}
+		const glm::mat4& GetProjection() const
+		{
+			return m_Projection;
+		}
 
 		glm::vec3 GetUpDirection() const;
 		glm::vec3 GetRightDirection() const;
 		glm::vec3 GetForwardDirection() const;
-		const glm::vec3& GetPosition() const { return m_Position; }
+		const glm::vec3& GetPosition() const
+		{
+			return m_Position;
+		}
 		glm::quat GetOrientation() const;
 
-		float GetPitch() const { return m_Pitch; }
-		float GetYaw() const { return m_Yaw; }
-		float GetFOV() const { return m_FOV; }
-		void SetFOV(float fov) { m_FOV = fov; UpdateProjection(); }
+		float GetPitch() const
+		{
+			return m_Pitch;
+		}
+		float GetYaw() const
+		{
+			return m_Yaw;
+		}
+		float GetFOV() const
+		{
+			return m_FOV;
+		}
+		void SetFOV(float fov)
+		{
+			m_FOV = fov; UpdateProjection();
+		}
 
 	private:
 		void UpdateProjection();

@@ -9,8 +9,9 @@ layout(location = 3) in vec4 inCurPos;
 layout(location = 4) in vec4 inPrevPos;
 layout(location = 5) in vec4 inTangent;
 
-layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
-    PBRMaterial materials[];
+layout(set = 1, binding = 1) readonly buffer MaterialBuffer 
+{
+    GpuMaterial materials[];
 } matBuf;
 
 layout(set = 1, binding = 3) uniform sampler2D textureArray[];
@@ -20,19 +21,25 @@ layout(location = 1) out vec4 outNormal;
 layout(location = 2) out vec4 outMaterial;
 layout(location = 3) out vec4 outMotion;
 
-void main() {
-    PBRMaterial mat = matBuf.materials[inMaterialIdx];
+void main() 
+{
+    GpuMaterial mat = matBuf.materials[inMaterialIdx];
     
     // 1. Albedo
     vec4 albedo = mat.albedo;
-    if (mat.albedoTex >= 0) {
+    if (mat.albedoTex >= 0) 
+    {
         albedo *= texture(textureArray[nonuniformEXT(mat.albedoTex)], inTexCoord);
     }
-    if (albedo.a < 0.1) discard;
+    if (albedo.a < 0.1) 
+    {
+        discard;
+    }
 
     // 2. Normal Mapping
     vec3 N = normalize(inNormal);
-    if (mat.normalTex >= 0) {
+    if (mat.normalTex >= 0) 
+    {
         vec3 tangent = normalize(inTangent.xyz);
         vec3 bitangent = normalize(cross(N, tangent) * inTangent.w);
         mat3 TBN = mat3(tangent, bitangent, N);
@@ -45,7 +52,8 @@ void main() {
     // 3. Metallic-Roughness
     float metallic = mat.metallic;
     float roughness = mat.roughness;
-    if (mat.metalRoughTex >= 0) {
+    if (mat.metalRoughTex >= 0) 
+    {
         vec4 mrSample = texture(textureArray[nonuniformEXT(mat.metalRoughTex)], inTexCoord);
         // glTF standard: Green = Roughness, Blue = Metallic
         roughness *= mrSample.g;

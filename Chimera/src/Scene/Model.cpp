@@ -15,7 +15,7 @@ namespace Chimera
 
         CH_CORE_INFO("Model: Creating buffers for {0} vertices, {1} indices...", m_VertexCount, m_IndexCount);
 
-        VkDeviceSize vertexBufferSize = sizeof(Vertex) * m_VertexCount;
+        VkDeviceSize vertexBufferSize = sizeof(GpuVertex) * m_VertexCount;
         m_VertexBuffer = std::make_unique<Buffer>(
             vertexBufferSize,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
@@ -67,13 +67,20 @@ namespace Chimera
         for (uint32_t i = 0; i < (uint32_t)m_Meshes.size(); i++)
         {
             auto& mesh = m_Meshes[i];
+            uint32_t primitiveCount = mesh.indexCount / 3;
+
+            if (primitiveCount == 0)
+            {
+                CH_CORE_WARN("Model: Skipping BLAS {0} because it has 0 primitives.", i);
+                continue;
+            }
 
             VkAccelerationStructureGeometryKHR geometry{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
             geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
             geometry.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
             geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-            geometry.geometry.triangles.vertexData.deviceAddress = m_VertexBuffer->GetDeviceAddress() + mesh.vertexOffset * sizeof(Vertex);
-            geometry.geometry.triangles.vertexStride = sizeof(Vertex);
+            geometry.geometry.triangles.vertexData.deviceAddress = m_VertexBuffer->GetDeviceAddress() + mesh.vertexOffset * sizeof(GpuVertex);
+            geometry.geometry.triangles.vertexStride = sizeof(GpuVertex);
             geometry.geometry.triangles.maxVertex = m_VertexCount;
             geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
             geometry.geometry.triangles.indexData.deviceAddress = m_IndexBuffer->GetDeviceAddress() + mesh.indexOffset * sizeof(uint32_t);
@@ -86,7 +93,6 @@ namespace Chimera
             buildInfo.geometryCount = 1;
             buildInfo.pGeometries = &geometry;
 
-            uint32_t primitiveCount = mesh.indexCount / 3;
             VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
             vkGetAccelerationStructureBuildSizesKHR(VulkanContext::Get().GetDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &primitiveCount, &sizeInfo);
 

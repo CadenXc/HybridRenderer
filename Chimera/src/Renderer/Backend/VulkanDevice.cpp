@@ -113,7 +113,9 @@ namespace Chimera
             
             uint32_t requestedCount = 1;
             if (queueFamily == indices.graphicsFamily && queueFamily == indices.computeFamily && families[queueFamily].queueCount > 1)
+            {
                 requestedCount = 2;
+            }
 
             queueCreateInfo.queueCount = requestedCount;
             queueCreateInfo.pQueuePriorities = queuePriorities;
@@ -188,17 +190,24 @@ namespace Chimera
         vkGetDeviceQueue(m_LogicalDevice, m_GraphicsQueueFamily, 0, &m_GraphicsQueue);
         
         // If same family and multiple queues requested, take index 1 for compute
-        if (m_GraphicsQueueFamily == m_ComputeQueueFamily) {
+        if (m_GraphicsQueueFamily == m_ComputeQueueFamily)
+        {
             uint32_t count = 0;
             vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &count, nullptr);
             std::vector<VkQueueFamilyProperties> families(count);
             vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &count, families.data());
-            
+
             if (families[m_GraphicsQueueFamily].queueCount > 1)
+            {
                 vkGetDeviceQueue(m_LogicalDevice, m_ComputeQueueFamily, 1, &m_ComputeQueue);
+            }
             else
+            {
                 m_ComputeQueue = m_GraphicsQueue;
-        } else {
+            }
+        }
+        else
+        {
             vkGetDeviceQueue(m_LogicalDevice, m_ComputeQueueFamily, 0, &m_ComputeQueue);
         }
 
@@ -277,12 +286,16 @@ namespace Chimera
             }
             
             if (indices.graphicsFamily.has_value() && indices.presentFamily.has_value() && indices.computeFamily.has_value())
+            {
                 break;
+            }
         }
 
         // If no dedicated compute queue, use the graphics one
         if (!indices.computeFamily.has_value())
+        {
             indices.computeFamily = indices.graphicsFamily;
+        }
 
         return indices;
     }

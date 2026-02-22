@@ -3,7 +3,8 @@
 #include <imgui.h>
 #include <glm/glm.hpp>
 
-namespace Chimera {
+namespace Chimera
+{
 
 	class ImGuiStyleManager
 	{

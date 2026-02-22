@@ -19,6 +19,18 @@ namespace Chimera
     void RaytracingExecutionContext::BindPipeline(const RaytracingPipelineDescription& desc)
     {
         auto& pipe = PipelineManager::Get().GetRaytracingPipeline(desc);
+
+        // --- Record Shader Names [NEW] ---
+        for (auto* s : pipe.shaders)
+        {
+            if (s)
+            {
+                bool alreadyAdded = false;
+                for (const auto& existing : m_Pass.shaderNames) if (existing == s->GetName()) alreadyAdded = true;
+                if (!alreadyAdded) m_Pass.shaderNames.push_back(s->GetName());
+            }
+        }
+
         m_ActiveLayout = pipe.layout;
         vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipe.handle);
 

@@ -22,13 +22,19 @@ namespace Chimera
 
         for (auto& [name, p] : m_GraphicsCache)
         {
-            if (p->handle != VK_NULL_HANDLE) vkDestroyPipeline(device, p->handle, nullptr);
+            if (p->handle != VK_NULL_HANDLE)
+            {
+                vkDestroyPipeline(device, p->handle, nullptr);
+            }
             // Layout handled by m_LayoutCache
         }
 
         for (auto& [name, p] : m_RaytracingCache)
         {
-            if (p->handle != VK_NULL_HANDLE) vkDestroyPipeline(device, p->handle, nullptr);
+            if (p->handle != VK_NULL_HANDLE)
+            {
+                vkDestroyPipeline(device, p->handle, nullptr);
+            }
             // Layout is now handled by m_LayoutCache
         }
 
@@ -101,15 +107,27 @@ namespace Chimera
     RaytracingPipeline& PipelineManager::GetRaytracingPipeline(const RaytracingPipelineDescription& desc)
     {
         std::string key = desc.raygen_shader;
-        if (m_RaytracingCache.count(key)) return *m_RaytracingCache[key];
+        if (m_RaytracingCache.count(key))
+        {
+            return *m_RaytracingCache[key];
+        }
 
         auto p = std::make_unique<RaytracingPipeline>();
         p->shaders.push_back(ShaderManager::GetShader(desc.raygen_shader).get());
-        for (const auto& m : desc.miss_shaders) p->shaders.push_back(ShaderManager::GetShader(m).get());
+        for (const auto& m : desc.miss_shaders)
+        {
+            p->shaders.push_back(ShaderManager::GetShader(m).get());
+        }
         for (const auto& h : desc.hit_shaders)
         {
-            if (!h.closest_hit.empty()) p->shaders.push_back(ShaderManager::GetShader(h.closest_hit).get());
-            if (!h.any_hit.empty()) p->shaders.push_back(ShaderManager::GetShader(h.any_hit).get());
+            if (!h.closest_hit.empty())
+            {
+                p->shaders.push_back(ShaderManager::GetShader(h.closest_hit).get());
+            }
+            if (!h.any_hit.empty())
+            {
+                p->shaders.push_back(ShaderManager::GetShader(h.any_hit).get());
+            }
         }
 
         p->layout = GetReflectionLayout(p->shaders);
@@ -191,7 +209,10 @@ namespace Chimera
     ComputePipeline& PipelineManager::GetComputePipeline(const ComputePipelineDescription::Kernel& kernel)
     {
         std::string key = kernel.shader;
-        if (m_ComputeCache.count(key)) return *m_ComputeCache[key];
+        if (m_ComputeCache.count(key))
+        {
+            return *m_ComputeCache[key];
+        }
 
         auto p = std::make_unique<ComputePipeline>();
         auto sh = ShaderManager::GetShader(kernel.shader);

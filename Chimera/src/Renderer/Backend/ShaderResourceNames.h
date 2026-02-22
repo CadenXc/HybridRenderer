@@ -1,9 +1,11 @@
 #pragma once
 #include <string>
 
-namespace Chimera {
+namespace Chimera
+{
 
-    namespace Shaders {
+    namespace Shaders
+    {
         // Graphics
         inline static const std::string GBufferV = "gbuffer.vert";
         inline static const std::string GBufferF = "gbuffer.frag";

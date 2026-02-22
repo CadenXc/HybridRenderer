@@ -22,14 +22,14 @@ namespace Chimera
         );
 
         void InsertImageBarrier(
-            VkCommandBuffer commandBuffer, 
-            VkImage image, 
-            VkImageAspectFlags aspectMask, 
-            VkImageLayout oldImageLayout, 
-            VkImageLayout newImageLayout, 
-            VkPipelineStageFlags srcStageMask, 
-            VkPipelineStageFlags dstStageMask, 
-            VkAccessFlags srcAccessMask, 
+            VkCommandBuffer commandBuffer,
+            VkImage image,
+            VkImageAspectFlags aspectMask,
+            VkImageLayout oldImageLayout,
+            VkImageLayout newImageLayout,
+            VkPipelineStageFlags srcStageMask,
+            VkPipelineStageFlags dstStageMask,
+            VkAccessFlags srcAccessMask,
             VkAccessFlags dstAccessMask
         );
 
@@ -71,7 +71,3 @@ namespace Chimera
         std::unique_ptr<Buffer> CreateSBT(VkPipeline pipeline, uint32_t raygenCount, uint32_t missCount, uint32_t hitCount, VkStridedDeviceAddressRegionKHR& outRaygen, VkStridedDeviceAddressRegionKHR& outMiss, VkStridedDeviceAddressRegionKHR& outHit);
     }
 }
-
-                
-
-        

@@ -63,8 +63,8 @@ void main()
     {
         if (pc.skyboxIndex >= 0) 
         {
-            vec3 worldPos = GetWorldPos(1.0, inUV, global.ubo.viewProjInverse);
-            vec3 viewDir = normalize(worldPos - global.ubo.cameraPos.xyz);
+            vec3 worldPos = GetWorldPos(1.0, inUV, global.ubo.camera.viewProjInverse);
+            vec3 viewDir = normalize(worldPos - global.ubo.camera.position.xyz);
             outFinalColor = vec4(texture(textureArray[nonuniformEXT(pc.skyboxIndex)], SampleEquirectangular(viewDir)).rgb, 1.0);
         } 
         else 
@@ -74,7 +74,7 @@ void main()
         return;
     }
 
-    bool denoisingEnabled = (global.ubo.renderFlags & 1) != 0;
+    bool denoisingEnabled = (global.ubo.renderFlags & RENDER_FLAG_SVGF_BIT) != 0;
     
     vec3 albedo = texture(gAlbedo, inUV).rgb;
     // [FIX] Decode normals from [0, 1] to [-1, 1]
@@ -89,24 +89,25 @@ void main()
     vec3 reflection = denoisingEnabled ? texture(gReflection_Filtered, inUV).rgb : texture(gReflection_Raw, inUV).rgb;
     vec3 gi = denoisingEnabled ? texture(gGI_Filtered, inUV).rgb : texture(gGI_Raw, inUV).rgb;
 
-    // Debug Modes
-    if (global.ubo.displayMode == 1) { outFinalColor = vec4(albedo, 1.0); return; }
-    if (global.ubo.displayMode == 2) { outFinalColor = vec4(N * 0.5 + 0.5, 1.0); return; }
-    if (global.ubo.displayMode == 3) { outFinalColor = vec4(roughness, metallic, 0.0, 1.0); return; }
-    if (global.ubo.displayMode == 5) { outFinalColor = vec4(vec3(depth), 1.0); return; }
-    if (global.ubo.displayMode == 6) { outFinalColor = vec4(vec3(shadowAO), 1.0); return; }
-    if (global.ubo.displayMode == 7) { outFinalColor = vec4(reflection, 1.0); return; }
+    // Debug Modes (Using Refactored Macros)
+    if (global.ubo.displayMode == DISPLAY_MODE_ALBEDO) { outFinalColor = vec4(albedo, 1.0); return; }
+    if (global.ubo.displayMode == DISPLAY_MODE_NORMAL) { outFinalColor = vec4(N * 0.5 + 0.5, 1.0); return; }
+    if (global.ubo.displayMode == DISPLAY_MODE_MATERIAL) { outFinalColor = vec4(roughness, metallic, 0.0, 1.0); return; }
+    if (global.ubo.displayMode == DISPLAY_MODE_DEPTH) { outFinalColor = vec4(vec3(depth), 1.0); return; }
+    if (global.ubo.displayMode == DISPLAY_MODE_SHADOW_AO) { outFinalColor = vec4(vec3(shadowAO), 1.0); return; }
+    if (global.ubo.displayMode == DISPLAY_MODE_REFLECTION) { outFinalColor = vec4(reflection, 1.0); return; }
+    // Note: 8 was previously GI, adding macro if needed or keeping as logic
     if (global.ubo.displayMode == 8) { outFinalColor = vec4(gi, 1.0); return; }
 
-    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.viewProjInverse);
-    vec3 V = normalize(global.ubo.cameraPos.xyz - worldPos);
+    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
+    vec3 V = normalize(global.ubo.camera.position.xyz - worldPos);
 
     vec3 F0 = vec3(0.04); 
     F0 = mix(F0, albedo, metallic);
 
     // 1. Direct Lighting (Directional Light)
-    vec3 L = normalize(-global.ubo.directionalLight.direction.xyz);
-    vec3 lightColor = global.ubo.directionalLight.color.rgb * global.ubo.directionalLight.intensity.x;
+    vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
+    vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
     vec3 directLighting = CalculatePBR(N, V, L, albedo, roughness, metallic, F0, lightColor) * shadowAO;
 
     // 2. Indirect Lighting (Ambient)
@@ -117,7 +118,6 @@ void main()
     vec3 kD_gi = (1.0 - kS_gi) * (1.0 - metallic);
     
     // Weighted Indirect
-    // --- FIX: gi already contains hit point albedo from closesthit.rchit. DO NOT multiply by albedo again. ---
     vec3 ambientDiffuse = gi * kD_gi * global.ubo.ambientStrength;
     vec3 ambientSpecular = reflection * kS_gi * global.ubo.ambientStrength;
 

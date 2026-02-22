@@ -36,7 +36,7 @@ namespace Chimera
         VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
         std::vector<VkDescriptorSet> m_DescriptorSets;
-        
+
         struct FrameResources
         {
             std::unique_ptr<class Buffer> UBO;

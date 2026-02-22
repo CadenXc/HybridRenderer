@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Renderer/Backend/Renderer.h"
+#include "Renderer/Backend/RenderContext.h"
 #include "Renderer/Resources/ResourceManager.h"
 
 #define VK_CHECK(result) \
@@ -71,28 +72,72 @@ namespace Chimera
 
     void Renderer::FreeFrameResources()
     {
-        if (!VulkanContext::HasInstance()) return;
+        if (!VulkanContext::HasInstance())
+        {
+            return;
+        }
         VkDevice device = VulkanContext::Get().GetDevice();
 
         for (auto& frameResource : m_FrameResources)
         {
-            if (frameResource.inFlightFence != VK_NULL_HANDLE) vkDestroyFence(device, frameResource.inFlightFence, nullptr);
-            if (frameResource.renderFinishedSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, frameResource.renderFinishedSemaphore, nullptr);
-            if (frameResource.imageAvailableSemaphore != VK_NULL_HANDLE) vkDestroySemaphore(device, frameResource.imageAvailableSemaphore, nullptr);
+            if (frameResource.inFlightFence != VK_NULL_HANDLE)
+            {
+                vkDestroyFence(device, frameResource.inFlightFence, nullptr);
+            }
+            if (frameResource.renderFinishedSemaphore != VK_NULL_HANDLE)
+            {
+                vkDestroySemaphore(device, frameResource.renderFinishedSemaphore, nullptr);
+            }
+            if (frameResource.imageAvailableSemaphore != VK_NULL_HANDLE)
+            {
+                vkDestroySemaphore(device, frameResource.imageAvailableSemaphore, nullptr);
+            }
         }
         
-        if (m_CommandPool != VK_NULL_HANDLE) {
+        if (m_CommandPool != VK_NULL_HANDLE)
+        {
             vkDestroyCommandPool(device, m_CommandPool, nullptr);
         }
         
         m_FrameResources.clear();
     }
 
-    void Renderer::OnResize(uint32_t width, uint32_t height) { m_NeedResize = true; }
+    void Renderer::OnResize(uint32_t width, uint32_t height)
+    {
+        m_NeedResize = true;
+    }
+
+    void Renderer::ResetSwapchainLayouts()
+    {
+        if (!VulkanContext::HasInstance()) return;
+        
+        auto images = VulkanContext::Get().GetSwapChainImages();
+        
+        ScopedCommandBuffer cmd;
+        for (auto img : images)
+        {
+            VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // Safest baseline state
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = 0;
+            barrier.image = img;
+            barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+            
+            vkCmdPipelineBarrier(cmd, 
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 
+                0, 0, nullptr, 0, nullptr, 1, &barrier);
+        }
+    }
 
     VkCommandBuffer Renderer::BeginFrame()
     {
-        if (m_NeedResize) { RecreateSwapchain(); return VK_NULL_HANDLE; }
+        if (m_NeedResize)
+        {
+            RecreateSwapchain();
+            return VK_NULL_HANDLE;
+        }
         VkDevice device = VulkanContext::Get().GetDevice();
         auto& frameResource = m_FrameResources[m_CurrentFrameIndex];
         VK_CHECK(vkWaitForFences(device, 1, &frameResource.inFlightFence, VK_TRUE, UINT64_MAX));
@@ -100,7 +145,11 @@ namespace Chimera
         ResourceManager::Get().UpdateFrameIndex(m_CurrentFrameIndex);
         ResourceManager::Get().ClearResourceFreeQueue(m_CurrentFrameIndex);
         VkResult result = vkAcquireNextImageKHR(device, VulkanContext::Get().GetSwapChain(), UINT64_MAX, frameResource.imageAvailableSemaphore, VK_NULL_HANDLE, &m_CurrentImageIndex);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) { RecreateSwapchain(); return VK_NULL_HANDLE; }
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            RecreateSwapchain();
+            return VK_NULL_HANDLE;
+        }
         
         VK_CHECK(vkResetFences(device, 1, &frameResource.inFlightFence));
 
@@ -113,9 +162,9 @@ namespace Chimera
         
         VkImage image = VulkanContext::Get().GetSwapChainImages()[m_CurrentImageIndex];
         
-        // [FIX] Robust Initial Barrier: Discard previous contents and move to COLOR_ATTACHMENT
+        // [FIX] Robust Initial Barrier: Use UNDEFINED as oldLayout to be safe across all frames/resizes.
         VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; 
         barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         barrier.srcAccessMask = 0;
         barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
@@ -162,10 +211,17 @@ namespace Chimera
         VkSwapchainKHR swapChains[] = { VulkanContext::Get().GetSwapChain() };
         presentInfo.swapchainCount = 1; presentInfo.pSwapchains = swapChains; presentInfo.pImageIndices = &m_CurrentImageIndex;
         VkResult result = vkQueuePresentKHR(VulkanContext::Get().GetPresentQueue(), &presentInfo);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_NeedResize) m_NeedResize = true;
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_NeedResize)
+        {
+            m_NeedResize = true;
+        }
         m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % MaxFramesInFlight;
         m_IsFrameInProgress = false;
     }
 
-    void Renderer::RecreateSwapchain() { VulkanContext::Get().RecreateSwapChain(); m_NeedResize = false; }
+    void Renderer::RecreateSwapchain()
+    {
+        VulkanContext::Get().RecreateSwapChain();
+        m_NeedResize = false;
+    }
 }

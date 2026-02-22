@@ -12,7 +12,8 @@
 #include <vulkan/vulkan.h>
 #include <imgui.h>
 
-namespace Chimera {
+namespace Chimera
+{
 
 	class EditorLayer : public Layer
 	{
@@ -32,8 +33,18 @@ namespace Chimera {
 		void LoadSkybox(const std::string& path);
 		void ClearSkybox();
 
-		std::shared_ptr<Scene> GetActiveScene() { return m_Scene; }
-		RenderPath* GetRenderPath() { return Application::Get().GetActiveRenderPath(); }
+		std::shared_ptr<Scene> GetActiveScene()
+		{
+			return ResourceManager::Get().GetActiveSceneShared();
+		}
+		Scene* GetActiveSceneRaw()
+		{
+			return ResourceManager::Get().GetActiveScene();
+		}
+		RenderPath* GetRenderPath()
+		{
+			return Application::Get().GetActiveRenderPath();
+		}
 
 	private:
 		void RefreshModelList();
@@ -61,15 +72,13 @@ namespace Chimera {
 		bool m_ViewportHovered = false;
 		bool m_ViewportFocused = false;
         
-                // UI Visibility
-        
-                bool m_ShowControlPanel = true;
-        
-                bool m_ShowViewport = true;
-				        uint32_t m_DisplayMode = 0;
-				        uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
+		// UI Visibility
+		bool m_ShowControlPanel = true;
+		bool m_ShowViewport = true;
+		uint32_t m_DisplayMode = 0; // 0: Final Output
+		uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
 				
-				        float m_Exposure = 1.0f;
+		float m_Exposure = 1.0f;
         float m_AmbientStrength = 1.0f;
         float m_BloomStrength = 0.5f;
 
@@ -107,9 +116,6 @@ namespace Chimera {
 		bool m_ViewportResizing = false;
 		bool m_ResizePending = false;
 		glm::vec2 m_NextViewportSize{ 0.0f };
-
-		// Rendering & Scene (Migrated from Application)
-		std::shared_ptr<Scene> m_Scene;
 	};
 
 }

@@ -15,8 +15,7 @@ namespace Chimera
         m_Data.metalRoughTex = -1;
     }
 
-    // [NEW] 支持从 POD 结构构造
-    Material::Material(const std::string& name, const PBRMaterial& data)
+    Material::Material(const std::string& name, const GpuMaterial& data)
         : m_Name(name), m_Data(data)
     {
     }

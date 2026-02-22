@@ -1,7 +1,8 @@
 #pragma once
 #include "pch.h"
 
-namespace Chimera::VulkanUtils {
+namespace Chimera::VulkanUtils
+{
 
 	VkDescriptorImageInfo DescriptorImageInfo(VkImageView view, VkImageLayout layout, VkSampler sampler);
 	

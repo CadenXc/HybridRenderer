@@ -9,7 +9,7 @@ namespace Chimera
     void RTShadowAOPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
     {
         graph.AddPass<RTShadowAOData>("RTShadowAOPass",
-            [](RTShadowAOData& data, RenderGraph::PassBuilder& builder) 
+            [](RTShadowAOData& data, RenderGraph::PassBuilder& builder)
             {
                 // Must match SVGF input name 'CurColor'
                 data.output = builder.WriteStorage("CurColor", VK_FORMAT_R16G16B16A16_SFLOAT);

@@ -4,19 +4,22 @@
 layout(location = 0) in vec2 inUV;
 layout(location = 0) out float outLinearDepth;
 
-layout(set = 0, binding = 0) uniform GlobalUBO {
+layout(set = 0, binding = 0) uniform GlobalUBO 
+{
     UniformBufferObject ubo;
 } global;
 
 layout(set = 2, binding = 0) uniform sampler2D gDepth;
 
-void main() {
+void main() 
+{
     float depth = texture(gDepth, inUV).r;
     
     // Reverse-Z 线性化: Z = near / depth
     float n = 0.1;
     
-    if (depth <= 0.00001) {
+    if (depth <= 0.00001) 
+    {
         outLinearDepth = 0.0;
         return;
     }

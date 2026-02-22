@@ -46,7 +46,7 @@ void main()
         return;
     }
 
-    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.viewProjInverse);
+    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
     vec3 normal = normalize(texture(gNormal, inUV).xyz * 2.0 - 1.0);
     vec4 material = texture(gMaterial, inUV);
     vec3 albedo = texture(gAlbedo, inUV).rgb;
@@ -55,7 +55,7 @@ void main()
     float roughness = material.r;
     float metallic = material.g;
     
-    vec3 viewDir = normalize(worldPos - global.ubo.cameraPos.xyz);
+    vec3 viewDir = normalize(worldPos - global.ubo.camera.position.xyz);
     
     // Simple specular reflection direction
     vec3 reflectDir = reflect(viewDir, normal);

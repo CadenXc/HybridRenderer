@@ -5,11 +5,11 @@
 
 namespace Chimera
 {
-    class Image 
+    class Image
     {
     public:
-        Image(uint32_t width, uint32_t height, 
-              VkFormat format, VkImageUsageFlags usage, 
+        Image(uint32_t width, uint32_t height,
+              VkFormat format, VkImageUsageFlags usage,
               VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
               uint32_t mipLevels = 1,
               VkSampleCountFlagBits numSamples = VK_SAMPLE_COUNT_1_BIT,
@@ -23,11 +23,26 @@ namespace Chimera
         Image(Image&& other) noexcept;
         Image& operator=(Image&& other) noexcept;
 
-        VkImage GetImage() const { return m_Image; }
-        VkImageView GetImageView() const { return m_View; }
-        VkFormat GetFormat() const { return m_Format; }
-        VkExtent2D GetExtent() const { return { m_Width, m_Height }; }
-        uint32_t GetMipLevels() const { return m_MipLevels; }
+        VkImage GetImage() const
+        {
+            return m_Image;
+        }
+        VkImageView GetImageView() const
+        {
+            return m_View;
+        }
+        VkFormat GetFormat() const
+        {
+            return m_Format;
+        }
+        VkExtent2D GetExtent() const
+        {
+            return { m_Width, m_Height };
+        }
+        uint32_t GetMipLevels() const
+        {
+            return m_MipLevels;
+        }
 
     private:
         VkDevice m_Device = VK_NULL_HANDLE;

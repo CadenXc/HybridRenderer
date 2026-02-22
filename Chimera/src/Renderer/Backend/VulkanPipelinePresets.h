@@ -3,7 +3,8 @@
 #include "Scene/Scene.h" 
 #include "Renderer/ChimeraCommon.h"
 
-namespace Chimera {
+namespace Chimera
+{
 
 	// Note: Not constexpr because we access static methods of Vertex which might not be constexpr
 	// or just to keep it simple with C++ linkage.

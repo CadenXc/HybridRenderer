@@ -9,7 +9,8 @@ namespace Chimera
     void TAAPass::AddToGraph(RenderGraph& graph)
     {
         graph.AddComputePass<TAAData>("TAAPass",
-            [&](TAAData& data, RenderGraph::PassBuilder& builder) {
+            [&](TAAData& data, RenderGraph::PassBuilder& builder)
+            {
                 data.current = builder.ReadCompute(RS::FinalColor);
                 data.history = builder.ReadHistory("TAA");
                 data.motion  = builder.ReadCompute(RS::Motion);
@@ -17,7 +18,8 @@ namespace Chimera
                 data.bloom   = builder.ReadCompute("BloomBlurV");
                 data.output  = builder.WriteStorage("TAAOutput", VK_FORMAT_R16G16B16A16_SFLOAT);
             },
-            [](const TAAData& data, ComputeExecutionContext& ctx) {
+            [](const TAAData& data, ComputeExecutionContext& ctx)
+            {
                 ctx.BindPipeline("postprocess/taa.comp");
                 ctx.Dispatch("postprocess/taa.comp", 
                     (ctx.GetGraph().GetWidth() + 15) / 16, 

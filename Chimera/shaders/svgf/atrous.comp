@@ -4,7 +4,10 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(set = 0, binding = 0) uniform GlobalUBO { UniformBufferObject ubo; } global;
+layout(set = 0, binding = 0) uniform GlobalUBO 
+{ 
+    UniformBufferObject ubo; 
+} global;
 
 layout(set = 2, binding = 0) uniform sampler2D gInputColor;   // 待滤波颜色
 layout(set = 2, binding = 1) uniform sampler2D gInputMoments; // 包含方差
@@ -13,7 +16,8 @@ layout(set = 2, binding = 3) uniform sampler2D gDepth;
 
 layout(set = 2, binding = 4, rgba16f) uniform image2D outFiltered;
 
-layout(push_constant) uniform Constants {
+layout(push_constant) uniform Constants 
+{
     int stepSize;
 } pc;
 
@@ -50,10 +54,10 @@ void main()
     vec4 sumColor = vec4(0.0);
     float sumWeight = 0.0;
 
-    // Use parameters from UBO
-    float phiColor = global.ubo.svgfPhiColor;
-    float phiNormal = global.ubo.svgfPhiNormal;
-    float phiDepth = global.ubo.svgfPhiDepth;
+    // Use refactored parameters from UBO
+    float phiColor = global.ubo.svgf.phiColor;
+    float phiNormal = global.ubo.svgf.phiNormal;
+    float phiDepth = global.ubo.svgf.phiDepth;
 
     for (int y = -2; y <= 2; y++) 
     {

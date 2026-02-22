@@ -9,7 +9,7 @@ namespace Chimera
     {
     public:
         Material(const std::string& name = "New Material");
-        Material(const std::string& name, const PBRMaterial& data); // [NEW]
+        Material(const std::string& name, const GpuMaterial& data); // [NEW]
         ~Material() = default;
 
         void SetAlbedo(const glm::vec4& color)
@@ -41,7 +41,7 @@ namespace Chimera
             m_Data.metallic = m;
             m_Dirty = true;
         }
-        
+
         void SetTextureIndices(int albedo, int normal, int metalRough)
         {
             m_Data.albedoTex = albedo;
@@ -49,7 +49,7 @@ namespace Chimera
             m_Data.metalRoughTex = metalRough;
             m_Dirty = true;
         }
-        
+
         void SetAlbedoTexture(TextureHandle handle)
         {
             m_Data.albedoTex = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
@@ -68,7 +68,7 @@ namespace Chimera
             m_Dirty = true;
         }
 
-        const PBRMaterial& GetData() const
+        const GpuMaterial& GetData() const
         {
             return m_Data;
         }
@@ -77,7 +77,7 @@ namespace Chimera
         {
             return m_Name;
         }
-        
+
         bool IsDirty() const
         {
             return m_Dirty;
@@ -90,7 +90,7 @@ namespace Chimera
 
     private:
         std::string m_Name;
-        PBRMaterial m_Data{};
+        GpuMaterial m_Data{};
         bool m_Dirty = true;
     };
 }

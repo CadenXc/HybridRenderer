@@ -5,7 +5,7 @@
 namespace Chimera
 {
     /**
-     * @brief A simple wrapper for managing Vulkan command buffers, 
+     * @brief A simple wrapper for managing Vulkan command buffers,
      * particularly useful for one-time setup/transfer commands.
      */
     struct ScopedCommandBuffer

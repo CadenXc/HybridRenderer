@@ -50,9 +50,13 @@ namespace Chimera
         ResourceRequest req{ h, isDepth ? ResourceUsage::DepthStencilWrite : ResourceUsage::ColorAttachment };
         
         if (isDepth)
+        {
             req.clearValue.depthStencil = { 0.0f, 0 };
+        }
         else
+        {
             req.clearValue.color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+        }
 
         pass.outputs.push_back(req);
         return h;
@@ -106,16 +110,24 @@ namespace Chimera
         VkDevice device = m_Context.GetDevice();
 
         if (m_TimestampQueryPool != VK_NULL_HANDLE)
+        {
             vkDestroyQueryPool(device, m_TimestampQueryPool, nullptr);
+        }
         
         if (m_ComputeCommandPool != VK_NULL_HANDLE)
+        {
             vkDestroyCommandPool(device, m_ComputeCommandPool, nullptr);
+        }
 
         if (m_ComputeFinishedSemaphore != VK_NULL_HANDLE)
+        {
             vkDestroySemaphore(device, m_ComputeFinishedSemaphore, nullptr);
+        }
 
         if (m_GraphicsWaitSemaphore != VK_NULL_HANDLE)
+        {
             vkDestroySemaphore(device, m_GraphicsWaitSemaphore, nullptr);
+        }
     }
 
     void RenderGraph::Reset()
@@ -167,13 +179,17 @@ namespace Chimera
 
             for (uint32_t i = 0; i < (uint32_t)m_PassStack.size(); ++i)
             {
-                for (auto& out : m_PassStack[i].outputs)
-                    lastWriter[m_Resources[out.handle].name] = i;
-            }
+                            for (auto& out : m_PassStack[i].outputs)
+                            {
+                                lastWriter[m_Resources[out.handle].name] = i;
+                            }            }
 
             std::function<void(uint32_t)> visit = [&](uint32_t passIdx)
             {
-                if (visited[passIdx]) return;
+                if (visited[passIdx])
+                {
+                    return;
+                }
                 for (auto& in : m_PassStack[passIdx].inputs)
                 {
                     const std::string& resName = m_Resources[in.handle].name;
@@ -199,8 +215,14 @@ namespace Chimera
                 res.firstPass = std::min(res.firstPass, i);
                 res.lastPass = std::max(res.lastPass, i);
             };
-            for (auto& r : m_PassStack[i].inputs) process(r);
-            for (auto& r : m_PassStack[i].outputs) process(r);
+            for (auto& r : m_PassStack[i].inputs)
+            {
+                process(r);
+            }
+            for (auto& r : m_PassStack[i].outputs)
+            {
+                process(r);
+            }
         }
 
         // 3. Physical Resource Allocation with Pooling
@@ -211,7 +233,9 @@ namespace Chimera
             if (res.isExternal || res.name == RS::RENDER_OUTPUT || res.name.find("History_") == 0)
             {
                 if (res.name == RS::RENDER_OUTPUT)
+                {
                     res.image.format = m_Context.GetSwapChainImageFormat();
+                }
 
                 if (res.name.find("History_") == 0)
                 {
@@ -305,7 +329,9 @@ namespace Chimera
         uint32_t imageIndex = Renderer::Get().GetCurrentImageIndex();
         
         if (imageIndex >= (uint32_t)swapchain->GetImageViews().size())
+        {
             return VK_NULL_HANDLE;
+        }
 
         VkImage swapImage = swapchain->GetImages()[imageIndex];
         VkImageView swapView = swapchain->GetImageViews()[imageIndex];
@@ -431,7 +457,9 @@ namespace Chimera
             }
 
             if (pass.executeFunc)
+            {
                 pass.executeFunc(registry, cmd);
+            }
 
             if (isGraphics && (!colorAtts.empty() || hasDepth))
                 vkCmdEndRendering(cmd);
@@ -592,7 +620,10 @@ namespace Chimera
 
     RGResourceHandle RenderGraph::GetResourceHandle(const std::string& n)
     {
-        if (m_ResourceMap.count(n)) return m_ResourceMap[n];
+        if (m_ResourceMap.count(n))
+        {
+            return m_ResourceMap[n];
+        }
         
         RGResourceHandle h = (RGResourceHandle)m_Resources.size();
         m_Resources.push_back({ n });
@@ -652,9 +683,18 @@ namespace Chimera
                 if (img.allocation != nullptr) vmaDestroyImage(allocator, img.handle, img.allocation);
             };
 
-            if (all) destroyFunc();
-            else if (Renderer::HasInstance()) m_Context.GetDeletionQueue().PushFunction(frameIdx, destroyFunc);
-            else destroyFunc();
+            if (all)
+            {
+                destroyFunc();
+            }
+            else if (Renderer::HasInstance())
+            {
+                m_Context.GetDeletionQueue().PushFunction(frameIdx, destroyFunc);
+            }
+            else
+            {
+                destroyFunc();
+            }
         }
 
         if (all)
@@ -708,27 +748,28 @@ namespace Chimera
     const GraphImage& RenderGraph::GetImage(const std::string& n) const
     {
         if (m_ResourceMap.count(n))
+        {
             return m_Resources[m_ResourceMap.at(n)].image;
+        }
         
         static GraphImage dummy{};
         return dummy;
     }
 
-    std::vector<std::string> RenderGraph::GetColorAttachments() const
+    std::vector<std::string> RenderGraph::GetDebuggableResources() const
     {
         std::vector<std::string> result;
+        // Collect all unique resource names that have a valid physical image
         for (const auto& res : m_Resources)
         {
-            if (res.image.handle == VK_NULL_HANDLE) continue;
-            if (res.name == RS::RENDER_OUTPUT) continue;
-
-            // Include Color Attachments and Storage Images (as long as they aren't depth)
-            bool isDepth = VulkanUtils::IsDepthFormat(res.image.handle == VK_NULL_HANDLE ? VK_FORMAT_UNDEFINED : res.image.format);
-            if (!isDepth)
+            if (res.image.handle != VK_NULL_HANDLE && !res.name.empty())
             {
                 result.push_back(res.name);
             }
         }
+        
+        // Sort alphabetically for better UI usability
+        std::sort(result.begin(), result.end());
         return result;
     }
 
@@ -769,7 +810,19 @@ namespace Chimera
                 graphicsPasses.push_back("Pass_" + pass.name);
             }
 
-            result += "    Pass_" + pass.name + shape + "\"" + pass.name + "\"" + endShape + "\n";
+            // Append shader names to the label
+            std::string shaderLabel = "";
+            if (!pass.shaderNames.empty())
+            {
+                shaderLabel = "<br/>(";
+                for (size_t i = 0; i < pass.shaderNames.size(); ++i)
+                {
+                    shaderLabel += pass.shaderNames[i] + (i < pass.shaderNames.size() - 1 ? ", " : "");
+                }
+                shaderLabel += ")";
+            }
+
+            result += "    Pass_" + pass.name + shape + "\"" + pass.name + shaderLabel + "\"" + endShape + "\n";
         }
 
         // 3. Define Resource Nodes and Edges
@@ -831,25 +884,37 @@ namespace Chimera
         if (!graphicsPasses.empty())
         {
             result += "    class ";
-            for (size_t i = 0; i < graphicsPasses.size(); ++i) result += (i > 0 ? "," : "") + graphicsPasses[i];
+            for (size_t i = 0; i < graphicsPasses.size(); ++i)
+            {
+                result += (i > 0 ? "," : "") + graphicsPasses[i];
+            }
             result += " graphics\n";
         }
         if (!computePasses.empty())
         {
             result += "    class ";
-            for (size_t i = 0; i < computePasses.size(); ++i) result += (i > 0 ? "," : "") + computePasses[i];
+            for (size_t i = 0; i < computePasses.size(); ++i)
+            {
+                result += (i > 0 ? "," : "") + computePasses[i];
+            }
             result += " compute\n";
         }
         if (!raytracePasses.empty())
         {
             result += "    class ";
-            for (size_t i = 0; i < raytracePasses.size(); ++i) result += (i > 0 ? "," : "") + raytracePasses[i];
+            for (size_t i = 0; i < raytracePasses.size(); ++i)
+            {
+                result += (i > 0 ? "," : "") + raytracePasses[i];
+            }
             result += " raytrace\n";
         }
         if (!resourceNodes.empty())
         {
             result += "    class ";
-            for (size_t i = 0; i < resourceNodes.size(); ++i) result += (i > 0 ? "," : "") + resourceNodes[i];
+            for (size_t i = 0; i < resourceNodes.size(); ++i)
+            {
+                result += (i > 0 ? "," : "") + resourceNodes[i];
+            }
             result += " resource\n";
         }
         
@@ -858,117 +923,49 @@ namespace Chimera
 
     void RenderGraph::DrawPerformanceStatistics()
     {
-        if (ImGui::TreeNodeEx("GPU Performance Analysis", ImGuiTreeNodeFlags_DefaultOpen))
+        float totalMS = 0.0f;
+        for (const auto& t : m_LatestTimings) totalMS += t.durationMS;
+
+        // Upgrade to 3 columns: [Name] [Ratio Bar] [ms]
+        if (ImGui::BeginTable("PassTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
         {
-            float totalMS = 0.0f;
+            ImGui::TableSetupColumn("Pass Name", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("GPU Usage", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+            ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableHeadersRow();
+
             for (const auto& t : m_LatestTimings)
             {
-                totalMS += t.durationMS;
-            }
-
-            ImGui::Text("Total GPU Pass Time: %.3f ms", totalMS);
-            ImGui::Text("Estimated FPS (GPU limited): %.1f", 1000.0f / (totalMS > 0 ? totalMS : 16.6f));
-            
-            ImGui::Separator();
-
-            // Simple Plot Histogram for frame time trend
-            static float frameTimeHistory[120] = { 0 };
-            static int offset = 0;
-            frameTimeHistory[offset] = totalMS;
-            offset = (offset + 1) % 120;
-            ImGui::PlotLines("Frame Time Trend", frameTimeHistory, 120, offset, nullptr, 0.0f, 33.3f, ImVec2(0, 80));
-
-            ImGui::Separator();
-            ImGui::Text("Pass Breakdown:");
-            
-            for (const auto& t : m_LatestTimings)
-            {
-                float ratio = totalMS > 0 ? (t.durationMS / totalMS) : 0;
+                ImGui::TableNextRow();
                 
-                // Color coding based on pass type or duration
-                ImVec4 color = ImVec4(0.4f, 0.7f, 1.0f, 1.0f); // Default Blue
-                if (t.name.find("RT") != std::string::npos)
-                {
-                    color = ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // Red for Ray Tracing
-                }
-                if (t.name.find("SVGF") != std::string::npos)
-                {
-                    color = ImVec4(0.4f, 1.0f, 0.4f, 1.0f); // Green for Denoising
-                }
+                // Column 0: Name
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("%s", t.name.c_str());
 
-                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, color);
-                
-                char label[128];
-                sprintf(label, "%s: %.3f ms (%.1f%%)", t.name.c_str(), t.durationMS, ratio * 100.0f);
-                ImGui::ProgressBar(ratio, ImVec2(-1, 0), label);
-                
+                // Column 1: Progress Bar
+                ImGui::TableSetColumnIndex(1);
+                ImVec4 barColor = ImVec4(0.2f, 0.5f, 0.8f, 1.0f); 
+                if (t.name.find("SVGF") != std::string::npos || t.name.find("Atrous") != std::string::npos)
+                    barColor = ImVec4(0.2f, 0.8f, 0.4f, 1.0f); 
+                else if (t.name.find("RT") != std::string::npos || t.name.find("Ray") != std::string::npos)
+                    barColor = ImVec4(0.8f, 0.3f, 0.3f, 1.0f); 
+                else if (t.name.find("Bloom") != std::string::npos || t.name.find("TAA") != std::string::npos)
+                    barColor = ImVec4(0.8f, 0.8f, 0.2f, 1.0f); 
+
+                float ratio = totalMS > 0.0f ? (t.durationMS / totalMS) : 0.0f;
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram, barColor);
+                char label[32]; sprintf(label, "%.1f%%", ratio * 100.0f);
+                ImGui::ProgressBar(ratio, ImVec2(-1, 14), label);
                 ImGui::PopStyleColor();
-            }
 
-            ImGui::TreePop();
+                // Column 2: Raw Time
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%.3f", t.durationMS);
+            }
+            ImGui::EndTable();
         }
-
-        if (ImGui::TreeNode("Execution Pipeline"))
-        {
-            for (uint32_t i = 0; i < (uint32_t)m_PassStack.size(); ++i)
-            {
-                auto& pass = m_PassStack[i];
-                ImGui::Text("[%d] %s %s", i, pass.isCompute ? "[Compute]" : "[Graphics]", pass.name.c_str());
-                
-                if (ImGui::IsItemHovered())
-                {
-                    ImGui::BeginTooltip();
-                    
-                    ImGui::TextColored(ImVec4(1, 1, 0, 1), "Inputs:");
-                    for (auto& in : pass.inputs)
-                    {
-                        ImGui::BulletText("%s", m_Resources[in.handle].name.c_str());
-                    }
-                    
-                    ImGui::Separator();
-                    
-                    ImGui::TextColored(ImVec4(0, 1, 1, 1), "Outputs:");
-                    for (auto& out : pass.outputs)
-                    {
-                        ImGui::BulletText("%s", m_Resources[out.handle].name.c_str());
-                    }
-                    
-                    ImGui::EndTooltip();
-                }
-            }
-            ImGui::TreePop();
-        }
-
-        if (ImGui::TreeNode("Physical Resource Pool"))
-        {
-            std::unordered_map<VkImage, std::vector<std::string>> aliasingGroups;
-            for (auto& res : m_Resources)
-            {
-                if (res.image.handle != VK_NULL_HANDLE)
-                {
-                    aliasingGroups[res.image.handle].push_back(res.name);
-                }
-            }
-
-            ImGui::Text("Active GPU Images: %d", (int)aliasingGroups.size());
-            ImGui::Separator();
-
-            for (auto& [handle, names] : aliasingGroups)
-            {
-                if (names.size() > 1)
-                {
-                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Memory Aliased Group [0x%p]:", handle);
-                    for (auto& n : names)
-                    {
-                        ImGui::BulletText("%s", n.c_str());
-                    }
-                }
-                else
-                {
-                    ImGui::Text("Dedicated Resource [0x%p]: %s", handle, names[0].c_str());
-                }
-            }
-            ImGui::TreePop();
-        }
+        
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Total GPU Frame Time: %.3f ms", totalMS);
     }
 }

@@ -124,6 +124,18 @@ namespace Chimera
     void GraphicsExecutionContext::BindPipeline(const GraphicsPipelineDescription& desc) 
     {
         auto& pipe = PipelineManager::Get().GetGraphicsPipeline(m_Pass.colorFormats, m_Pass.depthFormat, desc);
+        
+        // --- Record Shader Names [NEW] ---
+        for (auto* s : pipe.shaders)
+        {
+            if (s)
+            {
+                bool alreadyAdded = false;
+                for (const auto& existing : m_Pass.shaderNames) if (existing == s->GetName()) alreadyAdded = true;
+                if (!alreadyAdded) m_Pass.shaderNames.push_back(s->GetName());
+            }
+        }
+
         BindPipelineAndDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.handle, pipe.layout, pipe.shaders);
     }
 

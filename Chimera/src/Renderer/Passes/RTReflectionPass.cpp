@@ -9,7 +9,10 @@ namespace Chimera
 {
     void RTReflectionPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
     {
-        if (!scene) return;
+        if (!scene)
+        {
+            return;
+        }
 
         graph.AddPass<RTReflectionData>("RTReflectionPass",
             [](RTReflectionData& data, RenderGraph::PassBuilder& builder)

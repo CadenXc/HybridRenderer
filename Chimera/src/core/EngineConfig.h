@@ -2,7 +2,8 @@
 #include <string>
 #include <filesystem>
 
-namespace Chimera {
+namespace Chimera
+{
 
     class Config
     {
@@ -14,11 +15,13 @@ namespace Chimera {
         // 源码路径（用于热重载）
         inline static std::string SHADER_SOURCE_DIR = "../../../Chimera/shaders";
 
-        static void Init() {
+        static void Init()
+        {
             std::filesystem::path currentPath = std::filesystem::current_path();
             std::filesystem::path root = currentPath;
             bool found = false;
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < 5; ++i)
+            {
                 if (std::filesystem::exists(root / "Chimera") && std::filesystem::exists(root / "scripts"))
                 {
                     found = true;

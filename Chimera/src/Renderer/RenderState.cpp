@@ -33,7 +33,7 @@ namespace Chimera
     {
         VkDescriptorSetLayoutBinding uboLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr };
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, nullptr, 0, 1, &uboLayoutBinding };
-        
+
         if (vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &layoutInfo, nullptr, &m_DescriptorSetLayout) != VK_SUCCESS)
         {
             throw std::runtime_error("RenderState: failed to create descriptor set layout!");
@@ -60,7 +60,7 @@ namespace Chimera
         // Use a dedicated pool for managing Global Sets
         VkDescriptorPoolSize poolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES_IN_FLIGHT };
         VkDescriptorPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0, MAX_FRAMES_IN_FLIGHT, 1, &poolSize };
-        
+
         if (vkCreateDescriptorPool(VulkanContext::Get().GetDevice(), &poolInfo, nullptr, &m_DescriptorPool) != VK_SUCCESS)
         {
             throw std::runtime_error("RenderState: failed to create descriptor pool!");
@@ -68,7 +68,7 @@ namespace Chimera
 
         std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, m_DescriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr, m_DescriptorPool, MAX_FRAMES_IN_FLIGHT, layouts.data() };
-        
+
         m_DescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
         VkResult res = vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &allocInfo, m_DescriptorSets.data());
         if (res != VK_SUCCESS)
@@ -84,7 +84,7 @@ namespace Chimera
                 CH_CORE_ERROR("RenderState: Descriptor set {0} is NULL after allocation!", i);
             }
             VulkanContext::Get().SetDebugName((uint64_t)m_DescriptorSets[i], VK_OBJECT_TYPE_DESCRIPTOR_SET, ("Set0_Global_Frame_" + std::to_string(i)).c_str());
-            
+
             VkDescriptorBufferInfo bufferInfo{ (VkBuffer)(void*)(uintptr_t)m_Frames[i].UBO->GetBuffer(), 0, sizeof(UniformBufferObject) };
             VkWriteDescriptorSet descriptorWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, m_DescriptorSets[i], 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &bufferInfo, nullptr };
             vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &descriptorWrite, 0, nullptr);

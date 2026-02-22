@@ -31,7 +31,8 @@ namespace Chimera
         void FlushFrame(uint32_t frameIndex)
         {
             auto& deletors = m_FrameDeletions[frameIndex];
-            if (!deletors.empty()) {
+            if (!deletors.empty())
+            {
                 CH_CORE_TRACE("DeletionQueue: Flushing {0} tasks for frame {1}", deletors.size(), frameIndex);
             }
             for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
@@ -48,8 +49,9 @@ namespace Chimera
             {
                 FlushFrame(i);
             }
-            
-            if (!m_GlobalDeletions.empty()) {
+
+            if (!m_GlobalDeletions.empty())
+            {
                 CH_CORE_TRACE("DeletionQueue: Flushing {0} global tasks", m_GlobalDeletions.size());
             }
             for (auto it = m_GlobalDeletions.rbegin(); it != m_GlobalDeletions.rend(); ++it)

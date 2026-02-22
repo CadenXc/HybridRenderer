@@ -6,7 +6,8 @@
 #include <glm/gtx/quaternion.hpp>
 #include <imgui.h>
 
-namespace Chimera {
+namespace Chimera
+{
 
 	EditorCamera::EditorCamera(float fov, float aspectRatio, float nearClip, float farClip)
 		: m_FOV(fov), m_AspectRatio(aspectRatio), m_NearClip(nearClip), m_FarClip(farClip), m_ViewMatrix(glm::mat4(1.0f))
@@ -88,35 +89,58 @@ namespace Chimera {
 		if (isFocused)
 		{
 			float moveSpeed = 5.0f * ts.GetSeconds(); 
-			if (Input::IsKeyDown(KeyCode::LeftShift)) moveSpeed *= 2.5f; // Sprint
+			if (Input::IsKeyDown(KeyCode::LeftShift))
+			{
+				moveSpeed *= 2.5f; // Sprint
+			}
 
 			if (Input::IsKeyDown(KeyCode::W))
+			{
 				m_FocalPoint += GetForwardDirection() * moveSpeed;
+			}
 			if (Input::IsKeyDown(KeyCode::S))
+			{
 				m_FocalPoint -= GetForwardDirection() * moveSpeed;
+			}
 			if (Input::IsKeyDown(KeyCode::A))
+			{
 				m_FocalPoint -= GetRightDirection() * moveSpeed;
+			}
 			if (Input::IsKeyDown(KeyCode::D))
+			{
 				m_FocalPoint += GetRightDirection() * moveSpeed;
+			}
 			if (Input::IsKeyDown(KeyCode::E))
+			{
 				m_FocalPoint += glm::vec3(0.0f, 1.0f, 0.0f) * moveSpeed;
+			}
 			if (Input::IsKeyDown(KeyCode::Q))
+			{
 				m_FocalPoint -= glm::vec3(0.0f, 1.0f, 0.0f) * moveSpeed;
+			}
 		}
 
 		// 2. Mouse Interaction (Alt + Click) - Only if hovered
 		if ((Input::IsKeyDown(KeyCode::LeftAlt) || Input::IsKeyDown(KeyCode::RightAlt)) && isHovered)
 		{
 			if (Input::IsMouseButtonDown(MouseButton::Middle))
+			{
 				MousePan(delta);
+			}
 			else if (Input::IsMouseButtonDown(MouseButton::Left))
+			{
 				MouseRotate(delta);
+			}
 			else if (Input::IsMouseButtonDown(MouseButton::Right))
+			{
 				MouseZoom(delta.y);
+			}
 		}
 
 		if (m_FocalPoint != oldFocalPoint || m_Pitch != oldPitch || m_Yaw != oldYaw || m_Distance != oldDistance)
+		{
 			m_IsUpdated = true;
+		}
 
 		UpdateView();
 	}
@@ -141,8 +165,14 @@ namespace Chimera {
 	void EditorCamera::MouseFOV(float delta)
 	{
 		m_FOV -= delta * 2.0f;
-		if (m_FOV < 1.0f) m_FOV = 1.0f;
-		if (m_FOV > 120.0f) m_FOV = 120.0f;
+		if (m_FOV < 1.0f)
+		{
+			m_FOV = 1.0f;
+		}
+		if (m_FOV > 120.0f)
+		{
+			m_FOV = 120.0f;
+		}
 	}
 
 	void EditorCamera::Reset()

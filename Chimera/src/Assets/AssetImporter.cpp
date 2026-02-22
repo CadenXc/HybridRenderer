@@ -54,7 +54,7 @@ namespace Chimera
         for (size_t i = 0; i < data->materials_count; ++i)
         {
             cgltf_material& gMat = data->materials[i];
-            PBRMaterial mat{};
+            GpuMaterial mat{};
             mat.albedo = glm::vec4(1.0f);
             mat.emission = glm::vec4(0.0f);
             mat.roughness = 1.0f;
@@ -85,7 +85,7 @@ namespace Chimera
         }
         if (outScene->Materials.empty())
         {
-            outScene->Materials.push_back(PBRMaterial{});
+            outScene->Materials.push_back(GpuMaterial{});
         }
 
         // 2. Load Geometry

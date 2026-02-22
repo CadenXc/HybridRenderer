@@ -4,6 +4,7 @@
 #ifdef __cplusplus
 #include <glm/glm.hpp>
 #include <cstdint>
+namespace Chimera {
 using vec2 = glm::vec2;
 using vec3 = glm::vec3;
 using vec4 = glm::vec4;
@@ -14,58 +15,89 @@ using uint = uint32_t;
 #extension GL_EXT_scalar_block_layout : enable
 
 // --- GLSL Helper Functions ---
-vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj) {
+vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
+{
     vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec4 world = invViewProj * clip;
     return world.xyz / world.w;
 }
 
-vec3 GetViewPos(float depth, vec2 uv, mat4 invProj) {
+vec3 GetViewPos(float depth, vec2 uv, mat4 invProj)
+{
     vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
     vec4 view = invProj * clip;
     return view.xyz / view.w;
 }
 #endif
 
-struct DirectionalLight {
-    mat4 projview;
-    vec4 direction;
-    vec4 color;
-    vec4 intensity;
-};
+// --- 1. Shared Constants (Anti-Magic-Number) ---
+#define DISPLAY_MODE_FINAL      0
+#define DISPLAY_MODE_ALBEDO     1
+#define DISPLAY_MODE_NORMAL     2
+#define DISPLAY_MODE_MATERIAL   3
+#define DISPLAY_MODE_MOTION     4
+#define DISPLAY_MODE_DEPTH      5
+#define DISPLAY_MODE_SHADOW_AO  6
+#define DISPLAY_MODE_REFLECTION 7
 
-struct UniformBufferObject {
+#define RENDER_FLAG_SVGF_BIT        (1 << 0)
+#define RENDER_FLAG_GI_BIT          (1 << 1)
+#define RENDER_FLAG_SHOW_VARIANCE   (1 << 2)
+
+// --- 2. Logical Data Groups ---
+struct CameraData 
+{
     mat4 view;
     mat4 proj;
-    vec4 cameraPos;
     mat4 viewInverse;
     mat4 projInverse;
     mat4 viewProjInverse;
     mat4 prevView;
     mat4 prevProj;
-    DirectionalLight directionalLight;
+    vec4 position; // w = 1.0
+};
+
+struct LightData 
+{
+    mat4 projview;
+    vec4 direction;
+    vec4 color;
+    vec4 intensity; // x: intensity, y: radius, zw: unused
+};
+
+struct SVGFParams 
+{
+    float alphaColor;
+    float alphaMoments;
+    float phiColor;
+    float phiNormal;
+    float phiDepth;
+    float padding[3]; 
+};
+
+// --- 3. Main Structures ---
+struct UniformBufferObject 
+{
+    CameraData camera;
+    LightData  sunLight;
+    SVGFParams svgf;
+
     vec2 displaySize;
     vec2 displaySizeInverse;
     uint frameIndex;
     uint frameCount;
-    uint displayMode; // 0: Final, 1: Albedo, 2: Normal, 3: Material, 4: Motion, 5: Depth, 6: ShadowAO, 7: Reflection
-    uint renderFlags;  // Bit 0: Enable SVGF, Bit 1: Enable GI, Bit 2: Show Denoising Variance
+
+    uint displayMode; 
+    uint renderFlags;
     float exposure;
     float ambientStrength;
-    float bloomStrength;
 
-    // --- SVGF & Light Parameters ---
-    float svgfAlphaColor;
-    float svgfAlphaMoments;
-    float svgfPhiColor;
-    float svgfPhiNormal;
-    float svgfPhiDepth;
-    float lightRadius;
-    float padding1;
-    float padding2;
+    float bloomStrength;
+    float padding_final;
 };
 
-struct PBRMaterial {
+struct GpuMaterial
+{
     vec4 albedo;
     vec4 emission;
     float roughness;
@@ -76,7 +108,17 @@ struct PBRMaterial {
     int padding[3];
 };
 
-struct GBufferPushConstants {
+struct GpuVertex
+{
+    vec3 pos;
+    vec3 normal;
+    vec4 tangent;
+    vec2 texCoord;
+};
+
+// --- 4. Special Purpose ---
+struct GBufferPushConstants
+{
     mat4 model;
     mat4 normalMatrix;
     mat4 prevModel;
@@ -91,17 +133,6 @@ struct RTInstanceData
     int padding;
 };
 
-// [RESTORED] 保持 Vertex 命名以兼容 SceneCommon.h
-struct Vertex {
-    vec3 pos;
-    float pad1;
-    vec3 normal;
-    float pad2;
-    vec4 tangent;
-    vec2 texCoord;
-    vec2 pad3;
-};
-
 struct HitPayload
 {
     vec3 color;
@@ -112,8 +143,10 @@ struct HitPayload
 };
 
 #ifdef __cplusplus
-static_assert(sizeof(PBRMaterial) == 64, "PBRMaterial size must be 64 bytes");
-static_assert(sizeof(Vertex) == 64, "Vertex size must be 64 bytes");
+static_assert(sizeof(GpuMaterial) == 64, "GpuMaterial size must be 64 bytes");
+static_assert(sizeof(GpuVertex) == 48, "GpuVertex size must be 48 bytes");
+static_assert(sizeof(UniformBufferObject) % 16 == 0, "UBO size must be 16-byte aligned");
+} // namespace Chimera
 #endif
 
 #endif
