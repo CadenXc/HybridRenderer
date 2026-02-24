@@ -54,6 +54,8 @@ namespace Chimera
             return m_IndexCount;
         }
 
+        void Draw(class GraphicsExecutionContext& ctx); // [NEW] Data-driven draw call
+
     private:
         void BuildBLAS();
 

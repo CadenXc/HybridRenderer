@@ -17,6 +17,7 @@ namespace Chimera
         ResourceManager();
         ~ResourceManager();
 
+        void Clear(); // [NEW] Explicit cleanup
         void InitGlobalResources();
         void UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo);
         
@@ -35,7 +36,7 @@ namespace Chimera
         Image* GetDefaultTexture() const { return m_Textures.empty() ? nullptr : m_Textures[0].get(); }
         Image& GetBlackTexture() const { return *m_Textures[0]; }
 
-        GraphImage CreateGraphImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageLayout initialLayout, VkSampleCountFlagBits samples);
+        GraphImage CreateGraphImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageLayout initialLayout, VkSampleCountFlagBits samples, const std::string& name = "");
         void DestroyGraphImage(GraphImage& image);
 
         static bool HasInstance() { return s_Instance != nullptr; }
@@ -56,6 +57,7 @@ namespace Chimera
         
         VkBuffer GetMaterialBuffer() const { return (VkBuffer)m_MaterialBuffer->GetBuffer(); }
         void SyncMaterialsToGPU();
+        void SyncPrimitivesToGPU(class Scene* scene); // [NEW] Data-driven primitive sync
 
         void AddTransientBuffer(std::shared_ptr<Buffer> buffer)
         {
@@ -114,6 +116,7 @@ namespace Chimera
         std::unordered_map<std::string, MaterialHandle> m_MaterialMap;
         std::vector<uint32_t> m_MaterialRefCount;
         std::unique_ptr<Buffer> m_MaterialBuffer;
+        std::unique_ptr<Buffer> m_PrimitiveBuffer; // [NEW] SSBO for all scene objects
 
         std::vector<std::shared_ptr<Buffer>> m_Buffers;
         std::vector<uint32_t> m_BufferRefCount;
@@ -122,6 +125,7 @@ namespace Chimera
         std::vector<std::vector<std::function<void()>>> m_ResourceFreeQueue;
         std::shared_ptr<class Scene> m_ActiveScene; // [CENTRALIZED OWNERSHIP]
         uint32_t m_CurrentFrameIndex = 0;
+        bool m_IsCleared = false; // [NEW] Safety flag
     };
 
     template<> inline Image* ResourceManager::Get(TextureHandle handle) { return GetTexture(handle); }

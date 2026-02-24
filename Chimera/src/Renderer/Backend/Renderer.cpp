@@ -3,14 +3,6 @@
 #include "Renderer/Backend/RenderContext.h"
 #include "Renderer/Resources/ResourceManager.h"
 
-#define VK_CHECK(result) \
-	do { \
-		VkResult res = (result); \
-		if (res != VK_SUCCESS) { \
-			throw std::runtime_error("Vulkan error: " + std::to_string(res)); \
-		} \
-	} while(0)
-
 namespace Chimera
 {
     Renderer* Renderer::s_Instance = nullptr;

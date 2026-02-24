@@ -1,102 +1,55 @@
 #pragma once
 
-#include "pch.h"
-#include "Scene/SceneCommon.h"
-#include "Scene/Model.h"
-#include "Renderer/Backend/VulkanContext.h"
-#include "Renderer/Resources/Buffer.h"
-#include "Renderer/Resources/ResourceManager.h"
-#include <unordered_map>
+#include "SceneCommon.h"
+#include "Renderer/Resources/ResourceHandle.h"
 #include <vector>
+#include <string>
 #include <memory>
 
 namespace Chimera
 {
+    class VulkanContext;
+    class Model;
+
     class Scene
     {
     public:
         Scene(std::shared_ptr<VulkanContext> context);
         ~Scene();
 
-        std::shared_ptr<Model> LoadModel(const std::string& path);
+        // Scene Management
+        void LoadModel(const std::string& path);
+        void UpdateEntityTRS(uint32_t index, const glm::vec3& pos, const glm::vec3& rot, const glm::vec3& scale);
+        void ClearScene();
+
+        // Skybox
         void LoadSkybox(const std::string& path);
         void ClearSkybox();
-        void AddEntity(std::shared_ptr<Model> model, const glm::mat4& transform = glm::mat4(1.0f), const std::string& name = "Entity");
+        uint32_t GetSkyboxTextureIndex() const { return m_SkyboxTexture.IsValid() ? m_SkyboxTexture.id : 0xFFFFFFFF; }
 
-        const std::vector<Entity>& GetEntities() const
-        {
-            return m_Entities;
-        }
+        // Lights
+        struct DirectionalLight {
+            glm::vec4 direction = glm::vec4(0, -1, 0, 0);
+            glm::vec4 color = glm::vec4(1, 1, 1, 1);
+            glm::vec4 intensity = glm::vec4(3.0f, 0.05f, 0, 0); // x: strength, y: radius
+        };
+        DirectionalLight& GetLight() { return m_MainLight; }
 
-        void UpdateEntityTransform(uint32_t index, const glm::mat4& transform);
-        void UpdateEntityTRS(uint32_t index, const glm::vec3& translation, const glm::vec3& rotation, const glm::vec3& scale);
-        void RemoveEntity(uint32_t index);
+        // Acceleration Structures
+        void UpdateTLAS();
+        VkAccelerationStructureKHR GetTLAS() const { return m_TopLevelAS; }
         
-        int GetSkyboxTextureIndex() const
-        {
-            return m_SkyboxRef.IsValid() ? (int)m_SkyboxRef.Get().id : -1;
-        }
-
-        VkBuffer GetMaterialBuffer() const
-        {
-            return ResourceManager::Get().GetMaterialBuffer();
-        }
-
-        VkBuffer GetInstanceDataBuffer() const
-        {
-            return (VkBuffer)(m_InstanceDataBuffer ? m_InstanceDataBuffer->GetBuffer() : m_DummyBuffer->GetBuffer());
-        }
-        
-        std::shared_ptr<VulkanContext> GetContext() const
-        {
-            return m_Context;
-        }
-
-        VkAccelerationStructureKHR GetTLAS() const
-        {
-            return m_TopLevelAS;
-        }
-
-        Camera& GetCamera()
-        {
-            return m_Camera;
-        }
-
-        const Camera& GetCamera() const
-        {
-            return m_Camera;
-        }
-
-        LightData& GetLight()
-        {
-            return m_Light;
-        }
-
-        const LightData& GetLight() const
-        {
-            return m_Light;
-        }
-
-        void BuildTLAS();
-        void RenderMeshes(class GraphicsExecutionContext& ctx);
+        const std::vector<Entity>& GetEntities() const { return m_Entities; }
 
     private:
-        void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
-        void CreateDummyResources();
-
-    private:
-        std::shared_ptr<VulkanContext> m_Context;
-
-        std::vector<std::shared_ptr<Model>> m_Models;
+        VulkanContext* m_Context;
         std::vector<Entity> m_Entities;
-        std::unique_ptr<Buffer> m_InstanceDataBuffer;
-        std::unique_ptr<Buffer> m_DummyBuffer;
+        
+        DirectionalLight m_MainLight;
+        TextureHandle m_SkyboxTexture;
 
         VkAccelerationStructureKHR m_TopLevelAS = VK_NULL_HANDLE;
         std::unique_ptr<Buffer> m_TLASBuffer;
-
-        Camera m_Camera;
-        LightData m_Light;
-        TextureRef m_SkyboxRef;
+        std::unique_ptr<Buffer> m_ASInstanceBuffer; // [NEW] Manage instance buffer lifecycle
     };
 }

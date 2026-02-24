@@ -7,7 +7,8 @@ namespace Chimera
     static const char* requiredDeviceExtensions[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-        VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
+        VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+        VK_KHR_RAY_QUERY_EXTENSION_NAME // [NEW] Required for RayQuery shadows
     };
 
     static const char* optionalDeviceExtensions[] = {
@@ -28,8 +29,22 @@ namespace Chimera
     {
         CH_CORE_INFO("VulkanDevice: Finalizing device destruction...");
         
-        vmaDestroyAllocator(m_Allocator);
-        vkDestroyDevice(m_LogicalDevice, nullptr);
+        if (m_LogicalDevice != VK_NULL_HANDLE)
+        {
+            vkDeviceWaitIdle(m_LogicalDevice);
+        }
+
+        if (m_Allocator != nullptr)
+        {
+            vmaDestroyAllocator(m_Allocator);
+            m_Allocator = nullptr;
+        }
+
+        if (m_LogicalDevice != VK_NULL_HANDLE)
+        {
+            vkDestroyDevice(m_LogicalDevice, nullptr);
+            m_LogicalDevice = VK_NULL_HANDLE;
+        }
     }
 
     void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
@@ -160,16 +175,20 @@ namespace Chimera
         asFeatures.accelerationStructure = VK_TRUE;
         asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
 
+        VkPhysicalDeviceRayQueryFeaturesKHR rqFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+        rqFeatures.rayQuery = VK_TRUE;
+
         VkPhysicalDeviceVulkan13Features vulkan13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         vulkan13Features.dynamicRendering = VK_TRUE;
         vulkan13Features.synchronization2 = VK_TRUE;
         vulkan13Features.shaderDemoteToHelperInvocation = VK_TRUE;
 
-        // Build Chain: 13 -> 12 -> RT -> AS
+        // Build Chain: 13 -> 12 -> RT -> AS -> RQ
         vulkan13Features.pNext = &vulkan12Features;
         vulkan12Features.pNext = &rtPipelineFeatures;
         rtPipelineFeatures.pNext = &asFeatures;
-        asFeatures.pNext = nullptr;
+        asFeatures.pNext = &rqFeatures;
+        rqFeatures.pNext = nullptr;
 
         VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
         createInfo.queueCreateInfoCount = (uint32_t)queueCreateInfos.size();
@@ -183,6 +202,9 @@ namespace Chimera
         {
             throw std::runtime_error("failed to create logical device!");
         }
+
+        // [FIX] Load device-level extension functions (RT, AS, etc.)
+        volkLoadDevice(m_LogicalDevice);
 
         m_GraphicsQueueFamily = indices.graphicsFamily.value();
         m_ComputeQueueFamily = indices.computeFamily.value();

@@ -92,7 +92,11 @@ namespace Chimera
         }
         m_SwapChainImageViews.clear();
 
-        // Note: m_SwapChain is now handled by oldSwapchain in Create() or destructor
+        if (m_SwapChain != VK_NULL_HANDLE)
+        {
+            vkDestroySwapchainKHR(m_Device, m_SwapChain, nullptr);
+            m_SwapChain = VK_NULL_HANDLE;
+        }
     }
 
     void Swapchain::CreateImageViews()

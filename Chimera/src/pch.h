@@ -38,6 +38,15 @@
 
 #include "Core/Log.h"
 
+#define VK_CHECK(result) \
+    do { \
+        VkResult res = (result); \
+        if (res != VK_SUCCESS) { \
+            CH_CORE_ERROR("Vulkan Error: {} in {} at line {}", (int)res, __FILE__, __LINE__); \
+            throw std::runtime_error("Vulkan error"); \
+        } \
+    } while(0)
+
 namespace Chimera
 {
 

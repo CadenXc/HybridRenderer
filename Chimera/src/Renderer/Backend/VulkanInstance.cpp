@@ -98,10 +98,7 @@ namespace Chimera
             createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
         }
 
-        if (vkCreateInstance(&createInfo, nullptr, &m_Instance) != VK_SUCCESS)
-        {
-            throw std::runtime_error("failed to create instance!");
-        }
+        VK_CHECK(vkCreateInstance(&createInfo, nullptr, &m_Instance));
     }
 
     void VulkanInstance::SetupDebugMessenger()
@@ -113,10 +110,11 @@ namespace Chimera
         VkDebugUtilsMessengerCreateInfoEXT createInfo;
         PopulateDebugMessengerCreateInfo(createInfo);
         auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkCreateDebugUtilsMessengerEXT");
-        if (func == nullptr || func(m_Instance, &createInfo, nullptr, &m_DebugMessenger) != VK_SUCCESS)
+        if (func == nullptr)
         {
-            throw std::runtime_error("failed to set up debug messenger!");
+            throw std::runtime_error("failed to find vkCreateDebugUtilsMessengerEXT function pointer!");
         }
+        VK_CHECK(func(m_Instance, &createInfo, nullptr, &m_DebugMessenger));
     }
 
     bool VulkanInstance::CheckValidationLayerSupport()

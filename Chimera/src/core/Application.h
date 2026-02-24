@@ -33,10 +33,11 @@ namespace Chimera
         float Time;
         uint32_t FrameIndex;
         uint32_t DisplayMode = 0;
-        uint32_t RenderFlags = 1; // Bit 0 enabled by default
+        uint32_t RenderFlags = 1; 
         float Exposure = 1.0f;
         float AmbientStrength = 1.0f;
         float BloomStrength = 0.5f;
+        glm::vec4 ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f }; // [NEW]
 
         float SVGFAlphaColor = 0.05f;
         float SVGFAlphaMoments = 0.2f;
@@ -119,6 +120,10 @@ namespace Chimera
         void SetFrameContext(const AppFrameContext& ctx)
         {
             m_FrameContext = ctx;
+        }
+        const AppFrameContext& GetFrameContext() const // [NEW]
+        {
+            return m_FrameContext;
         }
         void SetActiveScene(Scene* scene)
         {

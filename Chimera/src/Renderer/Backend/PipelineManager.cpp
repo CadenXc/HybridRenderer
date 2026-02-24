@@ -35,7 +35,14 @@ namespace Chimera
             {
                 vkDestroyPipeline(device, p->handle, nullptr);
             }
-            // Layout is now handled by m_LayoutCache
+        }
+
+        for (auto& [name, p] : m_ComputeCache)
+        {
+            if (p->handle != VK_NULL_HANDLE)
+            {
+                vkDestroyPipeline(device, p->handle, nullptr);
+            }
         }
 
         for (auto& [hash, layout] : m_LayoutCache)

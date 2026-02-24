@@ -10,6 +10,7 @@
 #include "Renderer/RenderState.h"
 #include "Renderer/Backend/ShaderCommon.h"
 #include "Scene/Scene.h"
+#include "Scene/Model.h" // [FIX] Added missing include
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -20,6 +21,10 @@ namespace Chimera
 
     ResourceManager::ResourceManager()
     {
+        if (s_Instance)
+        {
+            CH_CORE_ERROR("ResourceManager: Multiple instances detected! Existing instance at [0x{0:x}]", (uint64_t)s_Instance);
+        }
         s_Instance = this;
         m_ResourceFreeQueue.resize(MAX_FRAMES_IN_FLIGHT);
         m_SceneDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
@@ -28,13 +33,33 @@ namespace Chimera
 
     ResourceManager::~ResourceManager()
     {
+        Clear();
+    }
+
+    void ResourceManager::Clear()
+    {
+        if (m_IsCleared || !VulkanContext::HasInstance())
+        {
+            return;
+        }
+        m_IsCleared = true;
+
         VkDevice device = VulkanContext::Get().GetDevice();
         vkDeviceWaitIdle(device);
 
-        m_ActiveScene.reset(); // Clear scene ownership
+        // [FORCE] Drop scene first to trigger Model destruction
+        if (m_ActiveScene)
+        {
+            CH_CORE_INFO("ResourceManager: Releasing Scene shared_ptr. Current Use Count: {0}", m_ActiveScene.use_count());
+            m_ActiveScene.reset();
+        }
+        
         m_MaterialBuffer.reset();
-        m_Textures.clear();
+        m_PrimitiveBuffer.reset();
+        m_UniformBuffers.clear(); // [FIX] Clear uniform buffers
+        
         m_Materials.clear();
+        m_Textures.clear(); 
         m_Buffers.clear();
 
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
@@ -45,31 +70,40 @@ namespace Chimera
         if (m_SceneDescriptorSetLayout != VK_NULL_HANDLE)
         {
             vkDestroyDescriptorSetLayout(device, m_SceneDescriptorSetLayout, nullptr);
+            m_SceneDescriptorSetLayout = VK_NULL_HANDLE;
         }
+        
         if (m_DescriptorPool != VK_NULL_HANDLE)
         {
             vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
+            m_DescriptorPool = VK_NULL_HANDLE;
         }
-        for (auto pool : m_TransientDescriptorPools)
+
+        for (auto& pool : m_TransientDescriptorPools)
         {
             if (pool != VK_NULL_HANDLE)
             {
                 vkDestroyDescriptorPool(device, pool, nullptr);
+                pool = VK_NULL_HANDLE;
             }
         }
+
         if (m_TextureSampler != VK_NULL_HANDLE)
         {
             vkDestroySampler(device, m_TextureSampler, nullptr);
+            m_TextureSampler = VK_NULL_HANDLE;
         }
-
-        s_Instance = nullptr;
     }
 
     void ResourceManager::InitGlobalResources()
     {
+        // 1. Persistent Storage Buffers
+        m_MaterialBuffer = std::make_unique<Buffer>(sizeof(GpuMaterial) * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        m_PrimitiveBuffer = std::make_unique<Buffer>(sizeof(GpuPrimitive) * 4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+        CreateTextureSampler();
         CreateDescriptorPool();
         CreateTransientDescriptorPools();
-        CreateTextureSampler();
         CreateSceneDescriptorSetLayout();
         AllocatePersistentSets();
         CreateDefaultResources();
@@ -137,7 +171,7 @@ namespace Chimera
         std::vector<VkDescriptorSetLayoutBinding> b = {
             { 0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL, nullptr },
             { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr },
-            { 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr },
+            { 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr }, 
             { 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024, VK_SHADER_STAGE_ALL, nullptr }
         };
         VkDescriptorBindingFlags f[4] = {
@@ -221,11 +255,11 @@ namespace Chimera
                 wS.push_back(mW);
             }
 
-            auto iB = s->GetInstanceDataBuffer();
-            if (iB != VK_NULL_HANDLE)
+            // [MODERN] Use the centralized Primitive Buffer instead of individual instance buffers
+            if (m_PrimitiveBuffer && m_PrimitiveBuffer->GetBuffer() != VK_NULL_HANDLE)
             {
                 static VkDescriptorBufferInfo iI;
-                iI = { (VkBuffer)iB, 0, VK_WHOLE_SIZE };
+                iI = { (VkBuffer)m_PrimitiveBuffer->GetBuffer(), 0, VK_WHOLE_SIZE };
                 VkWriteDescriptorSet iW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, 2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &iI };
                 wS.push_back(iW);
             }
@@ -249,6 +283,62 @@ namespace Chimera
             {
                 vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), (uint32_t)wS.size(), wS.data(), 0, nullptr);
             }
+        }
+    }
+
+    void ResourceManager::SyncPrimitivesToGPU(Scene* scene)
+    {
+        if (!scene || !m_PrimitiveBuffer)
+        {
+            return;
+        }
+
+        const auto& entities = scene->GetEntities();
+        if (entities.empty())
+        {
+            return;
+        }
+
+        std::vector<GpuPrimitive> primitiveData;
+        
+        for (const auto& entity : entities)
+        {
+            if (!entity.mesh.model) continue;
+
+            const auto& meshes = entity.mesh.model->GetMeshes();
+            glm::mat4 modelMatrix = entity.transform.GetTransform();
+
+            for (const auto& mesh : meshes)
+            {
+                GpuPrimitive gpuPrim{};
+                gpuPrim.transform = modelMatrix * mesh.transform;
+                gpuPrim.normalMatrix = glm::transpose(glm::inverse(gpuPrim.transform));
+                gpuPrim.prevTransform = entity.prevTransform * mesh.transform;
+                gpuPrim.materialIndex = mesh.materialIndex;
+                
+                // [NEW] Unified addresses
+                gpuPrim.vertexAddress = entity.mesh.model->GetVertexBuffer()->GetDeviceAddress() + (mesh.vertexOffset * sizeof(GpuVertex));
+                gpuPrim.indexAddress = entity.mesh.model->GetIndexBuffer()->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
+                
+                primitiveData.push_back(gpuPrim);
+            }
+        }
+
+        if (primitiveData.empty()) return;
+
+        VkDeviceSize dataSize = primitiveData.size() * sizeof(GpuPrimitive);
+        if (m_PrimitiveBuffer->GetSize() < dataSize)
+        {
+            m_PrimitiveBuffer = std::make_unique<Buffer>(dataSize * 2, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        }
+
+        Buffer staging(dataSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        staging.UploadData(primitiveData.data(), dataSize);
+
+        {
+            ScopedCommandBuffer cmd;
+            VkBufferCopy copy{ 0, 0, dataSize };
+            vkCmdCopyBuffer(cmd, (VkBuffer)staging.GetBuffer(), (VkBuffer)m_PrimitiveBuffer->GetBuffer(), 1, &copy);
         }
     }
 
@@ -282,7 +372,7 @@ namespace Chimera
         }
     }
 
-    GraphImage ResourceManager::CreateGraphImage(uint32_t w, uint32_t h, VkFormat f, VkImageUsageFlags u, VkImageLayout iL, VkSampleCountFlagBits s)
+    GraphImage ResourceManager::CreateGraphImage(uint32_t w, uint32_t h, VkFormat f, VkImageUsageFlags u, VkImageLayout iL, VkSampleCountFlagBits s, const std::string& name)
     {
         static uint32_t s_ActiveGraphImages = 0;
         GraphImage i{};
@@ -314,6 +404,11 @@ namespace Chimera
         }
         s_ActiveGraphImages++;
 
+        if (!name.empty())
+        {
+            VulkanContext::Get().SetDebugName((uint64_t)i.handle, VK_OBJECT_TYPE_IMAGE, name.c_str());
+        }
+
         VkImageViewCreateInfo vW{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, nullptr, 0, i.handle, VK_IMAGE_VIEW_TYPE_2D, f, { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY }, { (VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, 1 } };
 
         res = vkCreateImageView(VulkanContext::Get().GetDevice(), &vW, nullptr, &i.view);
@@ -323,10 +418,22 @@ namespace Chimera
             return i;
         }
 
+        if (!name.empty())
+        {
+            std::string viewName = name + "_View";
+            VulkanContext::Get().SetDebugName((uint64_t)i.view, VK_OBJECT_TYPE_IMAGE_VIEW, viewName.c_str());
+        }
+
         if (isDepth)
         {
             vW.components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE };
             vkCreateImageView(VulkanContext::Get().GetDevice(), &vW, nullptr, &i.debug_view);
+            
+            if (!name.empty())
+            {
+                std::string debugViewName = name + "_DebugView";
+                VulkanContext::Get().SetDebugName((uint64_t)i.debug_view, VK_OBJECT_TYPE_IMAGE_VIEW, debugViewName.c_str());
+            }
         }
         else
         {
@@ -341,11 +448,22 @@ namespace Chimera
         {
             return;
         }
-        vkDestroyImageView(VulkanContext::Get().GetDevice(), i.view, nullptr);
-        if (i.debug_view != i.view && i.debug_view != VK_NULL_HANDLE)
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+
+        // [FIX] Use a temporary set to ensure each unique handle is destroyed exactly once
+        std::set<VkImageView> uniqueViews;
+        if (i.view != VK_NULL_HANDLE) uniqueViews.insert(i.view);
+        if (i.debug_view != VK_NULL_HANDLE) uniqueViews.insert(i.debug_view);
+
+        for (auto v : uniqueViews)
         {
-            vkDestroyImageView(VulkanContext::Get().GetDevice(), i.debug_view, nullptr);
+            vkDestroyImageView(device, v, nullptr);
         }
+
+        i.view = VK_NULL_HANDLE;
+        i.debug_view = VK_NULL_HANDLE;
+        
         vmaDestroyImage(VulkanContext::Get().GetAllocator(), i.handle, i.allocation);
         i.handle = VK_NULL_HANDLE;
     }

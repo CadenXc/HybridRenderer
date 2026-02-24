@@ -1,0 +1,69 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "ShaderCommon.h"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant) uniform PushConstants { int step; } pc;
+
+layout(set = 0, binding = 0) uniform GlobalUBO { UniformBufferObject ubo; } global;
+
+layout(set = 2, binding = 0) uniform sampler2D gInputColor;
+layout(set = 2, binding = 1) uniform sampler2D gInputMoments;
+layout(set = 2, binding = 2) uniform sampler2D gNormal;
+layout(set = 2, binding = 3) uniform sampler2D gDepth;
+
+layout(set = 2, binding = 4, rgba16f) uniform image2D outFiltered;
+
+void main()
+{
+    ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    vec2 displaySize = global.ubo.displaySize;
+    
+    if (ipos.x >= int(displaySize.x) || ipos.y >= int(displaySize.y)) return;
+
+    vec2 uv = (vec2(ipos) + 0.5) / displaySize;
+    vec4 centerColor = texture(gInputColor, uv);
+    vec4 centerMoments = texture(gInputMoments, uv);
+    vec3 centerNormal = texture(gNormal, uv).xyz * 2.0 - 1.0;
+    float centerDepth = texture(gDepth, uv).r;
+
+    float variance = centerMoments.b;
+    float sigmaDepth = 1.0; 
+
+    // Use SVGF parameters from the updated UBO
+    float phiColor = 10.0; // Fallback or add to UBO if needed
+    float phiNormal = 128.0;
+    float phiDepth = 0.1;
+
+    float sumWeight = 1.0;
+    vec4 sumColor = centerColor;
+
+    for (int y = -2; y <= 2; y++)
+    {
+        for (int x = -2; x <= 2; x++)
+        {
+            if (x == 0 && y == 0) continue;
+
+            ivec2 neighborPos = ipos + ivec2(x, y) * pc.step;
+            if (neighborPos.x < 0 || neighborPos.x >= int(displaySize.x) || 
+                neighborPos.y < 0 || neighborPos.y >= int(displaySize.y)) continue;
+
+            vec2 neighborUV = (vec2(neighborPos) + 0.5) / displaySize;
+            vec4 neighborColor = texture(gInputColor, neighborUV);
+            vec3 neighborNormal = texture(gNormal, neighborUV).xyz * 2.0 - 1.0;
+            float neighborDepth = texture(gDepth, neighborUV).r;
+
+            // Compute weights
+            float wL = exp(-abs(centerColor.r - neighborColor.r) / phiColor);
+            float wN = pow(max(0.0, dot(centerNormal, neighborNormal)), phiNormal);
+            float wD = (phiDepth == 0.0) ? 1.0 : exp(-abs(centerDepth - neighborDepth) / phiDepth);
+
+            float weight = wL * wN * wD;
+            sumWeight += weight;
+            sumColor += weight * neighborColor;
+        }
+    }
+
+    imageStore(outFiltered, ipos, sumColor / sumWeight);
+}

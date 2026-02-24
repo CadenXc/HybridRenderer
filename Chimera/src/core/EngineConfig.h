@@ -19,24 +19,28 @@ namespace Chimera
         {
             std::filesystem::path currentPath = std::filesystem::current_path();
             std::filesystem::path root = currentPath;
-            bool found = false;
+            bool foundRoot = false;
             for (int i = 0; i < 5; ++i)
             {
                 if (std::filesystem::exists(root / "Chimera") && std::filesystem::exists(root / "scripts"))
                 {
-                    found = true;
+                    foundRoot = true;
                     break;
                 }
-                if (!root.has_parent_path())
-                {
-                    break;
-                }
+                if (!root.has_parent_path()) break;
                 root = root.parent_path();
             }
 
-            if (found)
+            if (foundRoot)
             {
                 SHADER_SOURCE_DIR = (root / "Chimera" / "shaders").string();
+                
+                // Point SHADER_DIR to the compiled binaries in build folder
+                std::filesystem::path compiledDir = root / "build" / "shaders_compiled";
+                if (std::filesystem::exists(compiledDir))
+                {
+                    SHADER_DIR = compiledDir.string() + "/";
+                }
             }
         }
 

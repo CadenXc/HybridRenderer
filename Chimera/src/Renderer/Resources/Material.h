@@ -30,6 +30,12 @@ namespace Chimera
             m_Dirty = true;
         }
 
+        void SetData(const GpuMaterial& data)
+        {
+            m_Data = data;
+            m_Dirty = true;
+        }
+
         void SetRoughness(float r)
         {
             m_Data.roughness = r;

@@ -4,7 +4,7 @@
 
 namespace Chimera
 {
-    Image::Image(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkImageTiling tiling)
+    Image::Image(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkImageTiling tiling, const std::string& name)
         : m_Width(width), m_Height(height), m_Format(format), m_MipLevels(mipLevels)
     {
         m_Device = VulkanContext::Get().GetDevice();
@@ -30,6 +30,11 @@ namespace Chimera
             throw std::runtime_error("failed to create image!");
         }
 
+        if (!name.empty())
+        {
+            VulkanContext::Get().SetDebugName((uint64_t)m_Image, VK_OBJECT_TYPE_IMAGE, name.c_str());
+        }
+
         VkImageViewCreateInfo viewInfo{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
         viewInfo.image = m_Image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -43,6 +48,12 @@ namespace Chimera
         if (vkCreateImageView(m_Device, &viewInfo, nullptr, &m_View) != VK_SUCCESS)
         {
             throw std::runtime_error("failed to create image view!");
+        }
+
+        if (!name.empty())
+        {
+            std::string viewName = name + "_View";
+            VulkanContext::Get().SetDebugName((uint64_t)m_View, VK_OBJECT_TYPE_IMAGE_VIEW, viewName.c_str());
         }
     }
 

@@ -30,8 +30,6 @@ namespace Chimera
 		void SwitchRenderPath(RenderPathType type);
 		void LoadScene(const std::string& path);
 		void ClearScene();
-		void LoadSkybox(const std::string& path);
-		void ClearSkybox();
 
 		std::shared_ptr<Scene> GetActiveScene()
 		{
@@ -48,18 +46,18 @@ namespace Chimera
 
 	private:
 		void RefreshModelList();
-		void RefreshSkyboxList();
 		void LoadModel(const std::string& relativePath);
 
-		// UI Panels		 
+		// UI Panels (Accept active path as parameter)
 		void DrawMenuBar();
-		void DrawRenderPathPanel();
+		void DrawRenderPathPanel(RenderPath* activePath);
 		void DrawModelSelectionPanel();
-		void DrawViewportContent();
-		void DrawControlPanelContent();
+		void DrawViewportContent(RenderPath* activePath);
+		void DrawControlPanelContent(RenderPath* activePath);
 		void DrawSceneHierarchy();
-		void DrawPropertiesPanel();
-		void DrawLightSettings();
+		void DrawPropertiesPanel(RenderPath* activePath);
+		void DrawLightSettings(RenderPath* activePath);
+		void DrawGeneralSettings(); // [NEW]
 
 	private:
 		EditorCamera m_EditorCamera;
@@ -81,6 +79,7 @@ namespace Chimera
 		float m_Exposure = 1.0f;
         float m_AmbientStrength = 1.0f;
         float m_BloomStrength = 0.5f;
+        glm::vec4 m_ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f }; // [NEW] Global Background Color
 
         // --- SVGF Parameters ---
         float m_SVGFAlphaColor = 0.05f;
@@ -101,9 +100,6 @@ namespace Chimera
 		std::vector<ModelAsset> m_AvailableModels;
 		std::string m_ActiveModelPath = "";
 		int m_SelectedModelIndex = -1;
-
-		std::vector<std::string> m_AvailableSkyboxes;
-		int m_SelectedSkyboxIndex = 0;
 
 		int m_SelectedInstanceIndex = -1;
 

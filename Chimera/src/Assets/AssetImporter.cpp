@@ -42,7 +42,6 @@ namespace Chimera
             
             std::string baseDir = path.substr(0, path.find_last_of("/\\") + 1);
             std::string relativeUri = tex->image->uri;
-            // Unify separators
             std::replace(relativeUri.begin(), relativeUri.end(), '\\', '/');
             
             std::string texPath = baseDir + relativeUri;
@@ -92,10 +91,7 @@ namespace Chimera
         for (size_t i = 0; i < data->nodes_count; ++i)
         {
             cgltf_node& node = data->nodes[i];
-            if (!node.mesh)
-            {
-                continue;
-            }
+            if (!node.mesh) continue;
 
             glm::mat4 transform(1.0f);
             cgltf_node_transform_world(&node, glm::value_ptr(transform));
@@ -120,6 +116,8 @@ namespace Chimera
                     if (attr.type == cgltf_attribute_type_tangent) tanAcc = attr.data;
                 }
 
+                // Temporary storage for vertex data to compute tangents
+                uint32_t startIdx = (uint32_t)outScene->Vertices.size();
                 for (size_t k = 0; k < posAcc->count; ++k)
                 {
                     VertexInfo v{};
@@ -130,12 +128,59 @@ namespace Chimera
                     outScene->Vertices.push_back(v);
                 }
 
-                for (size_t k = 0; k < prim.indices->count; ++k)
+                uint32_t indexCount = (uint32_t)prim.indices->count;
+                std::vector<uint32_t> subIndices;
+                for (size_t k = 0; k < indexCount; ++k)
                 {
-                    outScene->Indices.push_back((uint32_t)cgltf_accessor_read_index(prim.indices, k));
+                    uint32_t idx = (uint32_t)cgltf_accessor_read_index(prim.indices, k);
+                    outScene->Indices.push_back(idx);
+                    subIndices.push_back(idx);
                 }
 
-                mesh.indexCount = (uint32_t)prim.indices->count;
+                // [FIX] Manual Tangent Generation if missing
+                if (!tanAcc && uvAcc && normAcc)
+                {
+                    CH_CORE_TRACE("AssetImporter: Generating tangents for mesh '{}'...", mesh.name);
+                    for (size_t k = 0; k < indexCount; k += 3)
+                    {
+                        uint32_t i0 = subIndices[k];
+                        uint32_t i1 = subIndices[k + 1];
+                        uint32_t i2 = subIndices[k + 2];
+
+                        VertexInfo& v0 = outScene->Vertices[startIdx + i0];
+                        VertexInfo& v1 = outScene->Vertices[startIdx + i1];
+                        VertexInfo& v2 = outScene->Vertices[startIdx + i2];
+
+                        glm::vec3 edge1 = v1.pos - v0.pos;
+                        glm::vec3 edge2 = v2.pos - v0.pos;
+                        glm::vec2 deltaUV1 = v1.texCoord - v0.texCoord;
+                        glm::vec2 deltaUV2 = v2.texCoord - v0.texCoord;
+
+                        float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+                        if (std::isinf(f)) f = 0.0f;
+
+                        glm::vec3 tangent;
+                        tangent.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+                        tangent.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+                        tangent.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+
+                        v0.tangent += glm::vec4(tangent, 0.0f);
+                        v1.tangent += glm::vec4(tangent, 0.0f);
+                        v2.tangent += glm::vec4(tangent, 0.0f);
+                    }
+
+                    // Orthogonalize and normalize
+                    for (size_t k = 0; k < posAcc->count; ++k)
+                    {
+                        VertexInfo& v = outScene->Vertices[startIdx + k];
+                        glm::vec3 t = glm::vec3(v.tangent);
+                        glm::vec3 n = v.normal;
+                        // Gram-Schmidt orthogonalization
+                        v.tangent = glm::vec4(glm::normalize(t - n * glm::dot(n, t)), 1.0f);
+                    }
+                }
+
+                mesh.indexCount = indexCount;
                 outScene->Meshes.push_back(mesh);
             }
         }

@@ -13,7 +13,8 @@ namespace Chimera
               VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
               uint32_t mipLevels = 1,
               VkSampleCountFlagBits numSamples = VK_SAMPLE_COUNT_1_BIT,
-              VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL);
+              VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL,
+              const std::string& name = "");
 
         ~Image();
 

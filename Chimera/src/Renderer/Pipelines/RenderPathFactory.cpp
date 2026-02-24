@@ -3,6 +3,7 @@
 #include "ForwardRenderPath.h"
 #include "HybridRenderPath.h"
 #include "RayTracedRenderPath.h"
+#include "RayQueryRenderPath.h"
 
 namespace Chimera
 {
@@ -13,6 +14,7 @@ namespace Chimera
             case RenderPathType::Forward:   return std::make_unique<ForwardRenderPath>(*context);
             case RenderPathType::Hybrid:    return std::make_unique<HybridRenderPath>(*context);
             case RenderPathType::RayTracing: return std::make_unique<RayTracedRenderPath>(*context);
+            case RenderPathType::RayQuery:  return std::make_unique<RayQueryRenderPath>(*context);
         }
         return nullptr;
     }

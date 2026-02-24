@@ -43,8 +43,8 @@ namespace Chimera
             },
             [prefix](const TemporalData& data, ComputeExecutionContext& ctx)
             {
-                ctx.BindPipeline("svgf/temporal.comp");
-                ctx.Dispatch("svgf/temporal.comp", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+                ctx.BindPipeline("postprocess/svgf/temporal.comp");
+                ctx.Dispatch("postprocess/svgf/temporal.comp", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
             }
         );
 
@@ -81,9 +81,9 @@ namespace Chimera
                 [i](const AtrousData& data, ComputeExecutionContext& ctx)
                 {
                     int step = 1 << i;
-                    ctx.BindPipeline("svgf/atrous.comp");
+                    ctx.BindPipeline("postprocess/svgf/atrous.comp");
                     ctx.PushConstants(VK_SHADER_STAGE_ALL, step);
-                    ctx.Dispatch("svgf/atrous.comp", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+                    ctx.Dispatch("postprocess/svgf/atrous.comp", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
                 }
             );
             currentInput = outputName;

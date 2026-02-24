@@ -4,8 +4,8 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Passes/ForwardPass.h"
+#include "Renderer/Passes/StandardPasses.h"
 #include "Renderer/Graph/GraphicsExecutionContext.h"
-#include "Renderer/Backend/Renderer.h"
 
 namespace Chimera
 {
@@ -23,42 +23,28 @@ namespace Chimera
     {
         if (m_NeedsResize)
         {
-            if (!m_Context)
-            {
-                return VK_NULL_HANDLE;
-            }
+            if (!m_Context) return VK_NULL_HANDLE;
             m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
             m_NeedsResize = false;
         }
 
-        if (!m_RenderGraph)
-        {
-            return VK_NULL_HANDLE;
-        }
+        if (!m_RenderGraph) return VK_NULL_HANDLE;
+        
         m_RenderGraph->Reset();
 
-        // 1. Main Forward Pass
         auto scene = GetSceneShared();
+
+        // 1. Main Forward Pass (Directly to Final Output)
         if (scene)
         {
             ForwardPass::AddToGraph(*m_RenderGraph, scene);
         }
 
-        // 2. Final Blit to swapchain
-        struct FinalData { RGResourceHandle src; };
-        m_RenderGraph->AddPass<FinalData>("FinalBlit",
-            [&](FinalData& data, RenderGraph::PassBuilder& builder)
-            {
-                // Use FinalColor which is typically what ForwardPass writes to
-                data.src = builder.Read(RS::FinalColor);
-                builder.Write(RS::RENDER_OUTPUT);
-            },
-            [=](const FinalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
-            {
-                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
-                ctx.DrawMeshes({ "FinalBlit", "common/fullscreen.vert", "postprocess/blit.frag", false, false }, nullptr);
-            }
-        );
+        // 2. Linearize Depth (For Debug Visualization Only)
+        StandardPasses::AddLinearizeDepthPass(*m_RenderGraph);
+
+        // 3. Skybox Pass (If implemented in your version)
+        // StandardPasses::AddSkyboxPass(*m_RenderGraph, scene.get());
 
         m_RenderGraph->Compile();
         return m_RenderGraph->Execute(frameInfo.commandBuffer);

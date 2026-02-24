@@ -9,6 +9,7 @@
 #include "Renderer/RenderState.h"
 #include "Core/Application.h"
 #include "Scene/Scene.h"
+#include "Scene/Model.h"
 #include <deque>
 
 namespace Chimera
@@ -35,15 +36,9 @@ namespace Chimera
             std::map<uint32_t, ShaderResource> reflection;
             for (auto* s : shaders) 
             {
-                if (!s) 
-                {
-                    continue;
-                }
+                if (!s) continue;
                 auto bindings = s->GetSetBindings(2);
-                for (auto& b : bindings) 
-                {
-                    reflection[b.binding] = b;
-                }
+                for (auto& b : bindings) reflection[b.binding] = b;
             }
 
             if (!reflection.empty()) 
@@ -65,17 +60,11 @@ namespace Chimera
                     RGResourceHandle targetHandle = INVALID_RESOURCE;
                     if (res.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) 
                     {
-                        if (inputIdx < m_Pass.inputs.size()) 
-                        {
-                            targetHandle = m_Pass.inputs[inputIdx++].handle;
-                        }
+                        if (inputIdx < m_Pass.inputs.size()) targetHandle = m_Pass.inputs[inputIdx++].handle;
                     } 
                     else if (res.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) 
                     {
-                        if (outputIdx < m_Pass.outputs.size()) 
-                        {
-                            targetHandle = m_Pass.outputs[outputIdx++].handle;
-                        }
+                        if (outputIdx < m_Pass.outputs.size()) targetHandle = m_Pass.outputs[outputIdx++].handle;
                     }
 
                     VkDescriptorImageInfo info{};
@@ -85,11 +74,7 @@ namespace Chimera
                     {
                         auto& rgRes = m_Graph.m_Resources[targetHandle];
                         info.imageView = (rgRes.image.debug_view != VK_NULL_HANDLE) ? rgRes.image.debug_view : rgRes.image.view;
-                        
-                        // --- FIX: Use the actual physical layout tracked for this specific VkImage handle ---
                         info.imageLayout = m_Graph.m_PhysicalImageStates[rgRes.image.handle].layout;
-                        
-                        // Safety fallback for first-use or undefined states
                         if (info.imageLayout == VK_IMAGE_LAYOUT_UNDEFINED) 
                         {
                             info.imageLayout = (res.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -108,24 +93,16 @@ namespace Chimera
                     w.pImageInfo = &imageInfos.back();
                     writes.push_back(w);
                 }
-                if (!writes.empty()) 
-                {
-                    vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
-                }
+                if (!writes.empty()) vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
             }
         }
 
-        if (m_Pass.descriptorSet != VK_NULL_HANDLE) 
-        {
-            vkCmdBindDescriptorSets(m_Cmd, bindPoint, layout, 2, 1, &m_Pass.descriptorSet, 0, nullptr);
-        }
+        if (m_Pass.descriptorSet != VK_NULL_HANDLE) vkCmdBindDescriptorSets(m_Cmd, bindPoint, layout, 2, 1, &m_Pass.descriptorSet, 0, nullptr);
     }
 
     void GraphicsExecutionContext::BindPipeline(const GraphicsPipelineDescription& desc) 
     {
         auto& pipe = PipelineManager::Get().GetGraphicsPipeline(m_Pass.colorFormats, m_Pass.depthFormat, desc);
-        
-        // --- Record Shader Names [NEW] ---
         for (auto* s : pipe.shaders)
         {
             if (s)
@@ -135,20 +112,41 @@ namespace Chimera
                 if (!alreadyAdded) m_Pass.shaderNames.push_back(s->GetName());
             }
         }
-
         BindPipelineAndDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.handle, pipe.layout, pipe.shaders);
     }
 
     void GraphicsExecutionContext::DrawMeshes(const GraphicsPipelineDescription& desc, Scene* scene) 
     {
         BindPipeline(desc);
-        if (scene) 
-        {
-            scene->RenderMeshes(*this);
-        }
-        else 
+        
+        if (!scene) 
         {
             vkCmdDraw(m_Cmd, 3, 1, 0, 0);
+            return;
+        }
+
+        const auto& entities = scene->GetEntities();
+        uint32_t globalObjectId = 0;
+
+        for (const auto& entity : entities)
+        {
+            if (entity.mesh.model)
+            {
+                auto& model = *entity.mesh.model;
+                const auto& meshes = model.GetMeshes();
+                
+                VkBuffer vBuf = (VkBuffer)model.GetVertexBuffer()->GetBuffer();
+                VkDeviceSize offset = 0;
+                vkCmdBindVertexBuffers(m_Cmd, 0, 1, &vBuf, &offset);
+                vkCmdBindIndexBuffer(m_Cmd, (VkBuffer)model.GetIndexBuffer()->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+                for (const auto& mesh : meshes)
+                {
+                    ScenePushConstants pc{ globalObjectId++ };
+                    vkCmdPushConstants(m_Cmd, m_ActiveLayout, VK_SHADER_STAGE_ALL, 0, sizeof(pc), &pc);
+                    vkCmdDrawIndexed(m_Cmd, mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
+                }
+            }
         }
     }
 }

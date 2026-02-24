@@ -120,6 +120,7 @@ namespace Chimera
             RGResourceHandle Write(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
             RGResourceHandle WriteStorage(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
             RGResourceHandle ReadHistory(const std::string& name);
+            void SetClearColor(RGResourceHandle handle, VkClearColorValue color); // [NEW]
         };
 
         RenderGraph(class VulkanContext& context, uint32_t w, uint32_t h);
@@ -175,7 +176,7 @@ namespace Chimera
             std::string name; GraphImage image; ResourceState currentState; bool isExternal = false;
             uint32_t firstPass = 0xFFFFFFFF; uint32_t lastPass = 0;
         };
-        void BuildBarriers(VkCommandBuffer cmd, RenderPass& pass);
+        void BuildBarriers(VkCommandBuffer cmd, RenderPass& pass, uint32_t passIdx);
 
     private:
         class VulkanContext& m_Context;

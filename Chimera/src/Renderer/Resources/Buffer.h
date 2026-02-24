@@ -8,7 +8,7 @@ namespace Chimera
     class Buffer
     {
     public:
-        Buffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+        Buffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, const std::string& name = "");
         ~Buffer();
 
         // No copy
@@ -38,8 +38,6 @@ namespace Chimera
         {
             return m_Allocation;
         }
-
-        void SetDebugName(const std::string& name);
 
         void* Map();
         void Unmap();

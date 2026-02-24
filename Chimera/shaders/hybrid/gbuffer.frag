@@ -1,18 +1,22 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : enable
 #include "ShaderCommon.h"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec2 inTexCoord;
-layout(location = 2) in flat int inMaterialIdx;
+layout(location = 2) in flat uint inObjectId;
 layout(location = 3) in vec4 inCurPos;
 layout(location = 4) in vec4 inPrevPos;
 layout(location = 5) in vec4 inTangent;
 
-layout(set = 1, binding = 1) readonly buffer MaterialBuffer 
+layout(set = 1, binding = 1, scalar) readonly buffer MaterialBuffer { GpuMaterial m[]; } materialBuffer;
+
+// [NEW] SSBO Binding for Primitives
+layout(set = 1, binding = 2, scalar) readonly buffer PrimitiveBuffer 
 {
-    GpuMaterial materials[];
-} matBuf;
+    GpuPrimitive primitives[];
+} primBuf;
 
 layout(set = 1, binding = 3) uniform sampler2D textureArray[];
 
@@ -23,7 +27,8 @@ layout(location = 3) out vec4 outMotion;
 
 void main() 
 {
-    GpuMaterial mat = matBuf.materials[inMaterialIdx];
+    GpuPrimitive prim = primBuf.primitives[inObjectId];
+    GpuMaterial mat = materialBuffer.m[prim.materialIndex];
     
     // 1. Albedo
     vec4 albedo = mat.albedo;
@@ -55,7 +60,6 @@ void main()
     if (mat.metalRoughTex >= 0) 
     {
         vec4 mrSample = texture(textureArray[nonuniformEXT(mat.metalRoughTex)], inTexCoord);
-        // glTF standard: Green = Roughness, Blue = Metallic
         roughness *= mrSample.g;
         metallic *= mrSample.b;
     }
@@ -66,8 +70,6 @@ void main()
     outMotion = vec4(a - b, 0.0, 1.0);
 
     outAlbedo = vec4(albedo.rgb, 1.0);
-    // [FIX] Restore robust mapping to ensure no negative truncation regardless of buffer format
     outNormal = vec4(N * 0.5 + 0.5, 1.0);
-    // Standardize: R = Roughness, G = Metallic
     outMaterial = vec4(roughness, metallic, 0.0, 1.0);
 }

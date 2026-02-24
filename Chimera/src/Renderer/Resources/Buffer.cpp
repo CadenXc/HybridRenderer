@@ -6,7 +6,7 @@
 namespace Chimera
 {
 
-	Buffer::Buffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+	Buffer::Buffer(VkDeviceSize size, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, const std::string& name)
 		: m_Size(size)
 	{
 		VkBufferCreateInfo bufferInfo{};
@@ -40,6 +40,11 @@ namespace Chimera
 		if (result != VK_SUCCESS)
 		{
 			throw std::runtime_error("Failed to create buffer!");
+		}
+
+		if (!name.empty())
+		{
+			VulkanContext::Get().SetDebugName((uint64_t)m_Buffer, VK_OBJECT_TYPE_BUFFER, name.c_str());
 		}
 
 		if (allocationResultInfo.pMappedData)
@@ -150,13 +155,4 @@ namespace Chimera
         }
 		vmaFlushAllocation(m_Allocator, m_Allocation, offset, size);
 	}
-
-	void Buffer::SetDebugName(const std::string& name)
-	{
-		if (VulkanContext::HasInstance())
-        {
-			VulkanContext::Get().SetDebugName((uint64_t)m_Buffer, VK_OBJECT_TYPE_BUFFER, name.c_str());
-		}
-	}
-
 }

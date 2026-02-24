@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "Renderer/Backend/VulkanContext.h"
+#include "VulkanContext.h"
 
 namespace Chimera
 {
@@ -27,25 +27,36 @@ namespace Chimera
     VulkanContext::~VulkanContext()
     {
         CH_CORE_INFO("VulkanContext: Finalizing shutdown...");
+        
+        if (m_Device)
+        {
+            vkDeviceWaitIdle(GetDevice());
+        }
 
-        // [FIX 1] Flush ALL pending deletions while Device is still alive
+        // 1. First flush everything pending in the queue
         m_DeletionQueue.FlushAll();
 
-        m_Swapchain.reset();
+        // 2. Kill the swapchain while device is still idle
+        if (m_Swapchain)
+        {
+            m_Swapchain.reset();
+        }
 
-        // [FIX 2] Explicitly destroy descriptor layouts and system sets
+        // 3. Destroy system-level objects
         if (m_EmptyDescriptorSetLayout != VK_NULL_HANDLE)
         {
             vkDestroyDescriptorSetLayout(GetDevice(), m_EmptyDescriptorSetLayout, nullptr);
+            m_EmptyDescriptorSetLayout = VK_NULL_HANDLE;
         }
 
-        // [FIX 3] Destroy the system command pool (This cleans up leaked Command Buffers)
         if (m_CommandPool != VK_NULL_HANDLE)
         {
             vkDestroyCommandPool(GetDevice(), m_CommandPool, nullptr);
+            m_CommandPool = VK_NULL_HANDLE;
         }
 
-        // Logical device destruction happens here via unique_ptr
+        vkDeviceWaitIdle(GetDevice());
+        // 4. Reset the logical device (triggers ~VulkanDevice and vmaDestroyAllocator)
         m_Device.reset();
 
         if (m_Surface != VK_NULL_HANDLE)
@@ -60,10 +71,7 @@ namespace Chimera
 
     void VulkanContext::CreateSurface()
     {
-        if (glfwCreateWindowSurface(m_Instance->GetHandle(), m_Window, nullptr, &m_Surface) != VK_SUCCESS)
-        {
-            throw std::runtime_error("failed to create window surface!");
-        }
+        VK_CHECK(glfwCreateWindowSurface(m_Instance->GetHandle(), m_Window, nullptr, &m_Surface));
     }
 
     void VulkanContext::CreateCommandPool()
@@ -73,20 +81,14 @@ namespace Chimera
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         poolInfo.queueFamilyIndex = indices.graphicsFamily.value();
 
-        if (vkCreateCommandPool(GetDevice(), &poolInfo, nullptr, &m_CommandPool) != VK_SUCCESS)
-        {
-            throw std::runtime_error("failed to create command pool!");
-        }
+        VK_CHECK(vkCreateCommandPool(GetDevice(), &poolInfo, nullptr, &m_CommandPool));
         SetDebugName((uint64_t)m_CommandPool, VK_OBJECT_TYPE_COMMAND_POOL, "System_CommandPool");
     }
 
     void VulkanContext::CreateEmptyLayout()
     {
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        if (vkCreateDescriptorSetLayout(GetDevice(), &layoutInfo, nullptr, &m_EmptyDescriptorSetLayout) != VK_SUCCESS)
-        {
-            throw std::runtime_error("failed to create empty descriptor set layout!");
-        }
+        VK_CHECK(vkCreateDescriptorSetLayout(GetDevice(), &layoutInfo, nullptr, &m_EmptyDescriptorSetLayout));
         SetDebugName((uint64_t)m_EmptyDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "System_EmptyLayout");
     }
 

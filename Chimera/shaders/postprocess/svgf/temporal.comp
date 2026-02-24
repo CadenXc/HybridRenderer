@@ -64,9 +64,9 @@ void main()
         vec4 hMoments = texture(gHistoryMoments, prevUV);
         historyLen = hMoments.a;
 
-        // Correct paths for layered UBO
-        float alphaColor = global.ubo.svgf.alphaColor;
-        float alphaMoments = global.ubo.svgf.alphaMoments;
+        // Correct paths for vectorized UBO
+        float alphaColor = global.ubo.svgfAlpha.x;
+        float alphaMoments = global.ubo.svgfAlpha.y;
 
         float successAlpha = max(1.0 / (historyLen + 1.0), alphaColor);
         float momentsAlpha = max(1.0 / (historyLen + 1.0), alphaMoments);

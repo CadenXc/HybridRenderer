@@ -19,6 +19,10 @@ namespace Chimera
 
     ImGuiLayer::~ImGuiLayer()
     {
+        if (ImGui::GetCurrentContext())
+        {
+            OnDetach();
+        }
     }
 
     void ImGuiLayer::OnAttach()

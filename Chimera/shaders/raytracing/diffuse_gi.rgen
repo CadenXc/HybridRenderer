@@ -94,15 +94,18 @@ void main()
     payload.hit = false;
     payload.color = vec3(0.0);
 
-    traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, 0.001, rayDir, 10000.0, 0);
+    if ((global.ubo.renderFlags & RENDER_FLAG_GI_BIT) != 0)
+    {
+        traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, 0.001, rayDir, 10000.0, 0);
 
-    if (!payload.hit && pc.skyboxIndex >= 0) 
-    {
-        payload.color = texture(textureArray[nonuniformEXT(pc.skyboxIndex)], SampleEquirectangular(rayDir)).rgb;
-    } 
-    else if (!payload.hit) 
-    {
-        payload.color = vec3(0.02);
+        if (!payload.hit && pc.skyboxIndex >= 0) 
+        {
+            payload.color = texture(textureArray[nonuniformEXT(pc.skyboxIndex)], SampleEquirectangular(rayDir)).rgb;
+        } 
+        else if (!payload.hit) 
+        {
+            payload.color = vec3(0.02);
+        }
     }
 
     // 1-Bounce 间接光贡献

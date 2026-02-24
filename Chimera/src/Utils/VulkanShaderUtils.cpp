@@ -35,4 +35,16 @@ namespace Chimera::VulkanUtils
         copyRegion.size = size;
         vkCmdCopyBuffer(cmd, srcBuffer, dstBuffer, 1, &copyRegion);
     }
+
+    void SetDebugUtilsObjectName(VkDevice device, VkObjectType type, uint64_t handle, const char* name)
+    {
+        if (vkSetDebugUtilsObjectNameEXT && name)
+        {
+            VkDebugUtilsObjectNameInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
+            info.objectType = type;
+            info.objectHandle = handle;
+            info.pObjectName = name;
+            vkSetDebugUtilsObjectNameEXT(device, &info);
+        }
+    }
 }

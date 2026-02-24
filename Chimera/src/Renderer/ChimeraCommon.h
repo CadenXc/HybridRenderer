@@ -39,16 +39,18 @@ namespace Chimera
         VkDescriptorSet globalSet;
     };
 
-    enum class RenderPathType { Forward = 0, Hybrid, RayTracing };
+    enum class RenderPathType { Forward = 0, Hybrid, RayTracing, RayQuery };
 
     inline const char* RenderPathTypeToString(RenderPathType type) {
         switch (type) {
             case RenderPathType::Forward: return "Forward";
             case RenderPathType::Hybrid: return "Hybrid";
             case RenderPathType::RayTracing: return "RayTracing";
+            case RenderPathType::RayQuery: return "RayQuery";
             default: return "Unknown";
         }
     }
 
-    inline std::vector<RenderPathType> GetAllRenderPathTypes() { return { RenderPathType::Forward, RenderPathType::Hybrid, RenderPathType::RayTracing }; }
-}
+            inline std::vector<RenderPathType> GetAllRenderPathTypes() { return { RenderPathType::Forward, RenderPathType::Hybrid, RenderPathType::RayTracing, RenderPathType::RayQuery }; }
+        }
+        

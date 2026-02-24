@@ -17,11 +17,17 @@ namespace Chimera
         VulkanContext(GLFWwindow* window);
         ~VulkanContext();
 
-        static VulkanContext& Get()
-        {
-            return *s_Instance;
-        }
-        static bool HasInstance()
+                static VulkanContext& Get()
+                {
+                    return *s_Instance;
+                }
+        
+                std::shared_ptr<VulkanContext> GetShared()
+                {
+                    return std::shared_ptr<VulkanContext>(s_Instance, [](VulkanContext*) {});
+                }
+        
+                static bool HasInstance()
         {
             return s_Instance != nullptr;
         }

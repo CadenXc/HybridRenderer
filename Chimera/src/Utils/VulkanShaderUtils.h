@@ -14,5 +14,8 @@ namespace Chimera
             VkBuffer dstBuffer,
             VkDeviceSize size
         );
+
+        // [NEW] Debug naming support
+        void SetDebugUtilsObjectName(VkDevice device, VkObjectType type, uint64_t handle, const char* name);
     }
 }
