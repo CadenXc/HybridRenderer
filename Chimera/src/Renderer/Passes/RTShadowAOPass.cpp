@@ -4,19 +4,25 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/RaytracingExecutionContext.h"
 
-namespace Chimera
+namespace Chimera::RTShadowAOPass
 {
-    void RTShadowAOPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    struct PassData
     {
-        graph.AddPass<RTShadowAOData>("RTShadowAOPass",
-            [](RTShadowAOData& data, RenderGraph::PassBuilder& builder)
+        RGResourceHandle normal;
+        RGResourceHandle depth;
+        RGResourceHandle output;
+    };
+
+    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    {
+        graph.AddPass<PassData>("RTShadowAOPass",
+            [](PassData& data, RenderGraph::PassBuilder& builder)
             {
-                // Must match SVGF input name 'CurColor'
-                data.output = builder.WriteStorage("CurColor", VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.output = builder.WriteStorage("CurColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
                 data.normal = builder.Read(RS::Normal);
                 data.depth  = builder.Read(RS::Depth);
             },
-            [](const RTShadowAOData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) 
+            [](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) 
             {
                 RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
                 

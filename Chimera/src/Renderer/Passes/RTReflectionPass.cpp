@@ -5,25 +5,31 @@
 #include "Renderer/Graph/RaytracingExecutionContext.h"
 #include "Scene/Scene.h"
 
-namespace Chimera
+namespace Chimera::RTReflectionPass
 {
-    void RTReflectionPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    struct PassData
     {
-        if (!scene)
-        {
-            return;
-        }
+        RGResourceHandle normal;
+        RGResourceHandle depth;
+        RGResourceHandle material;
+        RGResourceHandle albedo;
+        RGResourceHandle output;
+    };
 
-        graph.AddPass<RTReflectionData>("RTReflectionPass",
-            [](RTReflectionData& data, RenderGraph::PassBuilder& builder)
+    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    {
+        if (!scene) return;
+
+        graph.AddPass<PassData>("RTReflectionPass",
+            [](PassData& data, RenderGraph::PassBuilder& builder)
             {
-                data.output = builder.WriteStorage("ReflectionRaw", VK_FORMAT_R16G16B16A16_SFLOAT);
-                data.normal = builder.Read(RS::Normal);
-                data.depth = builder.Read(RS::Depth);
+                data.output   = builder.WriteStorage("ReflectionRaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.normal   = builder.Read(RS::Normal);
+                data.depth    = builder.Read(RS::Depth);
                 data.material = builder.Read(RS::Material);
-                data.albedo = builder.Read(RS::Albedo);
+                data.albedo   = builder.Read(RS::Albedo);
             },
-            [scene](const RTReflectionData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+            [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {
                 RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
 
@@ -32,7 +38,7 @@ namespace Chimera
                 desc.miss_shaders = { "raytracing/miss.rmiss" };
                 desc.hit_shaders = { { "raytracing/closesthit.rchit", "", "" } };
 
-                int skyboxIndex = scene ? scene->GetSkyboxTextureIndex() : -1;
+                int skyboxIndex = scene->GetSkyboxTextureIndex();
 
                 ctx.BindPipeline(desc);
                 ctx.PushConstants(VK_SHADER_STAGE_ALL, skyboxIndex);

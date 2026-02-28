@@ -4,11 +4,21 @@
 #include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Scene/Scene.h"
 #include "Scene/Model.h"
-#include "Core/Application.h" // [FIX]
+#include "Core/Application.h"
 
-namespace Chimera
+namespace Chimera::GBufferPass
 {
-    void GBufferPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    // [ENCA] Internal data moved from header to source file
+    struct GBufferData
+    {
+        RGResourceHandle albedo;
+        RGResourceHandle normal;
+        RGResourceHandle material;
+        RGResourceHandle motion;
+        RGResourceHandle depth;
+    };
+
+    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
     {
         graph.AddPass<GBufferData>("GBufferPass",
             [](GBufferData& data, RenderGraph::PassBuilder& builder)
@@ -59,8 +69,6 @@ namespace Chimera
                             {
                                 ScenePushConstants pc{ globalObjectId++ };
                                 ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
-                                
-                                // [FIX] vertexOffset added
                                 ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
                             }
                         }

@@ -1,21 +1,13 @@
 #pragma once
-
-#include "Renderer/Graph/RenderGraph.h"
-#include "Scene/Scene.h"
+#include "Renderer/Graph/RenderGraphCommon.h"
+#include <memory>
 
 namespace Chimera
 {
-    struct RTDiffuseGIData
-    {
-        RGResourceHandle normal;
-        RGResourceHandle depth;
-        RGResourceHandle material;
-        RGResourceHandle output;
-    };
+    class Scene;
 
-    class RTDiffuseGIPass
+    namespace RTDiffuseGIPass
     {
-    public:
-        static void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
-    };
+        void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
+    }
 }

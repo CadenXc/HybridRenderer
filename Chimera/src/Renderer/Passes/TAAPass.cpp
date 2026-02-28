@@ -4,12 +4,22 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ComputeExecutionContext.h"
 
-namespace Chimera
+namespace Chimera::TAAPass
 {
-    void TAAPass::AddToGraph(RenderGraph& graph)
+    struct PassData
     {
-        graph.AddComputePass<TAAData>("TAAPass",
-            [&](TAAData& data, RenderGraph::PassBuilder& builder)
+        RGResourceHandle current;
+        RGResourceHandle history;
+        RGResourceHandle motion;
+        RGResourceHandle depth;
+        RGResourceHandle bloom;
+        RGResourceHandle output;
+    };
+
+    void AddToGraph(RenderGraph& graph)
+    {
+        graph.AddComputePass<PassData>("TAAPass",
+            [&](PassData& data, RenderGraph::PassBuilder& builder)
             {
                 data.current = builder.ReadCompute(RS::FinalColor);
                 data.history = builder.ReadHistory("TAA");
@@ -18,7 +28,7 @@ namespace Chimera
                 data.bloom   = builder.ReadCompute("BloomBlurV");
                 data.output  = builder.WriteStorage("TAAOutput").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory("TAA");
             },
-            [](const TAAData& data, ComputeExecutionContext& ctx)
+            [](const PassData& data, ComputeExecutionContext& ctx)
             {
                 ctx.BindPipeline("postprocess/taa.comp");
                 ctx.Dispatch("postprocess/taa.comp", 

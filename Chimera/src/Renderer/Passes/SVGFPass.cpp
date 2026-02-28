@@ -4,10 +4,9 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ComputeExecutionContext.h"
 
-namespace Chimera
+namespace Chimera::SVGFPass
 {
-    void SVGFPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene, 
-                             const std::string& inputName, const std::string& prefix, const std::string& historyBaseName)
+    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene, const Config& config)
     {
         // 1. Temporal Accumulation Pass
         struct TemporalData 
@@ -16,41 +15,40 @@ namespace Chimera
             RGResourceHandle motion; 
             RGResourceHandle history; 
             RGResourceHandle historyMoments; 
-            RGResourceHandle depth; // [NEW]
-            RGResourceHandle normal; // [NEW]
+            RGResourceHandle depth;
+            RGResourceHandle normal;
             RGResourceHandle output; 
             RGResourceHandle outMoments; 
         };
 
-        std::string temporalMomentsName = prefix + "_TemporalMoments";
+        std::string temporalMomentsName = config.prefix + "_TemporalMoments";
 
-        graph.AddComputePass<TemporalData>(prefix + "_Temporal",
+        graph.AddComputePass<TemporalData>(config.prefix + "_Temporal",
             [&](TemporalData& data, RenderGraph::PassBuilder& builder)
             {
-                data.cur            = builder.ReadCompute(inputName);
+                data.cur            = builder.ReadCompute(config.inputName);
                 data.motion         = builder.ReadCompute(RS::Motion);
-                data.history        = builder.ReadHistory(historyBaseName);
-                data.historyMoments = builder.ReadHistory(prefix + "Moments");
-                data.depth          = builder.ReadCompute(RS::Depth); // [NEW]
-                data.normal         = builder.ReadCompute(RS::Normal); // [NEW]
+                data.history        = builder.ReadHistory(config.historyBaseName);
+                data.historyMoments = builder.ReadHistory(config.prefix + "Moments");
+                data.depth          = builder.ReadCompute(RS::Depth);
+                data.normal         = builder.ReadCompute(RS::Normal);
                 
-                // Also need previous frame geometry for validation
                 builder.ReadHistory(RS::Depth); 
                 builder.ReadHistory(RS::Normal);
 
-                data.output         = builder.WriteStorage(prefix + "_TemporalColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(historyBaseName);
-                data.outMoments     = builder.WriteStorage(temporalMomentsName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(prefix + "Moments");
+                data.output         = builder.WriteStorage(config.prefix + "_TemporalColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.historyBaseName);
+                data.outMoments     = builder.WriteStorage(temporalMomentsName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.prefix + "Moments");
             },
-            [prefix](const TemporalData& data, ComputeExecutionContext& ctx)
+            [config](const TemporalData& data, ComputeExecutionContext& ctx)
             {
                 ctx.BindPipeline("postprocess/svgf/temporal.comp");
                 ctx.Dispatch("postprocess/svgf/temporal.comp", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
             }
         );
 
-        // 2. A-trous Filtering (5 Iterations)
-        std::string currentInput = prefix + "_TemporalColor";
-        for (int i = 0; i < 5; ++i)
+        // 2. A-trous Filtering
+        std::string currentInput = config.prefix + "_TemporalColor";
+        for (int i = 0; i < config.atrousIterations; ++i)
         {
             struct AtrousData 
             { 
@@ -61,17 +59,11 @@ namespace Chimera
                 RGResourceHandle output; 
             };
             
-            std::string outputName = prefix + "_Filtered_" + std::to_string(i);
+            std::string outputName = config.prefix + "_Filtered_" + std::to_string(i);
             
-            graph.AddComputePass<AtrousData>(prefix + "_Atrous_" + std::to_string(i),
+            graph.AddComputePass<AtrousData>(config.prefix + "_Atrous_" + std::to_string(i),
                 [&, temporalMomentsName, outputName](AtrousData& data, RenderGraph::PassBuilder& builder)
                 {
-                    // Match atrous.comp: 
-                    // Binding 0: gInputColor (Read)
-                    // Binding 1: gInputMoments (Read)
-                    // Binding 2: gNormal (Read)
-                    // Binding 3: gDepth (Read)
-                    // Binding 4: outFiltered (Write)
                     data.input   = builder.ReadCompute(currentInput);
                     data.moments = builder.ReadCompute(temporalMomentsName);
                     data.normal  = builder.ReadCompute(RS::Normal);

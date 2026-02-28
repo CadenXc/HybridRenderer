@@ -8,14 +8,19 @@ namespace Chimera
     {
     public:
         RayTracedRenderPath(VulkanContext& context);
-        virtual ~RayTracedRenderPath();
+        virtual ~RayTracedRenderPath() = default;
 
-        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) override;
-                virtual RenderPathType GetType() const override { return RenderPathType::RayTracing; }
-                
-                virtual void OnImGui() override; // [NEW]
-        
-            private:
-                bool m_UseAlphaTest = false;
-            };
+        virtual RenderPathType GetType() const override
+        {
+            return RenderPathType::RayTracing;
         }
+
+        virtual void OnImGui() override;
+
+    protected:
+        virtual void BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene) override;
+
+    private:
+        bool m_UseAlphaTest = true;
+    };
+}

@@ -1,12 +1,7 @@
 #pragma once
+#include "Renderer/Graph/RenderGraphCommon.h"
 
-#include "Renderer/Graph/RenderGraph.h"
-
-namespace Chimera
+namespace Chimera::BloomPass
 {
-    class BloomPass
-    {
-    public:
-        static void AddToGraph(RenderGraph& graph);
-    };
+    void AddToGraph(RenderGraph& graph);
 }

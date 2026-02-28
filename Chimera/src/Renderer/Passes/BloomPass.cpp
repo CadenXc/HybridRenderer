@@ -4,15 +4,15 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ComputeExecutionContext.h"
 
-namespace Chimera
+namespace Chimera::BloomPass
 {
-    void BloomPass::AddToGraph(RenderGraph& graph)
+    void AddToGraph(RenderGraph& graph)
     {
         struct ThresholdData { RGResourceHandle input, output; };
         graph.AddComputePass<ThresholdData>("BloomThreshold",
             [](ThresholdData& data, RenderGraph::PassBuilder& builder) {
                 data.input = builder.ReadCompute(RS::FinalColor);
-                data.output = builder.WriteStorage("BloomBright", VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.output = builder.WriteStorage("BloomBright").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
             },
             [](const ThresholdData& data, ComputeExecutionContext& ctx) {
                 ctx.Dispatch("postprocess/bloom_threshold.comp", 
@@ -26,7 +26,7 @@ namespace Chimera
         graph.AddComputePass<BlurData>("BloomBlurH",
             [](BlurData& data, RenderGraph::PassBuilder& builder) {
                 data.input = builder.ReadCompute("BloomBright");
-                data.output = builder.WriteStorage("BloomBlurH", VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.output = builder.WriteStorage("BloomBlurH").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
             },
             [](const BlurData& data, ComputeExecutionContext& ctx) {
                 ctx.BindPipeline("postprocess/bloom_blur.comp");
@@ -41,7 +41,7 @@ namespace Chimera
         graph.AddComputePass<BlurData>("BloomBlurV",
             [](BlurData& data, RenderGraph::PassBuilder& builder) {
                 data.input = builder.ReadCompute("BloomBlurH");
-                data.output = builder.WriteStorage("BloomBlurV", VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.output = builder.WriteStorage("BloomBlurV").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
             },
             [](const BlurData& data, ComputeExecutionContext& ctx) {
                 ctx.BindPipeline("postprocess/bloom_blur.comp");

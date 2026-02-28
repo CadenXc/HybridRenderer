@@ -1,16 +1,22 @@
 #pragma once
 #include "Renderer/Graph/RenderGraphCommon.h"
+#include <string>
 
 namespace Chimera
 {
     class Scene;
 
-    class SVGFPass
+    namespace SVGFPass
     {
-    public:
-        static void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene,
-                             const std::string& inputName = "CurColor",
-                             const std::string& outputPrefix = "SVGF",
-                             const std::string& historyPrefix = "Accumulated");
-    };
+        // [NEW] Config Descriptor Pattern for better readability
+        struct Config
+        {
+            std::string inputName = "CurColor";
+            std::string prefix = "SVGF";
+            std::string historyBaseName = "Accumulated";
+            int atrousIterations = 5;
+        };
+
+        void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene, const Config& config);
+    }
 }

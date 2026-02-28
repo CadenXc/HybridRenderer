@@ -1,23 +1,13 @@
 #pragma once
-
-#include "Renderer/Graph/RenderGraph.h"
-#include "Scene/Scene.h"
+#include "Renderer/Graph/RenderGraphCommon.h"
+#include <memory>
 
 namespace Chimera
 {
-    struct RTShadowAOData
-    {
-        RGResourceHandle normal;
-        RGResourceHandle depth;
-        RGResourceHandle output;
-    };
+    class Scene;
 
-    class RTShadowAOPass
+    namespace RTShadowAOPass
     {
-    public:
-        /**
-         * @brief 将光追阴影与 AO Pass 挂载到渲染图中
-         */
-        static void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
-    };
+        void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
+    }
 }

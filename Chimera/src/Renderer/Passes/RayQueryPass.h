@@ -6,7 +6,7 @@ namespace Chimera
 {
     class Scene;
 
-    namespace ForwardPass
+    namespace RayQueryPass
     {
         void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
     }

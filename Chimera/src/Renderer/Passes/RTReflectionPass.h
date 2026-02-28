@@ -1,22 +1,13 @@
 #pragma once
-
-#include "Renderer/Graph/RenderGraph.h"
-#include "Scene/Scene.h"
+#include "Renderer/Graph/RenderGraphCommon.h"
+#include <memory>
 
 namespace Chimera
 {
-    struct RTReflectionData
-    {
-        RGResourceHandle normal;
-        RGResourceHandle depth;
-        RGResourceHandle material;
-        RGResourceHandle albedo;
-        RGResourceHandle output;
-    };
+    class Scene;
 
-    class RTReflectionPass
+    namespace RTReflectionPass
     {
-    public:
-        static void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
-    };
+        void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
+    }
 }

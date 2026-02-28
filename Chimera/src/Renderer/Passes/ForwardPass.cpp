@@ -5,14 +5,14 @@
 #include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Scene/Scene.h"
 #include "Scene/Model.h" 
-#include "Core/Application.h" // [FIX]
+#include "Core/Application.h"
 
-namespace Chimera
+namespace Chimera::ForwardPass
 {
-    void ForwardPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
-    {
-        struct PassData { RGResourceHandle output, depth; };
+    struct PassData { RGResourceHandle output, depth; };
 
+    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    {
         graph.AddPass<PassData>("ForwardPass",
             [&](PassData& data, RenderGraph::PassBuilder& builder)
             {
@@ -26,7 +26,7 @@ namespace Chimera
                 data.output = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT).Clear(clearVal);
                 data.depth  = builder.Write(RS::Depth).Format(VK_FORMAT_D32_SFLOAT).ClearDepthStencil(0.0f);
             },
-            [=](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+            [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
@@ -53,8 +53,6 @@ namespace Chimera
                             {
                                 ScenePushConstants pc{ globalObjectId++ };
                                 ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
-                                
-                                // [FIX] Added mesh.vertexOffset to ensure the GPU reads from the correct sub-mesh data
                                 ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
                             }
                         }

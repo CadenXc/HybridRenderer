@@ -8,12 +8,14 @@ namespace Chimera
     {
     public:
         ForwardRenderPath(VulkanContext& context);
-        virtual ~ForwardRenderPath();
+        virtual ~ForwardRenderPath() = default;
 
-        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) override;
         virtual RenderPathType GetType() const override
         {
             return RenderPathType::Forward;
         }
+
+    protected:
+        virtual void BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene) override;
     };
 }

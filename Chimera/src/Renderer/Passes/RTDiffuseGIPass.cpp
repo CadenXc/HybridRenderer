@@ -5,24 +5,29 @@
 #include "Renderer/Graph/RaytracingExecutionContext.h"
 #include "Scene/Scene.h"
 
-namespace Chimera
+namespace Chimera::RTDiffuseGIPass
 {
-    void RTDiffuseGIPass::AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    struct PassData
     {
-        if (!scene)
-        {
-            return;
-        }
+        RGResourceHandle normal;
+        RGResourceHandle depth;
+        RGResourceHandle material;
+        RGResourceHandle output;
+    };
 
-        graph.AddPass<RTDiffuseGIData>("RTDiffuseGIPass",
-            [](RTDiffuseGIData& data, RenderGraph::PassBuilder& builder) 
+    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    {
+        if (!scene) return;
+
+        graph.AddPass<PassData>("RTDiffuseGIPass",
+            [](PassData& data, RenderGraph::PassBuilder& builder) 
             {
-                data.output = builder.WriteStorage("GIRaw", VK_FORMAT_R16G16B16A16_SFLOAT);
-                data.normal = builder.Read(RS::Normal);
-                data.depth = builder.Read(RS::Depth);
+                data.output   = builder.WriteStorage("GIRaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.normal   = builder.Read(RS::Normal);
+                data.depth    = builder.Read(RS::Depth);
                 data.material = builder.Read(RS::Material);
             },
-            [scene](const RTDiffuseGIData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) 
+            [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) 
             {
                 RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
                 

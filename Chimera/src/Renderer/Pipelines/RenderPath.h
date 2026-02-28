@@ -8,6 +8,7 @@
 
 #include "Renderer/Resources/ResourceManager.h"
 #include "Scene/Scene.h"
+#include "Renderer/Graph/RenderGraph.h"
 
 namespace Chimera
 {
@@ -18,7 +19,9 @@ namespace Chimera
         virtual ~RenderPath();
 
         virtual void Init();
-        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) = 0;
+        
+        // [Template Method] Finalized to ensure consistent lifecycle management
+        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) final;
 
         void SetViewportSize(uint32_t width, uint32_t height)
         {
@@ -46,6 +49,9 @@ namespace Chimera
         }
 
     protected:
+        // Pure virtual hook for specific render path logic
+        virtual void BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene) = 0;
+
         std::shared_ptr<VulkanContext> m_Context;
 
         mutable std::unique_ptr<RenderGraph> m_RenderGraph;

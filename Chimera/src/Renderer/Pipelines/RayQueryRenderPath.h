@@ -1,4 +1,5 @@
 #pragma once
+
 #include "RenderPath.h"
 
 namespace Chimera
@@ -7,9 +8,14 @@ namespace Chimera
     {
     public:
         RayQueryRenderPath(VulkanContext& context);
-        virtual ~RayQueryRenderPath();
+        virtual ~RayQueryRenderPath() = default;
 
-        virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) override;
-        virtual RenderPathType GetType() const override { return RenderPathType::RayQuery; }
+        virtual RenderPathType GetType() const override
+        {
+            return RenderPathType::RayQuery;
+        }
+
+    protected:
+        virtual void BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene) override;
     };
 }
