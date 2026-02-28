@@ -16,7 +16,7 @@ namespace Chimera
                 data.motion  = builder.ReadCompute(RS::Motion);
                 data.depth   = builder.ReadCompute(RS::Depth);
                 data.bloom   = builder.ReadCompute("BloomBlurV");
-                data.output  = builder.WriteStorage("TAAOutput", VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.output  = builder.WriteStorage("TAAOutput").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory("TAA");
             },
             [](const TAAData& data, ComputeExecutionContext& ctx)
             {

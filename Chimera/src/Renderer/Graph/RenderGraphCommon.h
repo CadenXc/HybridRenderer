@@ -59,6 +59,14 @@ namespace Chimera
         bool is_external = false;
     };
 
+    enum class RGResourceFlagBits
+    {
+        None = 0,
+        Persistent = 1 << 0,  // Cross-frame persistence (History)
+        External   = 1 << 1   // Provided by external system (e.g. Swapchain)
+    };
+    using RGResourceFlags = uint32_t;
+
     struct ImageDescription
     {
         uint32_t width;
@@ -66,6 +74,7 @@ namespace Chimera
         VkFormat format;
         VkImageUsageFlags usage;
         VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+        RGResourceFlags flags = (RGResourceFlags)RGResourceFlagBits::None;
     };
 
     struct GraphicsPipelineDescription { std::string name, vertex_shader, fragment_shader; bool depth_test = true, depth_write = true; VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT; };
@@ -78,6 +87,28 @@ namespace Chimera
         struct RenderPass& pass;
         VkImageView GetImageView(RGResourceHandle h);
         VkImage GetImage(RGResourceHandle h);
+    };
+
+    // --- [NEW] Fluent API Proxy ---
+    class ResourceHandleProxy
+    {
+    public:
+        ResourceHandleProxy(RenderGraph& g, RenderPass& p, RGResourceHandle h) 
+            : graph(g), pass(p), handle(h) {}
+        
+        // Implicit conversion to handle
+        operator RGResourceHandle() const { return handle; }
+
+        ResourceHandleProxy& Format(VkFormat format);
+        ResourceHandleProxy& Clear(const VkClearColorValue& color);
+        ResourceHandleProxy& ClearDepthStencil(float depth, uint32_t stencil = 0);
+        ResourceHandleProxy& Persistent();
+        ResourceHandleProxy& SaveAsHistory(const std::string& name);
+
+    private:
+        RenderGraph& graph;
+        RenderPass& pass;
+        RGResourceHandle handle;
     };
 
     struct RenderPass
@@ -115,12 +146,13 @@ namespace Chimera
             RenderGraph& graph;
             RenderPass& pass;
             PassBuilder(RenderGraph& g, RenderPass& p) : graph(g), pass(p) {}
+
             RGResourceHandle Read(const std::string& name);
             RGResourceHandle ReadCompute(const std::string& name);
-            RGResourceHandle Write(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
-            RGResourceHandle WriteStorage(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
             RGResourceHandle ReadHistory(const std::string& name);
-            void SetClearColor(RGResourceHandle handle, VkClearColorValue color); // [NEW]
+            
+            ResourceHandleProxy Write(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
+            ResourceHandleProxy WriteStorage(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
         };
 
         RenderGraph(class VulkanContext& context, uint32_t w, uint32_t h);
@@ -173,10 +205,22 @@ namespace Chimera
     private:
         struct PhysicalResource
         {
-            std::string name; GraphImage image; ResourceState currentState; bool isExternal = false;
-            uint32_t firstPass = 0xFFFFFFFF; uint32_t lastPass = 0;
+            std::string name; 
+            std::string historyName; // [NEW] Name to store in m_HistoryResources
+            GraphImage image; 
+            ImageDescription desc;
+            ResourceState currentState; 
+            uint32_t firstPass = 0xFFFFFFFF; 
+            uint32_t lastPass = 0;
         };
         void BuildBarriers(VkCommandBuffer cmd, RenderPass& pass, uint32_t passIdx);
+
+        // --- Execute Helpers ---
+        void BeginPassDebugLabel(VkCommandBuffer cmd, const RenderPass& pass);
+        void EndPassDebugLabel(VkCommandBuffer cmd);
+        void WriteTimestamp(VkCommandBuffer cmd, uint32_t queryIdx, VkPipelineStageFlags2 stage);
+        bool BeginDynamicRendering(VkCommandBuffer cmd, const RenderPass& pass);
+        void UpdatePersistentResources(VkCommandBuffer cmd);
 
     private:
         class VulkanContext& m_Context;
@@ -209,5 +253,6 @@ namespace Chimera
         friend class ComputeExecutionContext;
         friend class RaytracingExecutionContext;
         friend struct RenderGraphRegistry;
+        friend class ResourceHandleProxy;
     };
 }

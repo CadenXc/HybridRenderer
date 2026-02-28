@@ -14,7 +14,7 @@ namespace Chimera
             [&](DepthData& data, RenderGraph::PassBuilder& builder)
             {
                 data.depth = builder.Read(RS::Depth);
-                data.output = builder.Write("DepthLinear", VK_FORMAT_R8G8B8A8_UNORM);
+                data.output = builder.Write("DepthLinear").Format(VK_FORMAT_R8G8B8A8_UNORM);
             },
             [=](const DepthData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {

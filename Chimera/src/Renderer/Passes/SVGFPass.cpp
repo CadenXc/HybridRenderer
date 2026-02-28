@@ -38,8 +38,8 @@ namespace Chimera
                 builder.ReadHistory(RS::Depth); 
                 builder.ReadHistory(RS::Normal);
 
-                data.output         = builder.WriteStorage(prefix + "_TemporalColor",   VK_FORMAT_R16G16B16A16_SFLOAT);
-                data.outMoments     = builder.WriteStorage(temporalMomentsName, VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.output         = builder.WriteStorage(prefix + "_TemporalColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(historyBaseName);
+                data.outMoments     = builder.WriteStorage(temporalMomentsName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(prefix + "Moments");
             },
             [prefix](const TemporalData& data, ComputeExecutionContext& ctx)
             {
@@ -76,7 +76,7 @@ namespace Chimera
                     data.moments = builder.ReadCompute(temporalMomentsName);
                     data.normal  = builder.ReadCompute(RS::Normal);
                     data.depth   = builder.ReadCompute(RS::Depth);
-                    data.output  = builder.WriteStorage(outputName, VK_FORMAT_R16G16B16A16_SFLOAT);
+                    data.output  = builder.WriteStorage(outputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
                 },
                 [i](const AtrousData& data, ComputeExecutionContext& ctx)
                 {

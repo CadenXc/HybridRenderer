@@ -16,17 +16,15 @@ namespace Chimera
         graph.AddPass<PassData>("ForwardPass",
             [&](PassData& data, RenderGraph::PassBuilder& builder)
             {
-                data.output = builder.Write(RS::FinalColor, VK_FORMAT_R16G16B16A16_SFLOAT);
-                data.depth  = builder.Write(RS::Depth, VK_FORMAT_D32_SFLOAT);
-
-                // [DYNAMIC]
                 auto& frameCtx = Application::Get().GetFrameContext();
                 VkClearColorValue clearVal;
                 clearVal.float32[0] = frameCtx.ClearColor.r;
                 clearVal.float32[1] = frameCtx.ClearColor.g;
                 clearVal.float32[2] = frameCtx.ClearColor.b;
                 clearVal.float32[3] = frameCtx.ClearColor.a;
-                builder.SetClearColor(data.output, clearVal);
+
+                data.output = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT).Clear(clearVal);
+                data.depth  = builder.Write(RS::Depth).Format(VK_FORMAT_D32_SFLOAT).ClearDepthStencil(0.0f);
             },
             [=](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {

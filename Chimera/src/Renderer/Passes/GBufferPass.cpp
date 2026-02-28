@@ -13,20 +13,18 @@ namespace Chimera
         graph.AddPass<GBufferData>("GBufferPass",
             [](GBufferData& data, RenderGraph::PassBuilder& builder)
             {
-                data.albedo   = builder.Write(RS::Albedo,   VK_FORMAT_R8G8B8A8_UNORM);
-                data.normal   = builder.Write(RS::Normal,   VK_FORMAT_R16G16B16A16_SFLOAT);
-                data.material = builder.Write(RS::Material, VK_FORMAT_R8G8B8A8_UNORM);
-                data.motion   = builder.Write(RS::Motion,   VK_FORMAT_R16G16_SFLOAT);
-                data.depth    = builder.Write(RS::Depth,    VK_FORMAT_D32_SFLOAT);
-
-                // [DYNAMIC]
                 auto& frameCtx = Application::Get().GetFrameContext();
                 VkClearColorValue clearVal;
                 clearVal.float32[0] = frameCtx.ClearColor.r;
                 clearVal.float32[1] = frameCtx.ClearColor.g;
                 clearVal.float32[2] = frameCtx.ClearColor.b;
                 clearVal.float32[3] = frameCtx.ClearColor.a;
-                builder.SetClearColor(data.albedo, clearVal);
+
+                data.albedo   = builder.Write(RS::Albedo).Format(VK_FORMAT_R8G8B8A8_UNORM).Clear(clearVal);
+                data.normal   = builder.Write(RS::Normal).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(RS::Normal);
+                data.material = builder.Write(RS::Material).Format(VK_FORMAT_R8G8B8A8_UNORM);
+                data.motion   = builder.Write(RS::Motion).Format(VK_FORMAT_R16G16_SFLOAT);
+                data.depth    = builder.Write(RS::Depth).Format(VK_FORMAT_D32_SFLOAT).ClearDepthStencil(0.0f).SaveAsHistory(RS::Depth);
             },
             [scene](const GBufferData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {

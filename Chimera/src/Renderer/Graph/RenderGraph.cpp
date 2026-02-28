@@ -11,11 +11,52 @@
 #include <imgui.h>
 #include <set>
 #include <numeric>
+#include <unordered_set>
+#include <algorithm>
 
 #include "Utils/VulkanShaderUtils.h"
 
 namespace Chimera
 {
+    // --- Helper for Mapping Usage to Vulkan States ---
+    static ResourceState GetVulkanStateFromUsage(ResourceUsage usage, VkFormat format)
+    {
+        ResourceState state;
+        switch (usage)
+        {
+        case ResourceUsage::GraphicsSampled:
+            state = { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT };
+            break;
+        case ResourceUsage::ComputeSampled:
+            state = { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT };
+            break;
+        case ResourceUsage::RaytraceSampled:
+            state = { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR };
+            break;
+        case ResourceUsage::StorageRead:
+        case ResourceUsage::StorageWrite:
+        case ResourceUsage::StorageReadWrite:
+            state = { VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT };
+            break;
+        case ResourceUsage::ColorAttachment:
+            state = { VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT };
+            break;
+        case ResourceUsage::DepthStencilWrite:
+            state = { VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT };
+            break;
+        case ResourceUsage::TransferSrc:
+            state = { VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT };
+            break;
+        case ResourceUsage::TransferDst:
+            state = { VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT };
+            break;
+        default:
+            state = { VK_IMAGE_LAYOUT_UNDEFINED, 0, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT };
+            break;
+        }
+        return state;
+    }
+
     VkImageView RenderGraphRegistry::GetImageView(RGResourceHandle h)
     {
         return graph.m_Resources[h].image.view;
@@ -24,6 +65,66 @@ namespace Chimera
     VkImage RenderGraphRegistry::GetImage(RGResourceHandle h)
     {
         return graph.m_Resources[h].image.handle;
+    }
+
+    // --- [NEW] ResourceHandleProxy Implementation ---
+    ResourceHandleProxy& ResourceHandleProxy::Format(VkFormat format)
+    {
+        graph.m_Resources[handle].image.format = format;
+        
+        // [FIX] Update usage if it was incorrectly guessed as ColorAttachment for a Depth format
+        if (VulkanUtils::IsDepthFormat(format))
+        {
+            for (auto& out : pass.outputs)
+            {
+                if (out.handle == handle && out.usage == ResourceUsage::ColorAttachment)
+                {
+                    out.usage = ResourceUsage::DepthStencilWrite;
+                    out.clearValue.depthStencil = { 0.0f, 0 }; // Set default depth clear
+                    break;
+                }
+            }
+        }
+        return *this;
+    }
+
+    ResourceHandleProxy& ResourceHandleProxy::Clear(const VkClearColorValue& color)
+    {
+        for (auto& out : pass.outputs)
+        {
+            if (out.handle == handle)
+            {
+                out.clearValue.color = color;
+                break;
+            }
+        }
+        return *this;
+    }
+
+    ResourceHandleProxy& ResourceHandleProxy::ClearDepthStencil(float depth, uint32_t stencil)
+    {
+        for (auto& out : pass.outputs)
+        {
+            if (out.handle == handle)
+            {
+                out.clearValue.depthStencil = { depth, stencil };
+                break;
+            }
+        }
+        return *this;
+    }
+
+    ResourceHandleProxy& ResourceHandleProxy::Persistent()
+    {
+        graph.m_Resources[handle].desc.flags |= (RGResourceFlags)RGResourceFlagBits::Persistent;
+        return *this;
+    }
+
+    ResourceHandleProxy& ResourceHandleProxy::SaveAsHistory(const std::string& name)
+    {
+        graph.m_Resources[handle].historyName = name;
+        graph.m_Resources[handle].desc.flags |= (RGResourceFlags)RGResourceFlagBits::Persistent;
+        return *this;
     }
 
     RGResourceHandle RenderGraph::PassBuilder::Read(const std::string& name)
@@ -40,7 +141,7 @@ namespace Chimera
         return h;
     }
 
-    RGResourceHandle RenderGraph::PassBuilder::Write(const std::string& name, VkFormat format)
+    ResourceHandleProxy RenderGraph::PassBuilder::Write(const std::string& name, VkFormat format)
     {
         RGResourceHandle h = graph.GetResourceHandle(name);
         if (format != VK_FORMAT_UNDEFINED)
@@ -61,10 +162,10 @@ namespace Chimera
         }
 
         pass.outputs.push_back(req);
-        return h;
+        return ResourceHandleProxy(graph, pass, h);
     }
 
-    RGResourceHandle RenderGraph::PassBuilder::WriteStorage(const std::string& name, VkFormat format)
+    ResourceHandleProxy RenderGraph::PassBuilder::WriteStorage(const std::string& name, VkFormat format)
     {
         RGResourceHandle h = graph.GetResourceHandle(name);
         if (format != VK_FORMAT_UNDEFINED)
@@ -72,26 +173,15 @@ namespace Chimera
             graph.m_Resources[h].image.format = format;
         }
         pass.outputs.push_back({ h, ResourceUsage::StorageWrite });
-        return h;
+        return ResourceHandleProxy(graph, pass, h);
     }
 
     RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
     {
         RGResourceHandle h = graph.GetResourceHandle("History_" + name);
+        graph.m_Resources[h].desc.flags |= (RGResourceFlags)RGResourceFlagBits::Persistent;
         pass.inputs.push_back({ h, ResourceUsage::ComputeSampled });
         return h;
-    }
-
-    void RenderGraph::PassBuilder::SetClearColor(RGResourceHandle handle, VkClearColorValue color)
-    {
-        for (auto& out : pass.outputs)
-        {
-            if (out.handle == handle)
-            {
-                out.clearValue.color = color;
-                break;
-            }
-        }
     }
 
     RenderGraph::RenderGraph(VulkanContext& ctx, uint32_t w, uint32_t h)
@@ -233,7 +323,10 @@ namespace Chimera
 
         for (auto& res : m_Resources)
         {
-            if (res.isExternal || res.name == RS::RENDER_OUTPUT || res.name.find("History_") == 0)
+            bool isExternal = (res.desc.flags & (RGResourceFlags)RGResourceFlagBits::External);
+            bool isPersistent = (res.desc.flags & (RGResourceFlags)RGResourceFlagBits::Persistent);
+
+            if (isExternal || res.name.find("History_") == 0)
             {
                 if (res.name == RS::RENDER_OUTPUT) res.image.format = m_Context.GetSwapChainImageFormat();
                 if (res.name.find("History_") == 0)
@@ -250,12 +343,6 @@ namespace Chimera
 
             VkFormat format = (res.image.format != VK_FORMAT_UNDEFINED) ? res.image.format : VK_FORMAT_R16G16B16A16_SFLOAT;
             VkImageUsageFlags usage = 0; 
-            
-            bool isPersistent = (res.name.find("_Temporal") != std::string::npos || 
-                                res.name.find("_Filtered_") != std::string::npos ||
-                                res.name == RS::Normal || res.name == RS::Depth || 
-                                res.name == RS::Albedo || res.name == RS::Material ||
-                                res.name == RS::FinalColor || res.name == "TAAOutput");
 
             bool reused = false;
             for (auto& pooled : m_ImagePool)
@@ -283,8 +370,6 @@ namespace Chimera
             else
             {
                 res.currentState = m_PhysicalImageStates[res.image.handle];
-                // Even if reused, we can rename it for the current frame's context if needed, 
-                // but usually the pool resource name is generic or remains the same.
                 VulkanContext::Get().SetDebugName((uint64_t)res.image.handle, VK_OBJECT_TYPE_IMAGE, res.name.c_str());
             }
         }
@@ -297,6 +382,120 @@ namespace Chimera
                 auto& res = m_Resources[out.handle];
                 if (out.usage == ResourceUsage::ColorAttachment) pass.colorFormats.push_back(res.image.format);
                 else if (out.usage == ResourceUsage::DepthStencilWrite) pass.depthFormat = res.image.format;
+            }
+        }
+    }
+
+    void RenderGraph::BeginPassDebugLabel(VkCommandBuffer cmd, const RenderPass& pass)
+    {
+        if (vkCmdBeginDebugUtilsLabelEXT)
+        {
+            VkDebugUtilsLabelEXT label{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
+            label.pLabelName = pass.name.c_str();
+            if (pass.isCompute) { label.color[0] = 0.2f; label.color[1] = 0.3f; label.color[2] = 0.8f; label.color[3] = 1.0f; }
+            else if (pass.name.find("RT") != std::string::npos) { label.color[0] = 0.8f; label.color[1] = 0.2f; label.color[2] = 0.2f; label.color[3] = 1.0f; }
+            vkCmdBeginDebugUtilsLabelEXT(cmd, &label);
+        }
+    }
+
+    void RenderGraph::EndPassDebugLabel(VkCommandBuffer cmd)
+    {
+        if (vkCmdEndDebugUtilsLabelEXT) vkCmdEndDebugUtilsLabelEXT(cmd);
+    }
+
+    void RenderGraph::WriteTimestamp(VkCommandBuffer cmd, uint32_t queryIdx, VkPipelineStageFlags2 stage)
+    {
+        vkCmdWriteTimestamp2(cmd, stage, m_TimestampQueryPool, queryIdx);
+    }
+
+    bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd, const RenderPass& pass)
+    {
+        std::vector<VkRenderingAttachmentInfo> colorAtts;
+        VkRenderingAttachmentInfo depthAtt{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+        bool hasDepth = false;
+        uint32_t renderW = m_Width;
+        uint32_t renderH = m_Height;
+
+        for (const auto& out : pass.outputs)
+        {
+            if (out.usage == ResourceUsage::ColorAttachment || out.usage == ResourceUsage::DepthStencilWrite)
+            {
+                auto& res = m_Resources[out.handle];
+                if (res.image.view == VK_NULL_HANDLE) continue;
+
+                renderW = std::min(renderW, res.image.width);
+                renderH = std::min(renderH, res.image.height);
+
+                if (out.usage == ResourceUsage::ColorAttachment)
+                {
+                    VkRenderingAttachmentInfo info{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+                    info.imageView = res.image.view;
+                    info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                    info.clearValue = out.clearValue;
+                    colorAtts.push_back(info);
+                }
+                else
+                {
+                    depthAtt.imageView = res.image.view;
+                    depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                    depthAtt.clearValue = out.clearValue;
+                    hasDepth = true;
+                }
+            }
+        }
+
+        if (!colorAtts.empty() || hasDepth)
+        {
+            VkRenderingInfo renderingInfo{ VK_STRUCTURE_TYPE_RENDERING_INFO };
+            renderingInfo.renderArea = { {0, 0}, { renderW, renderH } };
+            renderingInfo.layerCount = 1;
+            renderingInfo.colorAttachmentCount = (uint32_t)colorAtts.size();
+            renderingInfo.pColorAttachments = colorAtts.data();
+            renderingInfo.pDepthAttachment = hasDepth ? &depthAtt : nullptr;
+
+            vkCmdBeginRendering(cmd, &renderingInfo);
+            VkViewport vp{ 0.0f, 0.0f, (float)renderW, (float)renderH, 0.0f, 1.0f };
+            VkRect2D sc{ {0, 0}, { renderW, renderH } };
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            vkCmdSetScissor(cmd, 0, 1, &sc);
+            return true;
+        }
+        return false;
+    }
+
+    void RenderGraph::UpdatePersistentResources(VkCommandBuffer cmd)
+    {
+        std::unordered_map<VkImage, ResourceState> finalStates;
+        for (auto& res : m_Resources)
+        {
+            if (res.image.handle == VK_NULL_HANDLE || res.name == RS::RENDER_OUTPUT) continue;
+            
+            bool isPersistent = (res.desc.flags & (RGResourceFlags)RGResourceFlagBits::Persistent);
+
+            if (finalStates.find(res.image.handle) == finalStates.end())
+            {
+                if (res.currentState.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && !VulkanUtils::IsDepthFormat(res.image.format))
+                {
+                    VulkanUtils::TransitionImage(cmd, res.image.handle, res.currentState.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    res.currentState = { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT };
+                }
+                finalStates[res.image.handle] = res.currentState;
+            }
+            else res.currentState = finalStates[res.image.handle];
+
+            for (auto& pooled : m_ImagePool)
+            {
+                if (pooled.image.handle == res.image.handle) { pooled.state = res.currentState; break; }
+            }
+
+            if (isPersistent)
+            {
+                std::string hName = res.historyName.empty() ? res.name : res.historyName;
+                m_HistoryResources[hName] = { res.image, res.currentState };
             }
         }
     }
@@ -321,7 +520,7 @@ namespace Chimera
             outRes.image.format = m_Context.GetSwapChainImageFormat();
             outRes.image.width = swapchain->GetExtent().width;
             outRes.image.height = swapchain->GetExtent().height;
-            outRes.isExternal = true;
+            outRes.desc.flags |= (RGResourceFlags)RGResourceFlagBits::External;
             m_PhysicalImageStates[swapImage] = { VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT };
             outRes.currentState = m_PhysicalImageStates[swapImage];
         }
@@ -337,133 +536,24 @@ namespace Chimera
             auto& pass = m_PassStack[i];
             m_LastPassNames.push_back(pass.name);
 
-            if (vkCmdBeginDebugUtilsLabelEXT)
-            {
-                VkDebugUtilsLabelEXT label{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT };
-                label.pLabelName = pass.name.c_str();
-                if (pass.isCompute) { label.color[0] = 0.2f; label.color[1] = 0.3f; label.color[2] = 0.8f; label.color[3] = 1.0f; }
-                else if (pass.name.find("RT") != std::string::npos) { label.color[0] = 0.8f; label.color[1] = 0.2f; label.color[2] = 0.2f; label.color[3] = 1.0f; }
-                vkCmdBeginDebugUtilsLabelEXT(cmd, &label);
-            }
-
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, m_TimestampQueryPool, i * 2);
+            BeginPassDebugLabel(cmd, pass);
+            WriteTimestamp(cmd, i * 2, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT);
+            
             BuildBarriers(cmd, pass, i);
 
             RenderGraphRegistry registry{ *this, pass };
-            bool isGraphics = false;
-            std::vector<VkRenderingAttachmentInfo> colorAtts;
-            VkRenderingAttachmentInfo depthAtt{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-            bool hasDepth = false;
-
-            if (!pass.isCompute)
-            {
-                for (auto& out : pass.outputs)
-                {
-                    if (out.usage == ResourceUsage::ColorAttachment || out.usage == ResourceUsage::DepthStencilWrite)
-                    {
-                        isGraphics = true;
-                        auto& res = m_Resources[out.handle];
-                        if (res.image.view == VK_NULL_HANDLE) { isGraphics = false; break; }
-
-                        if (out.usage == ResourceUsage::ColorAttachment)
-                        {
-                            VkRenderingAttachmentInfo info{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-                            info.imageView = res.image.view;
-                            info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                            info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                            info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                            info.clearValue = out.clearValue;
-                            colorAtts.push_back(info);
-                        }
-                        else
-                        {
-                            depthAtt.imageView = res.image.view;
-                            depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-                            depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                            depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                            depthAtt.clearValue = out.clearValue;
-                            hasDepth = true;
-                        }
-                    }
-                }
-            }
-
-            if (isGraphics && (!colorAtts.empty() || hasDepth))
-            {
-                uint32_t renderW = m_Width;
-                uint32_t renderH = m_Height;
-                for (const auto& att : colorAtts)
-                {
-                    for (const auto& res : m_Resources)
-                    {
-                        if (res.image.view == att.imageView) { renderW = std::min(renderW, res.image.width); renderH = std::min(renderH, res.image.height); break; }
-                    }
-                }
-                if (hasDepth)
-                {
-                    for (const auto& res : m_Resources)
-                    {
-                        if (res.image.view == depthAtt.imageView) { renderW = std::min(renderW, res.image.width); renderH = std::min(renderH, res.image.height); break; }
-                    }
-                }
-
-                VkRenderingInfo renderingInfo{ VK_STRUCTURE_TYPE_RENDERING_INFO };
-                renderingInfo.renderArea = { {0, 0}, { renderW, renderH } };
-                renderingInfo.layerCount = 1;
-                renderingInfo.colorAttachmentCount = (uint32_t)colorAtts.size();
-                renderingInfo.pColorAttachments = colorAtts.data();
-                renderingInfo.pDepthAttachment = hasDepth ? &depthAtt : nullptr;
-
-                vkCmdBeginRendering(cmd, &renderingInfo);
-                VkViewport vp{ 0.0f, 0.0f, (float)renderW, (float)renderH, 0.0f, 1.0f };
-                VkRect2D sc{ {0, 0}, { renderW, renderH } };
-                vkCmdSetViewport(cmd, 0, 1, &vp);
-                vkCmdSetScissor(cmd, 0, 1, &sc);
-            }
+            bool renderingStarted = false;
+            if (!pass.isCompute) renderingStarted = BeginDynamicRendering(cmd, pass);
 
             if (pass.executeFunc) pass.executeFunc(registry, cmd);
-            if (isGraphics && (!colorAtts.empty() || hasDepth)) vkCmdEndRendering(cmd);
+            
+            if (renderingStarted) vkCmdEndRendering(cmd);
 
-            vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_TimestampQueryPool, i * 2 + 1);
-            if (vkCmdEndDebugUtilsLabelEXT) vkCmdEndDebugUtilsLabelEXT(cmd);
+            WriteTimestamp(cmd, i * 2 + 1, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
+            EndPassDebugLabel(cmd);
         }
 
-        std::unordered_map<VkImage, ResourceState> finalStates;
-        for (auto& res : m_Resources)
-        {
-            if (res.image.handle == VK_NULL_HANDLE || res.name == RS::RENDER_OUTPUT) continue;
-            if (finalStates.find(res.image.handle) == finalStates.end())
-            {
-                if (res.currentState.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && !VulkanUtils::IsDepthFormat(res.image.format))
-                {
-                    VulkanUtils::TransitionImage(cmd, res.image.handle, res.currentState.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-                    res.currentState = { VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT };
-                }
-                finalStates[res.image.handle] = res.currentState;
-            }
-            else res.currentState = finalStates[res.image.handle];
-
-            for (auto& pooled : m_ImagePool)
-            {
-                if (pooled.image.handle == res.image.handle) { pooled.state = res.currentState; break; }
-            }
-
-            if (res.name == RS::FinalColor || res.name == RS::Depth || res.name == RS::Normal || res.name == "TAAOutput")
-            {
-                std::string baseName = (res.name == "TAAOutput") ? "TAA" : res.name;
-                m_HistoryResources[baseName] = { res.image, res.currentState };
-            }
-            else if (res.name.find("_TemporalColor") != std::string::npos)
-            {
-                std::string prefix = res.name.substr(0, res.name.find("_TemporalColor"));
-                m_HistoryResources[prefix + "Accum"] = { res.image, res.currentState };
-            }
-            else if (res.name.find("_TemporalMoments") != std::string::npos)
-            {
-                std::string prefix = res.name.substr(0, res.name.find("_TemporalMoments"));
-                m_HistoryResources[prefix + "Moments"] = { res.image, res.currentState };
-            }
-        }
+        UpdatePersistentResources(cmd);
         return VK_NULL_HANDLE;
     }
 
@@ -478,38 +568,24 @@ namespace Chimera
             ResourceState currentState = m_PhysicalImageStates[res.image.handle];
             if (currentState.layout == VK_IMAGE_LAYOUT_UNDEFINED) currentState = res.currentState; 
 
-            VkImageLayout targetLayout;
-            VkAccessFlags2 targetAccess;
-            VkPipelineStageFlags2 targetStage;
-
-            switch (req.usage)
-            {
-                case ResourceUsage::GraphicsSampled: targetLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; targetAccess = VK_ACCESS_2_SHADER_READ_BIT; targetStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT; break;
-                case ResourceUsage::ComputeSampled: targetLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; targetAccess = VK_ACCESS_2_SHADER_READ_BIT; targetStage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; break;
-                case ResourceUsage::RaytraceSampled: targetLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; targetAccess = VK_ACCESS_2_SHADER_READ_BIT; targetStage = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR; break;
-                case ResourceUsage::StorageRead:
-                case ResourceUsage::StorageWrite:
-                case ResourceUsage::StorageReadWrite: targetLayout = VK_IMAGE_LAYOUT_GENERAL; targetAccess = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT; targetStage = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; break;
-                case ResourceUsage::ColorAttachment: targetLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; targetAccess = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT; targetStage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT; break;
-                case ResourceUsage::DepthStencilWrite: targetLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL; targetAccess = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT; targetStage = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT; break;
-                default: return;
-            }
+            // Use the centralized state deduction helper
+            ResourceState targetState = GetVulkanStateFromUsage(req.usage, res.image.format);
 
             bool isWrite = (req.usage == ResourceUsage::StorageWrite || req.usage == ResourceUsage::ColorAttachment || req.usage == ResourceUsage::DepthStencilWrite || req.usage == ResourceUsage::StorageReadWrite);
             bool wasWrite = (currentState.access & (VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT));
 
             VkImageMemoryBarrier2 b{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
             b.srcStageMask = currentState.stage; b.srcAccessMask = currentState.access;
-            b.dstStageMask = targetStage; b.dstAccessMask = targetAccess;
+            b.dstStageMask = targetState.stage; b.dstAccessMask = targetState.access;
             bool isFirstUseInFrame = (res.firstPass == passIdx);
             b.oldLayout = isFirstUseInFrame ? VK_IMAGE_LAYOUT_UNDEFINED : currentState.layout;
-            b.newLayout = targetLayout; b.image = res.image.handle;
+            b.newLayout = targetState.layout; b.image = res.image.handle;
             b.subresourceRange = { (VkImageAspectFlags)(VulkanUtils::IsDepthFormat(res.image.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, 1 };
 
-            if (currentState.layout != targetLayout || wasWrite || isWrite || isFirstUseInFrame)
+            if (currentState.layout != targetState.layout || wasWrite || isWrite || isFirstUseInFrame)
             {
                 imageBarriers.push_back(b);
-                m_PhysicalImageStates[res.image.handle] = { targetLayout, targetAccess, targetStage };
+                m_PhysicalImageStates[res.image.handle] = targetState;
                 res.currentState = m_PhysicalImageStates[res.image.handle];
             }
         };
@@ -531,6 +607,10 @@ namespace Chimera
         if (m_ResourceMap.count(n)) return m_ResourceMap[n];
         RGResourceHandle h = (RGResourceHandle)m_Resources.size();
         m_Resources.push_back({ n });
+        m_Resources[h].desc.flags = (RGResourceFlags)RGResourceFlagBits::None;
+
+        if (n == RS::RENDER_OUTPUT) m_Resources[h].desc.flags |= (RGResourceFlags)RGResourceFlagBits::External;
+        
         m_ResourceMap[n] = h;
         return h;
     }
@@ -543,7 +623,8 @@ namespace Chimera
 
         for (auto& res : m_Resources)
         {
-            if (!res.isExternal && res.image.handle != VK_NULL_HANDLE)
+            bool isExternal = (res.desc.flags & (RGResourceFlags)RGResourceFlagBits::External);
+            if (!isExternal && res.image.handle != VK_NULL_HANDLE)
             {
                 if (imagesToDestroy.find(res.image.handle) == imagesToDestroy.end())
                 {
@@ -596,7 +677,9 @@ namespace Chimera
         auto& res = m_Resources[h];
         res.image.handle = image; res.image.view = view; res.image.debug_view = view;
         res.image.width = desc.width; res.image.height = desc.height; res.image.format = desc.format;
-        res.image.is_external = true; res.isExternal = true;
+        res.image.is_external = true; 
+        res.desc = desc;
+        res.desc.flags |= (RGResourceFlags)RGResourceFlagBits::External;
         res.currentState.layout = layout;
         if (layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) { res.currentState.access = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT; res.currentState.stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT; }
         else if (layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) { res.currentState.access = VK_ACCESS_2_SHADER_READ_BIT; res.currentState.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT; }
