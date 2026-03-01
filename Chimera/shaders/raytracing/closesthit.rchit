@@ -1,34 +1,14 @@
 #version 460
-#extension GL_EXT_ray_tracing : require
-#extension GL_EXT_nonuniform_qualifier : enable
-#extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_buffer_reference2 : require
-
-#include "ShaderCommon.h"
-
-layout(buffer_reference, scalar) readonly buffer VertexBufferRef { GpuVertex v[]; };
-layout(buffer_reference, scalar) readonly buffer IndexBufferRef { uint i[]; };
+#include "../common/common.glsl"
 
 layout(location = 0) rayPayloadInEXT HitPayload payload;
 hitAttributeEXT vec2 attribs;
-
-layout(set = 1, binding = 0) uniform accelerationStructureEXT topLevelAS;
-layout(set = 1, binding = 1, scalar) readonly buffer MaterialBuffer { GpuMaterial m[]; } materialBuffer;
-
-// [MODERN] Unified Primitive SSBO
-layout(set = 1, binding = 2, scalar) readonly buffer PrimitiveBuffer 
-{
-    GpuPrimitive primitives[];
-} primBuf;
-
-layout(set = 1, binding = 3) uniform sampler2D textureArray[];
 
 void main() 
 {
     payload.hit = true;
     
-    // Everything is now derived from the unified SSBO using the instance index
     uint objId = gl_InstanceCustomIndexEXT;
     GpuPrimitive prim = primBuf.primitives[objId];
     GpuMaterial mat = materialBuffer.m[prim.materialIndex];
@@ -46,35 +26,36 @@ void main()
     const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
     vec2 uv = v0.texCoord * barycentrics.x + v1.texCoord * barycentrics.y + v2.texCoord * barycentrics.z;
 
-    // 1. Albedo
-    vec3 color = mat.albedo.rgb;
-    if (mat.albedoTex >= 0) 
-    {
-        color *= texture(textureArray[nonuniformEXT(mat.albedoTex)], uv).rgb;
-    }
-    
-    // 2. Normal Mapping
+    // 1. 获取材质颜色
+    vec4 albedo = GetAlbedo(mat, uv);
     vec3 vertexNormal = normalize(v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z);
-    vec3 N = normalize(mat3(prim.normalMatrix) * vertexNormal);
+    vec4 vertexTangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
+    vec3 N = CalculateNormal(prim, mat, vertexNormal, vertexTangent, uv);
 
-    if (mat.normalTex >= 0) 
-    {
-        vec3 T = normalize(mat3(prim.normalMatrix) * (v0.tangent.xyz * barycentrics.x + v1.tangent.xyz * barycentrics.y + v2.tangent.xyz * barycentrics.z));
-        float w = v0.tangent.w * barycentrics.x + v1.tangent.w * barycentrics.y + v2.tangent.w * barycentrics.z;
-        vec3 B = normalize(cross(N, T) * w);
-        mat3 TBN = mat3(T, B, N);
-        vec3 mappedNormal = texture(textureArray[nonuniformEXT(mat.normalTex)], uv).rgb * 2.0 - 1.0;
-        N = normalize(TBN * mappedNormal);
-    }
-
-    // 3. Roughness
     float roughness = mat.roughness;
+    float metallic = mat.metallic;
     if (mat.metalRoughTex >= 0) 
     {
-        roughness *= texture(textureArray[nonuniformEXT(mat.metalRoughTex)], uv).g;
+        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.metalRoughTex)], uv);
+        roughness *= mrSample.g;
+        metallic *= mrSample.b;
     }
+
+    // 2. 准备 PBR 计算向量
+    vec3 hitPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
+    vec3 V = normalize(global.ubo.camera.position.xyz - hitPos);
+    vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
+    vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
+
+    // 3. 执行直接光着色
+    vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor);
     
-    payload.color = color;
+    // [DEBUG] To find why white is black, let's include basic albedo in payload color for now
+    // If you want pure PBR, use payload.color = directLighting;
+    // But let's use: ambient + direct
+    vec3 ambient = global.ubo.ambientStrength * albedo.rgb;
+    payload.color = ambient + directLighting; 
+    
     payload.normal = N;
     payload.distance = gl_HitTEXT;
     payload.roughness = roughness;

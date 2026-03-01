@@ -30,7 +30,7 @@ namespace Chimera::ForwardPass
             {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
-                GraphicsPipelineDescription desc{ "Forward", "forward/forward.vert", "forward/forward.frag", true, true };
+                GraphicsPipelineDescription desc{ "Forward", "Forward_Vert", "Forward_Frag", true, true };
                 ctx.BindPipeline(desc);
 
                 if (scene)

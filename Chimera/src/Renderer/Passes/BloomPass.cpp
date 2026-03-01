@@ -15,7 +15,7 @@ namespace Chimera::BloomPass
                 data.output = builder.WriteStorage("BloomBright").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
             },
             [](const ThresholdData& data, ComputeExecutionContext& ctx) {
-                ctx.Dispatch("postprocess/bloom_threshold.comp", 
+                ctx.Dispatch("Bloom_Threshold", 
                     (ctx.GetGraph().GetWidth() + 15) / 16, 
                     (ctx.GetGraph().GetHeight() + 15) / 16);
             }
@@ -29,9 +29,9 @@ namespace Chimera::BloomPass
                 data.output = builder.WriteStorage("BloomBlurH").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
             },
             [](const BlurData& data, ComputeExecutionContext& ctx) {
-                ctx.BindPipeline("postprocess/bloom_blur.comp");
+                ctx.BindPipeline("Bloom_Blur");
                 ctx.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, 1);
-                ctx.Dispatch("postprocess/bloom_blur.comp", 
+                ctx.Dispatch("Bloom_Blur", 
                     (ctx.GetGraph().GetWidth() + 15) / 16, 
                     (ctx.GetGraph().GetHeight() + 15) / 16);
             }
@@ -44,9 +44,9 @@ namespace Chimera::BloomPass
                 data.output = builder.WriteStorage("BloomBlurV").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
             },
             [](const BlurData& data, ComputeExecutionContext& ctx) {
-                ctx.BindPipeline("postprocess/bloom_blur.comp");
+                ctx.BindPipeline("Bloom_Blur");
                 ctx.PushConstants(VK_SHADER_STAGE_COMPUTE_BIT, 0);
-                ctx.Dispatch("postprocess/bloom_blur.comp", 
+                ctx.Dispatch("Bloom_Blur", 
                     (ctx.GetGraph().GetWidth() + 15) / 16, 
                     (ctx.GetGraph().GetHeight() + 15) / 16);
             }

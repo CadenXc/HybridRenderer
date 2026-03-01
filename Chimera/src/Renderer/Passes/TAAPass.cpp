@@ -30,8 +30,8 @@ namespace Chimera::TAAPass
             },
             [](const PassData& data, ComputeExecutionContext& ctx)
             {
-                ctx.BindPipeline("postprocess/taa.comp");
-                ctx.Dispatch("postprocess/taa.comp", 
+                ctx.BindPipeline("TAA_Comp");
+                ctx.Dispatch("TAA_Comp", 
                     (ctx.GetGraph().GetWidth() + 15) / 16, 
                     (ctx.GetGraph().GetHeight() + 15) / 16);
             }

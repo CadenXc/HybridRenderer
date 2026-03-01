@@ -42,8 +42,8 @@ namespace Chimera::GBufferPass
                 
                 GraphicsPipelineDescription desc;
                 desc.name = "GBuffer";
-                desc.vertex_shader = "hybrid/gbuffer.vert";
-                desc.fragment_shader = "hybrid/gbuffer.frag";
+                desc.vertex_shader = "GBuffer_Vert";
+                desc.fragment_shader = "GBuffer_Frag";
                 desc.depth_test = true;
                 desc.depth_write = true;
 

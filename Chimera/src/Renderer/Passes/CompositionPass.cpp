@@ -31,7 +31,7 @@ namespace Chimera::CompositionPass
             [](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) 
             {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
-                ctx.DrawMeshes({ "Composition", "common/fullscreen.vert", "postprocess/composition.frag" }, nullptr);
+                ctx.DrawMeshes({ "Composition", "Fullscreen_Vert", "Composition_Frag" }, nullptr);
             }
         );
     }

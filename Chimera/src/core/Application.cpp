@@ -6,6 +6,7 @@
 #include "Renderer/Resources/ResourceManager.h"
 #include "Renderer/Backend/PipelineManager.h"
 #include "Renderer/Backend/ShaderManager.h"
+#include "Renderer/Backend/ShaderRegistry.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Core/ImGuiLayer.h"
 #include "Scene/Scene.h"
@@ -31,6 +32,7 @@ namespace Chimera
         m_ResourceManager = std::make_unique<ResourceManager>();
         m_ResourceManager->InitGlobalResources();
         
+        ShaderRegistry::RegisterAll();
         m_PipelineManager = std::make_unique<PipelineManager>();
         m_RenderState = std::make_unique<RenderState>();
         

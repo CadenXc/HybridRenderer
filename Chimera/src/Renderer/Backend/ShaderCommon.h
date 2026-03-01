@@ -26,6 +26,14 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 }
 #endif
 
+// --- 0. Shared Bindings ---
+#define BINDING_GLOBAL_UBO          0
+#define BINDING_AS                  0
+#define BINDING_MATERIALS           1
+#define BINDING_PRIMITIVES           2
+#define BINDING_TEXTURES            3
+#define BINDING_RT_OUTPUT           0
+
 // --- 1. Shared Constants ---
 #define DISPLAY_MODE_FINAL      0
 #define DISPLAY_MODE_ALBEDO     1

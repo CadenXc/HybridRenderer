@@ -27,9 +27,9 @@ namespace Chimera::RTShadowAOPass
                 RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
                 RaytracingPipelineDescription desc;
-                desc.raygen_shader = "raytracing/raygen.rgen";
-                desc.miss_shaders = { "raytracing/miss.rmiss", "raytracing/shadow.rmiss" };
-                desc.hit_shaders = { { "raytracing/closesthit.rchit", "", "" } };
+                desc.raygen_shader = "Raygen_Gen";
+                desc.miss_shaders = { "Raytrace_Miss", "Shadow_Miss" };
+                desc.hit_shaders = { { "Raytrace_Hit", "", "" } };
 
                 ctx.BindPipeline(desc);
                 ctx.TraceRays(reg.graph.GetWidth(), reg.graph.GetHeight());

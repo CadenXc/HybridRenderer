@@ -10,7 +10,7 @@
 #include "Renderer/RenderState.h"
 #include "Renderer/Backend/ShaderCommon.h"
 #include "Scene/Scene.h"
-#include "Scene/Model.h" // [FIX] Added missing include
+#include "Scene/Model.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -47,7 +47,6 @@ namespace Chimera
         VkDevice device = VulkanContext::Get().GetDevice();
         vkDeviceWaitIdle(device);
 
-        // [FORCE] Drop scene first to trigger Model destruction
         if (m_ActiveScene)
         {
             CH_CORE_INFO("ResourceManager: Releasing Scene shared_ptr. Current Use Count: {0}", m_ActiveScene.use_count());
@@ -56,7 +55,7 @@ namespace Chimera
         
         m_MaterialBuffer.reset();
         m_PrimitiveBuffer.reset();
-        m_UniformBuffers.clear(); // [FIX] Clear uniform buffers
+        m_UniformBuffers.clear();
         
         m_Materials.clear();
         m_Textures.clear(); 
@@ -97,9 +96,14 @@ namespace Chimera
 
     void ResourceManager::InitGlobalResources()
     {
-        // 1. Persistent Storage Buffers
-        m_MaterialBuffer = std::make_unique<Buffer>(sizeof(GpuMaterial) * 1024, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-        m_PrimitiveBuffer = std::make_unique<Buffer>(sizeof(GpuPrimitive) * 4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+        // Material buffer needs to be CPU_TO_GPU to allow dynamic updates from UI via vkMapMemory
+        m_MaterialBuffer = std::make_unique<Buffer>(sizeof(GpuMaterial) * 1024, 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, 
+            VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+        m_PrimitiveBuffer = std::make_unique<Buffer>(sizeof(GpuPrimitive) * 4096, 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 
+            VMA_MEMORY_USAGE_GPU_ONLY);
 
         CreateTextureSampler();
         CreateDescriptorPool();
@@ -169,10 +173,10 @@ namespace Chimera
     void ResourceManager::CreateSceneDescriptorSetLayout()
     {
         std::vector<VkDescriptorSetLayoutBinding> b = {
-            { 0, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL, nullptr },
-            { 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr },
-            { 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr }, 
-            { 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024, VK_SHADER_STAGE_ALL, nullptr }
+            { BINDING_AS, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL, nullptr },
+            { BINDING_MATERIALS, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr },
+            { BINDING_PRIMITIVES, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr }, 
+            { BINDING_TEXTURES, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1024, VK_SHADER_STAGE_ALL, nullptr }
         };
         VkDescriptorBindingFlags f[4] = {
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
@@ -243,7 +247,7 @@ namespace Chimera
 
             if (tlas != VK_NULL_HANDLE)
             {
-                VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, &aW, tS, 0, 0, 1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR };
+                VkWriteDescriptorSet w{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, &aW, tS, BINDING_AS, 0, 1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR };
                 wS.push_back(w);
             }
 
@@ -251,16 +255,15 @@ namespace Chimera
             {
                 static VkDescriptorBufferInfo mI;
                 mI = { (VkBuffer)m_MaterialBuffer->GetBuffer(), 0, VK_WHOLE_SIZE };
-                VkWriteDescriptorSet mW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &mI };
+                VkWriteDescriptorSet mW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, BINDING_MATERIALS, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &mI };
                 wS.push_back(mW);
             }
 
-            // [MODERN] Use the centralized Primitive Buffer instead of individual instance buffers
             if (m_PrimitiveBuffer && m_PrimitiveBuffer->GetBuffer() != VK_NULL_HANDLE)
             {
                 static VkDescriptorBufferInfo iI;
                 iI = { (VkBuffer)m_PrimitiveBuffer->GetBuffer(), 0, VK_WHOLE_SIZE };
-                VkWriteDescriptorSet iW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, 2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &iI };
+                VkWriteDescriptorSet iW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, BINDING_PRIMITIVES, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &iI };
                 wS.push_back(iW);
             }
 
@@ -275,7 +278,7 @@ namespace Chimera
 
             if (!iIs.empty())
             {
-                VkWriteDescriptorSet tW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, 3, 0, (uint32_t)std::min((size_t)1024, iIs.size()), VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, iIs.data() };
+                VkWriteDescriptorSet tW{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, tS, BINDING_TEXTURES, 0, (uint32_t)std::min((size_t)1024, iIs.size()), VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, iIs.data() };
                 wS.push_back(tW);
             }
 
@@ -300,10 +303,12 @@ namespace Chimera
         }
 
         std::vector<GpuPrimitive> primitiveData;
-        
         for (const auto& entity : entities)
         {
-            if (!entity.mesh.model) continue;
+            if (!entity.mesh.model)
+            {
+                continue;
+            }
 
             const auto& meshes = entity.mesh.model->GetMeshes();
             glm::mat4 modelMatrix = entity.transform.GetTransform();
@@ -315,16 +320,16 @@ namespace Chimera
                 gpuPrim.normalMatrix = glm::transpose(glm::inverse(gpuPrim.transform));
                 gpuPrim.prevTransform = entity.prevTransform * mesh.transform;
                 gpuPrim.materialIndex = mesh.materialIndex;
-                
-                // [NEW] Unified addresses
                 gpuPrim.vertexAddress = entity.mesh.model->GetVertexBuffer()->GetDeviceAddress() + (mesh.vertexOffset * sizeof(GpuVertex));
                 gpuPrim.indexAddress = entity.mesh.model->GetIndexBuffer()->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
-                
                 primitiveData.push_back(gpuPrim);
             }
         }
 
-        if (primitiveData.empty()) return;
+        if (primitiveData.empty())
+        {
+            return;
+        }
 
         VkDeviceSize dataSize = primitiveData.size() * sizeof(GpuPrimitive);
         if (m_PrimitiveBuffer->GetSize() < dataSize)
@@ -339,6 +344,18 @@ namespace Chimera
             ScopedCommandBuffer cmd;
             VkBufferCopy copy{ 0, 0, dataSize };
             vkCmdCopyBuffer(cmd, (VkBuffer)staging.GetBuffer(), (VkBuffer)m_PrimitiveBuffer->GetBuffer(), 1, &copy);
+        }
+    }
+
+    void ResourceManager::UpdateMaterial(uint32_t materialIndex, const GpuMaterial& material)
+    {
+        if (materialIndex < m_Materials.size())
+        {
+            m_Materials[materialIndex]->SetData(material);
+            if (m_MaterialBuffer)
+            {
+                m_MaterialBuffer->Update(&material, sizeof(GpuMaterial), materialIndex * sizeof(GpuMaterial));
+            }
         }
     }
 
@@ -374,35 +391,21 @@ namespace Chimera
 
     GraphImage ResourceManager::CreateGraphImage(uint32_t w, uint32_t h, VkFormat f, VkImageUsageFlags u, VkImageLayout iL, VkSampleCountFlagBits s, const std::string& name)
     {
-        static uint32_t s_ActiveGraphImages = 0;
         GraphImage i{};
-        i.width = w; i.height = h; i.format = f;
-
+        i.width = w;
+        i.height = h;
+        i.format = f;
+        
         bool isDepth = VulkanUtils::IsDepthFormat(f);
-
+        
+        // Use the caller-provided usage as base, but ensure it has the minimum required bits for engine functionality
         VkImageUsageFlags finalUsage = u | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
-        if (isDepth)
-        {
-            finalUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        }
-        else
-        {
-            finalUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
-        }
-
         i.usage = finalUsage;
-
         VkImageCreateInfo iI{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, nullptr, 0, VK_IMAGE_TYPE_2D, f, { w, h, 1 }, 1, 1, s, VK_IMAGE_TILING_OPTIMAL, finalUsage, VK_SHARING_MODE_EXCLUSIVE, 0, nullptr, VK_IMAGE_LAYOUT_UNDEFINED };
         VmaAllocationCreateInfo vA{ 0, VMA_MEMORY_USAGE_GPU_ONLY };
 
-        VkResult res = vmaCreateImage(VulkanContext::Get().GetAllocator(), &iI, &vA, &i.handle, &i.allocation, nullptr);
-        if (res != VK_SUCCESS)
-        {
-            CH_CORE_ERROR("ResourceManager: Failed to create GPU image! Active Images: {}, Format: {}, Usage: {}, Error Code: {}", s_ActiveGraphImages, (int)f, finalUsage, (int)res);
-            return i;
-        }
-        s_ActiveGraphImages++;
+        vmaCreateImage(VulkanContext::Get().GetAllocator(), &iI, &vA, &i.handle, &i.allocation, nullptr);
 
         if (!name.empty())
         {
@@ -410,30 +413,12 @@ namespace Chimera
         }
 
         VkImageViewCreateInfo vW{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, nullptr, 0, i.handle, VK_IMAGE_VIEW_TYPE_2D, f, { VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY }, { (VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, 1 } };
-
-        res = vkCreateImageView(VulkanContext::Get().GetDevice(), &vW, nullptr, &i.view);
-        if (res != VK_SUCCESS)
-        {
-            CH_CORE_ERROR("ResourceManager: Failed to create image view! Error Code: {}", (int)res);
-            return i;
-        }
-
-        if (!name.empty())
-        {
-            std::string viewName = name + "_View";
-            VulkanContext::Get().SetDebugName((uint64_t)i.view, VK_OBJECT_TYPE_IMAGE_VIEW, viewName.c_str());
-        }
+        vkCreateImageView(VulkanContext::Get().GetDevice(), &vW, nullptr, &i.view);
 
         if (isDepth)
         {
             vW.components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE };
             vkCreateImageView(VulkanContext::Get().GetDevice(), &vW, nullptr, &i.debug_view);
-            
-            if (!name.empty())
-            {
-                std::string debugViewName = name + "_DebugView";
-                VulkanContext::Get().SetDebugName((uint64_t)i.debug_view, VK_OBJECT_TYPE_IMAGE_VIEW, debugViewName.c_str());
-            }
         }
         else
         {
@@ -448,22 +433,22 @@ namespace Chimera
         {
             return;
         }
-
         VkDevice device = VulkanContext::Get().GetDevice();
-
-        // [FIX] Use a temporary set to ensure each unique handle is destroyed exactly once
         std::set<VkImageView> uniqueViews;
-        if (i.view != VK_NULL_HANDLE) uniqueViews.insert(i.view);
-        if (i.debug_view != VK_NULL_HANDLE) uniqueViews.insert(i.debug_view);
-
+        if (i.view != VK_NULL_HANDLE)
+        {
+            uniqueViews.insert(i.view);
+        }
+        if (i.debug_view != VK_NULL_HANDLE)
+        {
+            uniqueViews.insert(i.debug_view);
+        }
         for (auto v : uniqueViews)
         {
             vkDestroyImageView(device, v, nullptr);
         }
-
         i.view = VK_NULL_HANDLE;
         i.debug_view = VK_NULL_HANDLE;
-        
         vmaDestroyImage(VulkanContext::Get().GetAllocator(), i.handle, i.allocation);
         i.handle = VK_NULL_HANDLE;
     }
@@ -480,14 +465,11 @@ namespace Chimera
         {
             return TextureHandle();
         }
-
         VkDeviceSize s = tw * th * 4;
         Buffer st(s, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
         st.Update(px, s);
         stbi_image_free(px);
-
         VkFormat format = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
-
         auto im = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, format, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
         {
             ScopedCommandBuffer c;
@@ -505,26 +487,17 @@ namespace Chimera
         {
             return m_TextureMap[p];
         }
-
-        CH_CORE_INFO("ResourceManager: stbi_loadf starting for: {}", p);
         int tw, th, tc;
         float* px = stbi_loadf(p.c_str(), &tw, &th, &tc, STBI_rgb_alpha);
-
         if (!px)
         {
-            CH_CORE_ERROR("ResourceManager: Failed to load HDR texture via stbi: {}", p);
             return TextureHandle();
         }
-        CH_CORE_INFO("ResourceManager: HDR loaded. Size: {}x{}, Channels: {}", tw, th, tc);
-
         VkDeviceSize s = (VkDeviceSize)tw * th * 4 * sizeof(float);
         Buffer st(s, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
         st.Update(px, s);
         stbi_image_free(px);
-
-        CH_CORE_INFO("ResourceManager: Creating GPU Image for HDR...");
         auto im = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-
         {
             ScopedCommandBuffer c;
             VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
@@ -532,8 +505,6 @@ namespace Chimera
             vkCmdCopyBufferToImage(c, (VkBuffer)st.GetBuffer(), (VkImage)im->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r);
             VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         }
-
-        CH_CORE_INFO("ResourceManager: HDR texture registered successfully.");
         return AddTexture(std::move(im), p);
     }
 
@@ -579,10 +550,10 @@ namespace Chimera
         if (h.id < m_TextureRefCount.size() && --m_TextureRefCount[h.id] == 0 && h.id != 0)
         {
             Image* r = m_Textures[h.id].release();
-            SubmitResourceFree([r]()
-                {
-                    delete r;
-                });
+            SubmitResourceFree([r]() 
+            { 
+                delete r; 
+            });
         }
     }
 
@@ -620,10 +591,10 @@ namespace Chimera
         if (h.id < m_MaterialRefCount.size() && --m_MaterialRefCount[h.id] == 0 && h.id != 0)
         {
             Material* r = m_Materials[h.id].release();
-            SubmitResourceFree([r]()
-                {
-                    delete r;
-                });
+            SubmitResourceFree([r]() 
+            { 
+                delete r; 
+            });
         }
     }
 
@@ -631,11 +602,6 @@ namespace Chimera
     {
         if (s_Instance)
         {
-            if (s_Instance->m_CurrentFrameIndex >= s_Instance->m_ResourceFreeQueue.size())
-            {
-                CH_CORE_ERROR("ResourceManager: Frame index {} out of range for FreeQueue (size {})!", s_Instance->m_CurrentFrameIndex, s_Instance->m_ResourceFreeQueue.size());
-                return;
-            }
             s_Instance->m_ResourceFreeQueue[s_Instance->m_CurrentFrameIndex].push_back(std::move(f));
         }
     }
@@ -650,7 +616,6 @@ namespace Chimera
             }
             m_ResourceFreeQueue[fI].clear();
         }
-
         if (fI < MAX_FRAMES_IN_FLIGHT)
         {
             m_TransientBuffers[fI].clear();
@@ -685,51 +650,51 @@ namespace Chimera
         return m_TextureMap.count(n) ? m_TextureMap[n] : TextureHandle();
     }
 
-    void AddRefInternal(Handle<Image> h)
-    {
-        if (ResourceManager::HasInstance())
+    void AddRefInternal(Handle<Image> h) 
+    { 
+        if (ResourceManager::HasInstance()) 
         {
-            ResourceManager::Get().AddRef(h);
+            ResourceManager::Get().AddRef(h); 
         }
     }
-
-    void ReleaseInternal(Handle<Image> h)
-    {
-        if (ResourceManager::HasInstance())
+    
+    void ReleaseInternal(Handle<Image> h) 
+    { 
+        if (ResourceManager::HasInstance()) 
         {
-            ResourceManager::Get().Release(h);
+            ResourceManager::Get().Release(h); 
         }
     }
-
-    void AddRefInternal(Handle<Buffer> h)
-    {
-        if (ResourceManager::HasInstance())
+    
+    void AddRefInternal(Handle<Buffer> h) 
+    { 
+        if (ResourceManager::HasInstance()) 
         {
-            ResourceManager::Get().AddRef(h);
+            ResourceManager::Get().AddRef(h); 
         }
     }
-
-    void ReleaseInternal(Handle<Buffer> h)
-    {
-        if (ResourceManager::HasInstance())
+    
+    void ReleaseInternal(Handle<Buffer> h) 
+    { 
+        if (ResourceManager::HasInstance()) 
         {
-            ResourceManager::Get().Release(h);
+            ResourceManager::Get().Release(h); 
         }
     }
-
-    void AddRefInternal(Handle<Material> h)
-    {
-        if (ResourceManager::HasInstance())
+    
+    void AddRefInternal(Handle<Material> h) 
+    { 
+        if (ResourceManager::HasInstance()) 
         {
-            ResourceManager::Get().AddRef(h);
+            ResourceManager::Get().AddRef(h); 
         }
     }
-
-    void ReleaseInternal(Handle<Material> h)
-    {
-        if (ResourceManager::HasInstance())
+    
+    void ReleaseInternal(Handle<Material> h) 
+    { 
+        if (ResourceManager::HasInstance()) 
         {
-            ResourceManager::Get().Release(h);
+            ResourceManager::Get().Release(h); 
         }
     }
 }

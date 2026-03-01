@@ -41,8 +41,8 @@ namespace Chimera::SVGFPass
             },
             [config](const TemporalData& data, ComputeExecutionContext& ctx)
             {
-                ctx.BindPipeline("postprocess/svgf/temporal.comp");
-                ctx.Dispatch("postprocess/svgf/temporal.comp", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+                ctx.BindPipeline("SVGF_Temporal");
+                ctx.Dispatch("SVGF_Temporal", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
             }
         );
 
@@ -73,9 +73,9 @@ namespace Chimera::SVGFPass
                 [i](const AtrousData& data, ComputeExecutionContext& ctx)
                 {
                     int step = 1 << i;
-                    ctx.BindPipeline("postprocess/svgf/atrous.comp");
+                    ctx.BindPipeline("SVGF_Atrous");
                     ctx.PushConstants(VK_SHADER_STAGE_ALL, step);
-                    ctx.Dispatch("postprocess/svgf/atrous.comp", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+                    ctx.Dispatch("SVGF_Atrous", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
                 }
             );
             currentInput = outputName;

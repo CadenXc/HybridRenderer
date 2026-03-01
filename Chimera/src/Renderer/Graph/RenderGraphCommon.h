@@ -77,9 +77,46 @@ namespace Chimera
         RGResourceFlags flags = (RGResourceFlags)RGResourceFlagBits::None;
     };
 
-    struct GraphicsPipelineDescription { std::string name, vertex_shader, fragment_shader; bool depth_test = true, depth_write = true; VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT; };
-    struct RaytracingPipelineDescription { std::string raygen_shader; std::vector<std::string> miss_shaders; struct HitGroup { std::string closest_hit, any_hit, intersection; }; std::vector<HitGroup> hit_shaders; };
-    struct ComputePipelineDescription { struct Kernel { std::string name, shader; }; std::vector<Kernel> kernels; struct { uint32_t size = 0; VkShaderStageFlags stages = 0; } push_constant_description; };
+    struct GraphicsPipelineDescription 
+    { 
+        std::string name;
+        std::string vertex_shader;
+        std::string fragment_shader; 
+        bool depth_test = true;
+        bool depth_write = true; 
+        VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT; 
+        std::vector<uint32_t> specializationConstants; 
+    };
+
+    struct RaytracingPipelineDescription 
+    { 
+        std::string raygen_shader; 
+        std::vector<std::string> miss_shaders; 
+        struct HitGroup 
+        { 
+            std::string closest_hit;
+            std::string any_hit;
+            std::string intersection; 
+        }; 
+        std::vector<HitGroup> hit_shaders; 
+        std::vector<uint32_t> specializationConstants; 
+    };
+
+    struct ComputePipelineDescription 
+    { 
+        struct Kernel 
+        { 
+            std::string name;
+            std::string shader; 
+            std::vector<uint32_t> specializationConstants; 
+        }; 
+        std::vector<Kernel> kernels; 
+        struct 
+        { 
+            uint32_t size = 0; 
+            VkShaderStageFlags stages = 0; 
+        } push_constant_description; 
+    };
 
     struct RenderGraphRegistry
     {

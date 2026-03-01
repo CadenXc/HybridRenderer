@@ -1,57 +1,43 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_nonuniform_qualifier : enable
-#extension GL_EXT_scalar_block_layout : enable
-#include "ShaderCommon.h"
+#include "../common/common.glsl"
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec2 inUV;
 layout(location = 2) in vec3 inWorldPos;
 layout(location = 3) in vec4 inTangent;
-layout(location = 4) in flat uint inObjectId; // Received from vert
+layout(location = 4) in flat uint inObjectId; 
 
 layout(location = 0) out vec4 outColor;
 
-layout(set = 0, binding = 0) uniform GlobalUBO { UniformBufferObject ubo; } global;
-
-layout(set = 1, binding = 1, scalar) readonly buffer MaterialBuffer { GpuMaterial m[]; } materialBuffer;
-
-// [NEW] SSBO Binding for Primitives
-layout(set = 1, binding = 2, scalar) readonly buffer PrimitiveBuffer 
-{
-    GpuPrimitive primitives[];
-} primBuf;
-
-layout(set = 1, binding = 3) uniform sampler2D textureArray[];
-
 void main() 
 {
-    // 1. Lookup primitive to get material index
+    // 1. 获取基础数据
     GpuPrimitive prim = primBuf.primitives[inObjectId];
     GpuMaterial mat = materialBuffer.m[prim.materialIndex];
     
-    vec4 albedo = mat.albedo;
-    if (mat.albedoTex >= 0) 
+    // 2. 解包材质参数
+    vec4 albedo = GetAlbedo(mat, inUV);
+    vec3 N = CalculateNormal(prim, mat, inNormal, inTangent, inUV);
+    vec3 V = normalize(global.ubo.camera.position.xyz - inWorldPos);
+
+    float roughness = mat.roughness;
+    float metallic = mat.metallic;
+    if (mat.metalRoughTex >= 0)
     {
-        albedo *= texture(textureArray[nonuniformEXT(mat.albedoTex)], inUV);
+        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.metalRoughTex)], inUV);
+        roughness *= mrSample.g;
+        metallic *= mrSample.b;
     }
 
-    // --- Normal Mapping ---
-    vec3 N = normalize(inNormal);
-    if (mat.normalTex >= 0)
-    {
-        vec3 T = normalize(inTangent.xyz);
-        vec3 B = cross(N, T) * inTangent.w;
-        mat3 TBN = mat3(T, B, N);
-        vec3 mapNormal = texture(textureArray[nonuniformEXT(mat.normalTex)], inUV).xyz * 2.0 - 1.0;
-        N = normalize(TBN * mapNormal);
-    }
-
+    // 3. 计算直接光
     vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
-    float diff = max(dot(N, L), 0.0);
+    vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
     
-    vec3 diffuse = diff * global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
-    vec3 ambient = vec3(0.1) * albedo.rgb;
+    vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor);
     
-    outColor = vec4(ambient + diffuse * albedo.rgb, albedo.a);
+    // 4. 环境光
+    vec3 ambient = global.ubo.ambientStrength * albedo.rgb;
+    
+    outColor = vec4(ambient + directLighting, albedo.a);
 }

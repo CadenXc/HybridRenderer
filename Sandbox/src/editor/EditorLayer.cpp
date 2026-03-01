@@ -11,6 +11,7 @@
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Scene/Scene.h"
 #include "Core/Input.h"
+#include "Scene/Model.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <filesystem>
@@ -269,6 +270,32 @@ namespace Chimera
             {
                 scene->UpdateEntityTRS(m_SelectedInstanceIndex, pos, rot, scale);
                 if (activePath) activePath->OnSceneUpdated();
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            if (entity.mesh.model)
+            {
+                uint32_t materialIndex = entity.mesh.model->GetMeshes()[0].materialIndex; // Assume 1st mesh for now
+                Material* mat = ResourceManager::Get().GetMaterial(MaterialHandle(materialIndex));
+                
+                if (mat)
+                {
+                    GpuMaterial data = mat->GetData();
+                    bool matChanged = false;
+
+                    if (ImGui::ColorEdit3("Albedo", &data.albedo.x)) matChanged = true;
+                    if (ImGui::SliderFloat("Roughness", &data.roughness, 0.0f, 1.0f)) matChanged = true;
+                    if (ImGui::SliderFloat("Metallic", &data.metallic, 0.0f, 1.0f)) matChanged = true;
+                    if (ImGui::SliderFloat("Emission Intensity", &data.emission.x, 0.0f, 10.0f)) matChanged = true;
+
+                    if (matChanged)
+                    {
+                        ResourceManager::Get().UpdateMaterial(materialIndex, data);
+                        if (activePath) activePath->OnSceneUpdated();
+                    }
+                }
             }
         }
     }

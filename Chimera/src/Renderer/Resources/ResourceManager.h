@@ -17,32 +17,75 @@ namespace Chimera
         ResourceManager();
         ~ResourceManager();
 
-        void Clear(); // [NEW] Explicit cleanup
+        void Clear();
         void InitGlobalResources();
         void UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo);
         
         void UpdateSceneDescriptorSet(class Scene* scene, uint32_t frameIndex);
-        void UpdateSceneDescriptorSet(class Scene* scene) { UpdateSceneDescriptorSet(scene, 0xFFFFFFFF); }
+        
+        void UpdateSceneDescriptorSet(class Scene* scene) 
+        { 
+            UpdateSceneDescriptorSet(scene, 0xFFFFFFFF); 
+        }
 
-        VkDescriptorSet GetSceneDescriptorSet(uint32_t frameIndex) const { return m_SceneDescriptorSets[frameIndex]; }
-        VkDescriptorSet GetSceneDescriptorSet() const { return m_SceneDescriptorSets[0]; }
-        VkDescriptorSetLayout GetSceneDescriptorSetLayout() const { return m_SceneDescriptorSetLayout; }
+        VkDescriptorSet GetSceneDescriptorSet(uint32_t frameIndex) const 
+        { 
+            return m_SceneDescriptorSets[frameIndex]; 
+        }
+        
+        VkDescriptorSet GetSceneDescriptorSet() const 
+        { 
+            return m_SceneDescriptorSets[0]; 
+        }
+        
+        VkDescriptorSetLayout GetSceneDescriptorSetLayout() const 
+        { 
+            return m_SceneDescriptorSetLayout; 
+        }
 
-        VkDescriptorPool GetDescriptorPool() const { return m_DescriptorPool; }
-        VkDescriptorPool GetTransientDescriptorPool() const { return m_TransientDescriptorPools[m_CurrentFrameIndex]; }
+        VkDescriptorPool GetDescriptorPool() const 
+        { 
+            return m_DescriptorPool; 
+        }
+        
+        VkDescriptorPool GetTransientDescriptorPool() const 
+        { 
+            return m_TransientDescriptorPools[m_CurrentFrameIndex]; 
+        }
+        
         void ResetTransientDescriptorPool();
 
-        VkSampler GetDefaultSampler() const { return m_TextureSampler; }
-        Image* GetDefaultTexture() const { return m_Textures.empty() ? nullptr : m_Textures[0].get(); }
-        Image& GetBlackTexture() const { return *m_Textures[0]; }
+        VkSampler GetDefaultSampler() const 
+        { 
+            return m_TextureSampler; 
+        }
+        
+        Image* GetDefaultTexture() const 
+        { 
+            return m_Textures.empty() ? nullptr : m_Textures[0].get(); 
+        }
+        
+        Image& GetBlackTexture() const 
+        { 
+            return *m_Textures[0]; 
+        }
 
         GraphImage CreateGraphImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageLayout initialLayout, VkSampleCountFlagBits samples, const std::string& name = "");
         void DestroyGraphImage(GraphImage& image);
 
-        static bool HasInstance() { return s_Instance != nullptr; }
-        static ResourceManager& Get() { return *s_Instance; }
+        static bool HasInstance() 
+        { 
+            return s_Instance != nullptr; 
+        }
+        
+        static ResourceManager& Get() 
+        { 
+            return *s_Instance; 
+        }
 
-        template<typename T> T* Get(Handle<T> handle);
+        template<typename T> 
+        T* Get(Handle<T> handle);
+        
         Image* GetTexture(TextureHandle handle);
         Material* GetMaterial(MaterialHandle handle);
         Buffer* GetBuffer(BufferHandle handle);
@@ -55,9 +98,15 @@ namespace Chimera
         MaterialHandle CreateMaterial(const std::string& name = "");
         MaterialHandle AddMaterial(std::unique_ptr<Material> material, const std::string& name = "");
         
-        VkBuffer GetMaterialBuffer() const { return (VkBuffer)m_MaterialBuffer->GetBuffer(); }
+        VkBuffer GetMaterialBuffer() const 
+        { 
+            return (VkBuffer)m_MaterialBuffer->GetBuffer(); 
+        }
+
         void SyncMaterialsToGPU();
-        void SyncPrimitivesToGPU(class Scene* scene); // [NEW] Data-driven primitive sync
+        void SyncPrimitivesToGPU(class Scene* scene); 
+
+        void UpdateMaterial(uint32_t materialIndex, const GpuMaterial& material);
 
         void AddTransientBuffer(std::shared_ptr<Buffer> buffer)
         {
@@ -78,20 +127,44 @@ namespace Chimera
         static void SubmitResourceFree(std::function<void()>&& func);
         void ClearResourceFreeQueue(uint32_t frameIndex);
         
-        void UpdateFrameIndex(uint32_t frameIndex) { m_CurrentFrameIndex = frameIndex; }
+        void UpdateFrameIndex(uint32_t frameIndex) 
+        { 
+            m_CurrentFrameIndex = frameIndex; 
+        }
 
-        const std::vector<std::unique_ptr<Image>>& GetTextures() const { return m_Textures; }
-        const std::vector<std::unique_ptr<Material>>& GetMaterials() const { return m_Materials; }
+        const std::vector<std::unique_ptr<Image>>& GetTextures() const 
+        { 
+            return m_Textures; 
+        }
+        
+        const std::vector<std::unique_ptr<Material>>& GetMaterials() const 
+        { 
+            return m_Materials; 
+        }
 
-        // --- Scene Management [NEW] ---
-        void SetActiveScene(std::shared_ptr<class Scene> scene) { m_ActiveScene = scene; }
-        class Scene* GetActiveScene() const { return m_ActiveScene.get(); }
-        std::shared_ptr<class Scene> GetActiveSceneShared() const { return m_ActiveScene; }
-        bool HasActiveScene() const { return m_ActiveScene != nullptr; }
+        void SetActiveScene(std::shared_ptr<class Scene> scene) 
+        { 
+            m_ActiveScene = scene; 
+        }
+        
+        class Scene* GetActiveScene() const 
+        { 
+            return m_ActiveScene.get(); 
+        }
+        
+        std::shared_ptr<class Scene> GetActiveSceneShared() const 
+        { 
+            return m_ActiveScene; 
+        }
+        
+        bool HasActiveScene() const 
+        { 
+            return m_ActiveScene != nullptr; 
+        }
 
     private:
         void CreateDescriptorPool();
-        void CreateTransientDescriptorPools(); // [FIX] Plural
+        void CreateTransientDescriptorPools();
         void CreateTextureSampler();
         void CreateSceneDescriptorSetLayout();
         void AllocatePersistentSets();
@@ -101,7 +174,7 @@ namespace Chimera
         static ResourceManager* s_Instance;
         
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
-        std::vector<VkDescriptorPool> m_TransientDescriptorPools; // [FIX]
+        std::vector<VkDescriptorPool> m_TransientDescriptorPools;
         
         VkDescriptorSetLayout m_SceneDescriptorSetLayout = VK_NULL_HANDLE;
         std::vector<VkDescriptorSet> m_SceneDescriptorSets;
@@ -116,19 +189,33 @@ namespace Chimera
         std::unordered_map<std::string, MaterialHandle> m_MaterialMap;
         std::vector<uint32_t> m_MaterialRefCount;
         std::unique_ptr<Buffer> m_MaterialBuffer;
-        std::unique_ptr<Buffer> m_PrimitiveBuffer; // [NEW] SSBO for all scene objects
+        std::unique_ptr<Buffer> m_PrimitiveBuffer;
 
         std::vector<std::shared_ptr<Buffer>> m_Buffers;
         std::vector<uint32_t> m_BufferRefCount;
         std::vector<std::shared_ptr<Buffer>> m_TransientBuffers[MAX_FRAMES_IN_FLIGHT];
 
         std::vector<std::vector<std::function<void()>>> m_ResourceFreeQueue;
-        std::shared_ptr<class Scene> m_ActiveScene; // [CENTRALIZED OWNERSHIP]
+        std::shared_ptr<class Scene> m_ActiveScene;
         uint32_t m_CurrentFrameIndex = 0;
-        bool m_IsCleared = false; // [NEW] Safety flag
+        bool m_IsCleared = false;
     };
 
-    template<> inline Image* ResourceManager::Get(TextureHandle handle) { return GetTexture(handle); }
-    template<> inline Material* ResourceManager::Get(MaterialHandle handle) { return GetMaterial(handle); }
-    template<> inline Buffer* ResourceManager::Get(BufferHandle handle) { return GetBuffer(handle); }
+    template<> 
+    inline Image* ResourceManager::Get(TextureHandle handle) 
+    { 
+        return GetTexture(handle); 
+    }
+    
+    template<> 
+    inline Material* ResourceManager::Get(MaterialHandle handle) 
+    { 
+        return GetMaterial(handle); 
+    }
+    
+    template<> 
+    inline Buffer* ResourceManager::Get(BufferHandle handle) 
+    { 
+        return GetBuffer(handle); 
+    }
 }

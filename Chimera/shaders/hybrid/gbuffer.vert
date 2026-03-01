@@ -1,7 +1,6 @@
 #version 460
 #extension GL_GOOGLE_include_directive : require
-#extension GL_EXT_scalar_block_layout : enable
-#include "ShaderCommon.h"
+#include "../common/common.glsl"
 
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
@@ -15,14 +14,6 @@ layout(location = 3) out vec4 outCurPos;
 layout(location = 4) out vec4 outPrevPos;
 layout(location = 5) out vec4 outTangent;
 
-layout(set = 0, binding = 0) uniform GlobalUBO { UniformBufferObject ubo; } global;
-
-// [NEW] SSBO Binding for Primitives (Set 1, Binding 2)
-layout(set = 1, binding = 2, scalar) readonly buffer PrimitiveBuffer 
-{
-    GpuPrimitive primitives[];
-} primBuf;
-
 layout(push_constant) uniform PushConstants 
 {
     ScenePushConstants pc;
@@ -32,18 +23,18 @@ void main()
 {
     GpuPrimitive prim = primBuf.primitives[pc.objectId];
     
-    vec4 worldPos = prim.transform * vec4(inPos, 1.0);
-    vec4 prevWorldPos = prim.prevTransform * vec4(inPos, 1.0);
-    
-    outCurPos = global.ubo.camera.proj * global.ubo.camera.view * worldPos;
-    outPrevPos = global.ubo.camera.prevProj * global.ubo.camera.prevView * prevWorldPos;
+    // 1. 统一位置变换 (Using common.glsl)
+    outCurPos = ProjectPosition(inPos, prim.transform);
+    outPrevPos = ProjectPreviousPosition(inPos, prim.prevTransform);
     
     gl_Position = outCurPos;
     
+    // 2. 法线与切线变换
     mat3 normalMat = mat3(prim.normalMatrix);
     outNormal = normalize(normalMat * inNormal);
     outTangent = vec4(normalize(normalMat * inTangent.xyz), inTangent.w);
     
+    // 3. 通用输出
     outTexCoord = inTexCoord;
     outObjectId = pc.objectId;
 }

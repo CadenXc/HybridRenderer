@@ -21,9 +21,9 @@ namespace Chimera::RaytracePass
                 RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
                 RaytracingPipelineDescription desc{};
-                desc.raygen_shader = "raytracing/raytrace.rgen";
-                desc.miss_shaders = { "raytracing/miss.rmiss" };
-                desc.hit_shaders = { { "raytracing/closesthit.rchit", "raytracing/shadow.rahit" } };
+                desc.raygen_shader = "Raytrace_Gen";
+                desc.miss_shaders = { "Raytrace_Miss" };
+                desc.hit_shaders = { { "Raytrace_Hit", "Shadow_AnyHit" } };
                 
                 ctx.BindPipeline(desc);
 

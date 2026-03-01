@@ -34,9 +34,9 @@ namespace Chimera::RTReflectionPass
                 RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
 
                 RaytracingPipelineDescription desc;
-                desc.raygen_shader = "raytracing/reflection.rgen";
-                desc.miss_shaders = { "raytracing/miss.rmiss" };
-                desc.hit_shaders = { { "raytracing/closesthit.rchit", "", "" } };
+                desc.raygen_shader = "Reflection_Gen";
+                desc.miss_shaders = { "Raytrace_Miss" };
+                desc.hit_shaders = { { "Raytrace_Hit", "", "" } };
 
                 int skyboxIndex = scene->GetSkyboxTextureIndex();
 

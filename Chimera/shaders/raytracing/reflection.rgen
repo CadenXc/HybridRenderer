@@ -1,16 +1,6 @@
 #version 460
-#extension GL_EXT_ray_tracing : require
-#extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_GOOGLE_include_directive : require
-#include "ShaderCommon.h"
-
-layout(set = 0, binding = 0) uniform GlobalUBO 
-{
-    UniformBufferObject ubo;
-} global;
-
-layout(set = 1, binding = 0) uniform accelerationStructureEXT topLevelAS;
-layout(set = 1, binding = 3) uniform sampler2D textureArray[];
+#include "../common/common.glsl"
 
 layout(set = 2, binding = 0, rgba16f) uniform image2D reflectionOutput;
 layout(set = 2, binding = 1) uniform sampler2D gNormal;
@@ -24,16 +14,6 @@ layout(push_constant) uniform PushConstants
 } pc;
 
 layout(location = 0) rayPayloadEXT HitPayload payload;
-
-const float PI = 3.14159265359;
-
-vec2 SampleEquirectangular(vec3 v) 
-{
-    vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
-    uv *= vec2(0.1591, 0.3183); 
-    uv += 0.5;
-    return uv;
-}
 
 void main() 
 {
@@ -60,7 +40,7 @@ void main()
     // Simple specular reflection direction
     vec3 reflectDir = reflect(viewDir, normal);
 
-    vec3 origin = worldPos + normal * 0.001;
+    vec3 origin = OffsetRay(worldPos, normal);
     
     payload.hit = false;
     payload.color = vec3(0.0);
@@ -69,7 +49,8 @@ void main()
 
     if ((global.ubo.renderFlags & RENDER_FLAG_REFLECTION_BIT) != 0)
     {
-        traceRayEXT(topLevelAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, 0.001, reflectDir, 10000.0, 0);
+        // 1. 发射硬件加速光线 (Using unified TLAS from common.glsl)
+        traceRayEXT(TLAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, 0.001, reflectDir, 10000.0, 0);
 
         if (payload.hit) 
         {
@@ -85,5 +66,6 @@ void main()
         }
     }
 
+    // 2. 将反射结果写入输出纹理
     imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(outColor, 1.0));
 }

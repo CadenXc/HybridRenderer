@@ -24,8 +24,8 @@ namespace Chimera::RayQueryPass
                 
                 GraphicsPipelineDescription desc{};
                 desc.name = "RayQuery_Pipeline";
-                desc.vertex_shader = "forward/forward.vert";
-                desc.fragment_shader = "raytracing/rayquery.frag";
+                desc.vertex_shader = "Forward_Vert";
+                desc.fragment_shader = "RayQuery_Frag";
                 
                 ctx.DrawMeshes(desc, scene.get());
             }

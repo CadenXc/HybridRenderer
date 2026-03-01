@@ -26,7 +26,6 @@ namespace Chimera
             {
                 vkDestroyPipeline(device, p->handle, nullptr);
             }
-            // Layout handled by m_LayoutCache
         }
 
         for (auto& [name, p] : m_RaytracingCache)
@@ -58,9 +57,16 @@ namespace Chimera
 
     GraphicsPipeline& PipelineManager::GetGraphicsPipeline(const std::vector<VkFormat>& colorFormats, VkFormat depthFormat, const GraphicsPipelineDescription& desc)
     {
-        if (m_GraphicsCache.count(desc.name))
+        // 1. Robust cache key including specialization constants
+        std::string cacheKey = desc.name;
+        for (uint32_t val : desc.specializationConstants) 
         {
-            return *m_GraphicsCache[desc.name];
+            cacheKey += "_" + std::to_string(val);
+        }
+
+        if (m_GraphicsCache.count(cacheKey))
+        {
+            return *m_GraphicsCache[cacheKey];
         }
 
         auto p = std::make_unique<GraphicsPipeline>();
@@ -73,9 +79,31 @@ namespace Chimera
         VkShaderModule vMod = CreateShaderModule(VulkanContext::Get().GetDevice(), vSh->GetBytecode());
         VkShaderModule fMod = CreateShaderModule(VulkanContext::Get().GetDevice(), fSh->GetBytecode());
 
+        // 2. Build Specialization Info
+        std::vector<VkSpecializationMapEntry> specEntries;
+        for (uint32_t i = 0; i < (uint32_t)desc.specializationConstants.size(); ++i)
+        {
+            specEntries.push_back({ i, i * (uint32_t)sizeof(uint32_t), sizeof(uint32_t) });
+        }
+
+        VkSpecializationInfo specInfo{};
+        if (!specEntries.empty())
+        {
+            specInfo.mapEntryCount = (uint32_t)specEntries.size();
+            specInfo.pMapEntries = specEntries.data();
+            specInfo.dataSize = (uint32_t)(desc.specializationConstants.size() * sizeof(uint32_t));
+            specInfo.pData = desc.specializationConstants.data();
+        }
+
         VkPipelineShaderStageCreateInfo ss[2] = {};
         ss[0] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vMod, "main" };
         ss[1] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fMod, "main" };
+
+        if (!specEntries.empty())
+        {
+            ss[0].pSpecializationInfo = &specInfo;
+            ss[1].pSpecializationInfo = &specInfo;
+        }
 
         bool isFullscreen = (desc.name == "Composition" || desc.name == "FinalBlit");
         auto bD = VertexInfo::getBindingDescription();
@@ -107,16 +135,21 @@ namespace Chimera
         vkDestroyShaderModule(VulkanContext::Get().GetDevice(), vMod, nullptr);
         vkDestroyShaderModule(VulkanContext::Get().GetDevice(), fMod, nullptr);
 
-        m_GraphicsCache[desc.name] = std::move(p);
-        return *m_GraphicsCache[desc.name];
+        m_GraphicsCache[cacheKey] = std::move(p);
+        return *m_GraphicsCache[cacheKey];
     }
 
     RaytracingPipeline& PipelineManager::GetRaytracingPipeline(const RaytracingPipelineDescription& desc)
     {
-        std::string key = desc.raygen_shader;
-        if (m_RaytracingCache.count(key))
+        std::string cacheKey = desc.raygen_shader;
+        for (uint32_t val : desc.specializationConstants) 
         {
-            return *m_RaytracingCache[key];
+            cacheKey += "_" + std::to_string(val);
+        }
+
+        if (m_RaytracingCache.count(cacheKey))
+        {
+            return *m_RaytracingCache[cacheKey];
         }
 
         auto p = std::make_unique<RaytracingPipeline>();
@@ -139,6 +172,21 @@ namespace Chimera
 
         p->layout = GetReflectionLayout(p->shaders);
 
+        std::vector<VkSpecializationMapEntry> specEntries;
+        for (uint32_t i = 0; i < (uint32_t)desc.specializationConstants.size(); ++i)
+        {
+            specEntries.push_back({ i, i * (uint32_t)sizeof(uint32_t), sizeof(uint32_t) });
+        }
+
+        VkSpecializationInfo specInfo{};
+        if (!specEntries.empty())
+        {
+            specInfo.mapEntryCount = (uint32_t)specEntries.size();
+            specInfo.pMapEntries = specEntries.data();
+            specInfo.dataSize = (uint32_t)(desc.specializationConstants.size() * sizeof(uint32_t));
+            specInfo.pData = desc.specializationConstants.data();
+        }
+
         std::vector<VkPipelineShaderStageCreateInfo> stages;
         std::vector<VkRayTracingShaderGroupCreateInfoKHR> groups;
 
@@ -150,6 +198,10 @@ namespace Chimera
             s.stage = stageBit;
             s.module = mod;
             s.pName = "main";
+            if (!specEntries.empty()) 
+            {
+                s.pSpecializationInfo = &specInfo;
+            }
             stages.push_back(s);
             return (uint32_t)stages.size() - 1;
         };
@@ -185,9 +237,13 @@ namespace Chimera
             hGroup.intersectionShader = VK_SHADER_UNUSED_KHR;
 
             if (!desc.hit_shaders[i].closest_hit.empty())
+            {
                 hGroup.closestHitShader = addStage(ShaderManager::GetShader(desc.hit_shaders[i].closest_hit).get(), VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
+            }
             if (!desc.hit_shaders[i].any_hit.empty())
+            {
                 hGroup.anyHitShader = addStage(ShaderManager::GetShader(desc.hit_shaders[i].any_hit).get(), VK_SHADER_STAGE_ANY_HIT_BIT_KHR);
+            }
 
             groups.push_back(hGroup);
         }
@@ -209,16 +265,21 @@ namespace Chimera
             vkDestroyShaderModule(VulkanContext::Get().GetDevice(), s.module, nullptr);
         }
 
-        m_RaytracingCache[key] = std::move(p);
-        return *m_RaytracingCache[key];
+        m_RaytracingCache[cacheKey] = std::move(p);
+        return *m_RaytracingCache[cacheKey];
     }
 
     ComputePipeline& PipelineManager::GetComputePipeline(const ComputePipelineDescription::Kernel& kernel)
     {
-        std::string key = kernel.shader;
-        if (m_ComputeCache.count(key))
+        std::string cacheKey = kernel.shader;
+        for (uint32_t val : kernel.specializationConstants) 
         {
-            return *m_ComputeCache[key];
+            cacheKey += "_" + std::to_string(val);
+        }
+
+        if (m_ComputeCache.count(cacheKey))
+        {
+            return *m_ComputeCache[cacheKey];
         }
 
         auto p = std::make_unique<ComputePipeline>();
@@ -227,15 +288,35 @@ namespace Chimera
         p->layout = GetReflectionLayout(p->shaders);
 
         VkShaderModule mod = CreateShaderModule(VulkanContext::Get().GetDevice(), sh->GetBytecode());
+
+        std::vector<VkSpecializationMapEntry> specEntries;
+        for (uint32_t i = 0; i < (uint32_t)kernel.specializationConstants.size(); ++i)
+        {
+            specEntries.push_back({ i, i * (uint32_t)sizeof(uint32_t), sizeof(uint32_t) });
+        }
+
+        VkSpecializationInfo specInfo{};
+        if (!specEntries.empty())
+        {
+            specInfo.mapEntryCount = (uint32_t)specEntries.size();
+            specInfo.pMapEntries = specEntries.data();
+            specInfo.dataSize = (uint32_t)(kernel.specializationConstants.size() * sizeof(uint32_t));
+            specInfo.pData = kernel.specializationConstants.data();
+        }
+
         VkComputePipelineCreateInfo info{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
         info.stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, mod, "main" };
+        if (!specEntries.empty()) 
+        {
+            info.stage.pSpecializationInfo = &specInfo;
+        }
         info.layout = p->layout;
 
         vkCreateComputePipelines(VulkanContext::Get().GetDevice(), VK_NULL_HANDLE, 1, &info, nullptr, &p->handle);
         vkDestroyShaderModule(VulkanContext::Get().GetDevice(), mod, nullptr);
 
-        m_ComputeCache[key] = std::move(p);
-        return *m_ComputeCache[key];
+        m_ComputeCache[cacheKey] = std::move(p);
+        return *m_ComputeCache[cacheKey];
     }
 
     VkPipelineLayout PipelineManager::GetReflectionLayout(const std::vector<const Shader*>& shaders)
@@ -299,7 +380,6 @@ namespace Chimera
         size_t hash = 0;
         for (const auto& [binding, b] : uniqueBindings)
         {
-            // Robust combine hash
             hash ^= std::hash<uint32_t>{}(b.binding) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
             hash ^= std::hash<uint32_t>{}(static_cast<uint32_t>(b.type)) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
             hash ^= std::hash<uint32_t>{}(b.count) + 0x9e3779b9 + (hash << 6) + (hash >> 2);

@@ -2,6 +2,7 @@
 #include "RenderState.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Resources/Buffer.h"
+#include "Renderer/Backend/ShaderCommon.h"
 
 namespace Chimera
 {
@@ -31,7 +32,7 @@ namespace Chimera
 
     void RenderState::CreateDescriptorSetLayout()
     {
-        VkDescriptorSetLayoutBinding uboLayoutBinding{ 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr };
+        VkDescriptorSetLayoutBinding uboLayoutBinding{ BINDING_GLOBAL_UBO, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_ALL, nullptr };
         VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, nullptr, 0, 1, &uboLayoutBinding };
 
         if (vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &layoutInfo, nullptr, &m_DescriptorSetLayout) != VK_SUCCESS)
@@ -86,7 +87,7 @@ namespace Chimera
             VulkanContext::Get().SetDebugName((uint64_t)m_DescriptorSets[i], VK_OBJECT_TYPE_DESCRIPTOR_SET, ("Set0_Global_Frame_" + std::to_string(i)).c_str());
 
             VkDescriptorBufferInfo bufferInfo{ (VkBuffer)(void*)(uintptr_t)m_Frames[i].UBO->GetBuffer(), 0, sizeof(UniformBufferObject) };
-            VkWriteDescriptorSet descriptorWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, m_DescriptorSets[i], 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &bufferInfo, nullptr };
+            VkWriteDescriptorSet descriptorWrite{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, m_DescriptorSets[i], BINDING_GLOBAL_UBO, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &bufferInfo, nullptr };
             vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), 1, &descriptorWrite, 0, nullptr);
         }
         CH_CORE_INFO("RenderState: Descriptor Sets Updated.");
