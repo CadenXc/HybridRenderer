@@ -2,16 +2,16 @@
 #include "Shader.h"
 #include <spirv_reflect.h>
 #include <fstream>
+#include <stdexcept>
 
 namespace Chimera
 {
-    Shader::Shader(const std::string& path) : m_Path(path)
+    Shader::Shader(const std::string& path) 
+        : m_Path(path)
     {
-        // Extract filename from path
         size_t lastSlash = path.find_last_of("/\\");
         m_Name = (lastSlash == std::string::npos) ? path : path.substr(lastSlash + 1);
         
-        // Remove .spv if present
         size_t spvExt = m_Name.find(".spv");
         if (spvExt != std::string::npos)
         {
@@ -20,20 +20,17 @@ namespace Chimera
 
         std::ifstream file(path, std::ios::ate | std::ios::binary);
         
-        // [FIX] 增加安全检查，防止 bad_array_new_length 闪退
         if (!file.is_open())
         {
             CH_CORE_ERROR("Shader: Failed to open SPV file at path: {0}", path);
-            // 填充一个最小的有效字节码以防止后续流程崩溃
-            m_Bytecode = { 0x07230203 }; 
-            return;
+            throw std::runtime_error("Required shader file missing: " + path);
         }
 
         size_t fileSize = (size_t)file.tellg();
         if (fileSize == 0 || fileSize == (size_t)-1)
         {
             CH_CORE_ERROR("Shader: SPV file is empty or invalid: {0}", path);
-            return;
+            throw std::runtime_error("Empty or invalid shader file: " + path);
         }
 
         m_Bytecode.resize(fileSize / 4);
@@ -72,7 +69,6 @@ namespace Chimera
             ShaderResource res;
             std::string rawName = b->name;
             
-            // 增强版名称清理逻辑
             std::string cleanName = rawName;
             if (cleanName.find("rt") == 0 && cleanName.size() > 2 && isupper(cleanName[2]))
             {
@@ -104,7 +100,10 @@ namespace Chimera
                 result.push_back(res);
             }
         }
-        std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.binding < b.binding; });
+        std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) 
+        { 
+            return a.binding < b.binding; 
+        });
         return result;
     }
 }

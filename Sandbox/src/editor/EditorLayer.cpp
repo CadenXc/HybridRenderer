@@ -48,7 +48,9 @@ namespace Chimera
     void EditorLayer::OnAttach()
     {
         RefreshModelList();
-        LoadScene(Config::ASSET_DIR + "models/pica_pica_-_machines/scene.gltf");
+        LoadScene(Config::ASSET_DIR + "models/damaged-helmet/source/DamagedHelmet/DamagedHelmet.gltf");
+        
+        //LoadScene(Config::ASSET_DIR + "models/pica_pica_-_machines/scene.gltf");
     }
 
     void EditorLayer::OnDetach()

@@ -35,12 +35,8 @@ namespace Chimera
             {
                 SHADER_SOURCE_DIR = (root / "Chimera" / "shaders").string();
                 
-                // Point SHADER_DIR to the compiled binaries in build folder
-                std::filesystem::path compiledDir = root / "build" / "shaders_compiled";
-                if (std::filesystem::exists(compiledDir))
-                {
-                    SHADER_DIR = compiledDir.string() + "/";
-                }
+                // Authoritative source: the shaders folder next to the EXE
+                SHADER_DIR = "shaders/";
             }
         }
 

@@ -26,7 +26,7 @@ void main()
     const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
     vec2 uv = v0.texCoord * barycentrics.x + v1.texCoord * barycentrics.y + v2.texCoord * barycentrics.z;
 
-    // 1. 获取材质颜色
+    // 1. 获取材质参数 (Using common.glsl helpers)
     vec4 albedo = GetAlbedo(mat, uv);
     vec3 vertexNormal = normalize(v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z);
     vec4 vertexTangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
@@ -41,20 +41,22 @@ void main()
         metallic *= mrSample.b;
     }
 
-    // 2. 准备 PBR 计算向量
+    // [NEW] 2. 获取 AO 和 Emissive
+    float ao = GetAmbientOcclusion(mat, uv);
+    vec3 emissive = GetEmissive(mat, uv);
+
+    // 3. 准备 PBR 计算向量
     vec3 hitPos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
     vec3 V = normalize(global.ubo.camera.position.xyz - hitPos);
     vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
     vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
 
-    // 3. 执行直接光着色
+    // 4. 执行直接光着色
     vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor);
     
-    // [DEBUG] To find why white is black, let's include basic albedo in payload color for now
-    // If you want pure PBR, use payload.color = directLighting;
-    // But let's use: ambient + direct
-    vec3 ambient = global.ubo.ambientStrength * albedo.rgb;
-    payload.color = ambient + directLighting; 
+    // 5. 合成最终颜色返回 Payload (Ambient + Direct + Emissive)
+    vec3 ambient = global.ubo.ambientStrength * albedo.rgb * ao;
+    payload.color = ambient + directLighting + emissive; 
     
     payload.normal = N;
     payload.distance = gl_HitTEXT;

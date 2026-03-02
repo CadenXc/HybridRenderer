@@ -1,5 +1,6 @@
 $SourceDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\Chimera\shaders"))
-$OutputDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\build\shaders_compiled"))
+# [FIX] Output directly to the Sandbox run directory
+$OutputDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\build\Sandbox\Debug\shaders"))
 
 # Ensure output directory exists (Robust version)
 if (!(Test-Path -Path $OutputDir)) {

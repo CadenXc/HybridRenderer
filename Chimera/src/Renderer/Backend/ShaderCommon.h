@@ -60,10 +60,14 @@ struct GpuMaterial
     vec4 emission;
     float roughness;
     float metallic;
+    
     int albedoTex;
     int normalTex;
     int metalRoughTex;
-    int padding[3];
+    int emissiveTex; 
+    int aoTex;       
+    
+    int padding[5]; // Total: 16+16+4+4+4*5 + 4*5 = 80 bytes (16-byte aligned)
 };
 
 struct GpuPrimitive
@@ -141,7 +145,7 @@ struct ScenePushConstants
 
 #ifdef __cplusplus
 static_assert(sizeof(GpuPrimitive) == 224, "GpuPrimitive size mismatch");
-static_assert(sizeof(GpuMaterial) == 64, "GpuMaterial size mismatch");
+static_assert(sizeof(GpuMaterial) == 80, "GpuMaterial size mismatch");
 static_assert(sizeof(UniformBufferObject) % 16 == 0, "UBO alignment mismatch");
 } // namespace Chimera
 #endif

@@ -61,6 +61,8 @@ namespace Chimera
             mat.albedoTex = -1;
             mat.normalTex = -1;
             mat.metalRoughTex = -1;
+            mat.emissiveTex = -1;
+            mat.aoTex = -1;
 
             if (gMat.has_pbr_metallic_roughness)
             {
@@ -78,10 +80,19 @@ namespace Chimera
             
             auto hn = LoadTex(gMat.normal_texture.texture, false);
             mat.normalTex = hn.IsValid() ? (int)hn.id : -1;
+
+            // [NEW] Load Emissive Texture
+            auto he = LoadTex(gMat.emissive_texture.texture, true);
+            mat.emissiveTex = he.IsValid() ? (int)he.id : -1;
+
+            // [NEW] Load Occlusion (AO) Texture
+            auto hao = LoadTex(gMat.occlusion_texture.texture, false);
+            mat.aoTex = hao.IsValid() ? (int)hao.id : -1;
             
             mat.emission = glm::vec4(glm::make_vec3(gMat.emissive_factor), 1.0f);
             outScene->Materials.push_back(mat);
         }
+        
         if (outScene->Materials.empty())
         {
             outScene->Materials.push_back(GpuMaterial{});
@@ -91,7 +102,10 @@ namespace Chimera
         for (size_t i = 0; i < data->nodes_count; ++i)
         {
             cgltf_node& node = data->nodes[i];
-            if (!node.mesh) continue;
+            if (!node.mesh) 
+            {
+                continue;
+            }
 
             glm::mat4 transform(1.0f);
             cgltf_node_transform_world(&node, glm::value_ptr(transform));
@@ -116,7 +130,6 @@ namespace Chimera
                     if (attr.type == cgltf_attribute_type_tangent) tanAcc = attr.data;
                 }
 
-                // Temporary storage for vertex data to compute tangents
                 uint32_t startIdx = (uint32_t)outScene->Vertices.size();
                 for (size_t k = 0; k < posAcc->count; ++k)
                 {
@@ -137,10 +150,8 @@ namespace Chimera
                     subIndices.push_back(idx);
                 }
 
-                // [FIX] Manual Tangent Generation if missing
                 if (!tanAcc && uvAcc && normAcc)
                 {
-                    CH_CORE_TRACE("AssetImporter: Generating tangents for mesh '{}'...", mesh.name);
                     for (size_t k = 0; k < indexCount; k += 3)
                     {
                         uint32_t i0 = subIndices[k];
@@ -169,13 +180,11 @@ namespace Chimera
                         v2.tangent += glm::vec4(tangent, 0.0f);
                     }
 
-                    // Orthogonalize and normalize
                     for (size_t k = 0; k < posAcc->count; ++k)
                     {
                         VertexInfo& v = outScene->Vertices[startIdx + k];
                         glm::vec3 t = glm::vec3(v.tangent);
                         glm::vec3 n = v.normal;
-                        // Gram-Schmidt orthogonalization
                         v.tangent = glm::vec4(glm::normalize(t - n * glm::dot(n, t)), 1.0f);
                     }
                 }

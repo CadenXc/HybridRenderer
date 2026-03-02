@@ -16,11 +16,11 @@ void main()
     GpuPrimitive prim = primBuf.primitives[inObjectId];
     GpuMaterial mat = materialBuffer.m[prim.materialIndex];
     
-    // 2. 解包材质参数
+    // 2. 解包材质参数 (Using common.glsl helpers)
     vec4 albedo = GetAlbedo(mat, inUV);
     vec3 N = CalculateNormal(prim, mat, inNormal, inTangent, inUV);
     vec3 V = normalize(global.ubo.camera.position.xyz - inWorldPos);
-
+    
     float roughness = mat.roughness;
     float metallic = mat.metallic;
     if (mat.metalRoughTex >= 0)
@@ -30,14 +30,18 @@ void main()
         metallic *= mrSample.b;
     }
 
-    // 3. 计算直接光
+    // [NEW] 3. 获取 AO 和 Emissive
+    float ao = GetAmbientOcclusion(mat, inUV);
+    vec3 emissive = GetEmissive(mat, inUV);
+
+    // 4. 计算直接光 (Sunlight)
     vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
     vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
-    
     vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor);
     
-    // 4. 环境光
-    vec3 ambient = global.ubo.ambientStrength * albedo.rgb;
+    // 5. 环境光 (Apply AO)
+    vec3 ambient = global.ubo.ambientStrength * albedo.rgb * ao;
     
-    outColor = vec4(ambient + directLighting, albedo.a);
+    // 6. 最终合并
+    outColor = vec4(ambient + directLighting + emissive, albedo.a);
 }

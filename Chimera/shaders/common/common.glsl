@@ -156,6 +156,26 @@ vec4 GetAlbedo(GpuMaterial mat, vec2 uv)
     return albedo;
 }
 
+vec3 GetEmissive(GpuMaterial mat, vec2 uv)
+{
+    vec3 emissive = mat.emission.rgb;
+    if (mat.emissiveTex >= 0)
+    {
+        emissive *= texture(textureArray[nonuniformEXT(mat.emissiveTex)], uv).rgb;
+    }
+    return emissive;
+}
+
+float GetAmbientOcclusion(GpuMaterial mat, vec2 uv)
+{
+    if (mat.aoTex >= 0)
+    {
+        // GLTF standard: occlusion is in the R channel
+        return texture(textureArray[nonuniformEXT(mat.aoTex)], uv).r;
+    }
+    return 1.0;
+}
+
 vec3 CalculateNormal(GpuPrimitive prim, GpuMaterial mat, vec3 inNormal, vec4 inTangent, vec2 uv)
 {
     vec3 N = normalize(inNormal);

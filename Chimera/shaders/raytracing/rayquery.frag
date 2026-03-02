@@ -30,16 +30,21 @@ void main()
         metallic *= mrSample.b;
     }
 
-    // 3. 计算光照与阴影 (Using unified OffsetRay)
+    // [NEW] 3. 获取 AO 和 Emissive
+    float ao = GetAmbientOcclusion(mat, inUV);
+    vec3 emissive = GetEmissive(mat, inUV);
+
+    // 4. 计算光照与阴影
     vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
     float shadow = CalculateRayQueryShadow(OffsetRay(inWorldPos, N), L, 10000.0);
 
-    // 4. 使用统一的 PBR 评估函数
+    // 5. 使用统一的 PBR 评估函数
     vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
     vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor);
     
-    // 5. 环境光
-    vec3 ambient = global.ubo.ambientStrength * albedo.rgb;
+    // 6. 环境光 (Apply AO)
+    vec3 ambient = global.ubo.ambientStrength * albedo.rgb * ao;
 
-    outColor = vec4(ambient + directLighting * shadow, albedo.a);
+    // 7. 最终合并 (Direct light is shadowed, ambient and emissive are not)
+    outColor = vec4(ambient + directLighting * shadow + emissive, albedo.a);
 }

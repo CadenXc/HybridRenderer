@@ -120,7 +120,12 @@ namespace Chimera
             buildInfo.dstAccelerationStructure = handle;
             buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
 
-            VkAccelerationStructureBuildRangeInfoKHR rangeInfo{ maxPrimitiveCount, mesh.indexOffset * sizeof(uint32_t), (int32_t)mesh.vertexOffset, 0 };
+            VkAccelerationStructureBuildRangeInfoKHR rangeInfo{};
+            rangeInfo.primitiveCount = maxPrimitiveCount;
+            rangeInfo.primitiveOffset = static_cast<uint32_t>(mesh.indexOffset * sizeof(uint32_t));
+            rangeInfo.firstVertex = static_cast<int32_t>(mesh.vertexOffset);
+            rangeInfo.transformOffset = 0;
+
             const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
 
             {
