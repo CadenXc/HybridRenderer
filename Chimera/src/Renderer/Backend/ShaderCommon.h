@@ -35,6 +35,8 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 #define BINDING_RT_OUTPUT           0
 
 // --- 1. Shared Constants ---
+#define REVERSED_Z              1 // 1: Near=1.0, Far=0.0 (High Precision)
+
 #define DISPLAY_MODE_FINAL      0
 #define DISPLAY_MODE_ALBEDO     1
 #define DISPLAY_MODE_NORMAL     2
@@ -124,9 +126,11 @@ struct UniformBufferObject
     float exposure;
     float ambientStrength;
     float bloomStrength;
-    float padding_final;
+    int blueNoiseTextureIndex; 
+    int skyboxTextureIndex;
+    int padding_int[3];
     vec4 svgfAlpha; 
-    vec4 clearColor; // [NEW] Global Background Color
+    vec4 clearColor; 
 };
 
 struct HitPayload

@@ -8,6 +8,10 @@
 #include "Core/Log.h"
 #include "Utils/VulkanBarrier.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include <sstream>
+#include <algorithm>
+#include <unordered_set>
+#include <set>
 
 namespace Chimera
 {
@@ -84,12 +88,13 @@ namespace Chimera
 
     RenderGraph::~RenderGraph()
     {
+        CH_CORE_INFO("RenderGraph: Destructor started. context count: {}", m_Context.GetShared().use_count());
         DestroyResources(true);
+        CH_CORE_INFO("RenderGraph: Destructor finished.");
     }
 
     void RenderGraph::Compile()
     {
-        // 1. Physical Allocation & Usage Refinement
         for (auto& res : m_Resources)
         {
             if (res.image.handle == VK_NULL_HANDLE)
@@ -97,7 +102,6 @@ namespace Chimera
                 bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
                 VkImageUsageFlags finalUsage = res.desc.usage;
                 
-                // CRITICAL: Ensure Depth formats never have COLOR_ATTACHMENT_BIT
                 if (isDepth) 
                 {
                     finalUsage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -115,7 +119,6 @@ namespace Chimera
             }
         }
 
-        // 2. Lock Pass Signatures (Used for Pipeline Creation)
         for (auto& pass : m_PassStack)
         {
             pass.colorFormats.clear();
@@ -141,7 +144,10 @@ namespace Chimera
         {
             for (auto& req : reqs)
             {
-                if (req.handle == INVALID_RESOURCE) continue;
+                if (req.handle == INVALID_RESOURCE)
+                {
+                    continue;
+                }
                 PhysicalResource& res = m_Resources[req.handle];
                 bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
                 ResourceState target = GetStateFromUsage(req.usage, isDepth);
@@ -195,7 +201,10 @@ namespace Chimera
                 bool active = BeginDynamicRendering(cmd, pass);
                 RenderGraphRegistry reg{ *this, pass };
                 pass.executeFunc(reg, cmd);
-                if (active) vkCmdEndRendering(cmd);
+                if (active)
+                {
+                    vkCmdEndRendering(cmd);
+                }
             }
             EndPassDebugLabel(cmd);
         }
@@ -204,33 +213,89 @@ namespace Chimera
         return VK_NULL_HANDLE;
     }
 
-    void RenderGraph::Reset() { m_PassStack.clear(); }
+    void RenderGraph::Reset() 
+    { 
+        m_PassStack.clear(); 
+    }
 
     void RenderGraph::DestroyResources(bool all)
     {
-        for (auto& res : m_Resources)
+        if (!ResourceManager::HasInstance())
         {
-            if (res.image.handle != VK_NULL_HANDLE && !res.image.is_external)
-                ResourceManager::Get().DestroyGraphImage(res.image);
+            return;
         }
-        if (all) { m_Resources.clear(); m_ResourceMap.clear(); m_HistoryResources.clear(); }
+
+        // [FIX] Use a local set to track images that have been already destroyed
+        // to avoid double destruction if an image is shared between resources and history.
+        std::set<VkImage> destroyedImages;
+
+        auto FreeGraphImageLocal = [&](GraphImage& img) 
+        {
+            if (img.handle != VK_NULL_HANDLE && !img.is_external) 
+            {
+                if (destroyedImages.find(img.handle) == destroyedImages.end()) 
+                {
+                    destroyedImages.insert(img.handle);
+                    ResourceManager::Get().DestroyGraphImage(img);
+                }
+                
+                img.handle = VK_NULL_HANDLE;
+                img.view = VK_NULL_HANDLE;
+                img.debug_view = VK_NULL_HANDLE;
+                img.allocation = VK_NULL_HANDLE;
+            }
+        };
+
+        // 1. Clear currently active resources
+        for (auto& res : m_Resources) 
+        {
+            FreeGraphImageLocal(res.image);
+        }
+
+        // 2. If deep cleanup, purge pools and history
+        if (all) 
+        {
+            for (auto& [name, hist] : m_HistoryResources) 
+            {
+                FreeGraphImageLocal(hist.image);
+            }
+            m_HistoryResources.clear();
+
+            for (auto& pooled : m_ImagePool) 
+            {
+                FreeGraphImageLocal(pooled.image);
+            }
+            m_ImagePool.clear();
+
+            m_Resources.clear();
+            m_ResourceMap.clear();
+        }
     }
 
     RGResourceHandle RenderGraph::PassBuilder::Read(const std::string& name)
     {
         RGResourceHandle h = graph.GetResourceHandle(name);
-        if (h != INVALID_RESOURCE) pass.inputs.push_back({ h, ResourceUsage::GraphicsSampled });
+        if (h != INVALID_RESOURCE)
+        {
+            pass.inputs.push_back({ h, ResourceUsage::GraphicsSampled });
+        }
         return h;
     }
 
     RGResourceHandle RenderGraph::PassBuilder::ReadCompute(const std::string& name)
     {
         RGResourceHandle h = graph.GetResourceHandle(name);
-        if (h != INVALID_RESOURCE) pass.inputs.push_back({ h, ResourceUsage::ComputeSampled });
+        if (h != INVALID_RESOURCE)
+        {
+            pass.inputs.push_back({ h, ResourceUsage::ComputeSampled });
+        }
         return h;
     }
 
-    RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name) { return graph.GetResourceHandle(name); }
+    RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name) 
+    { 
+        return graph.GetResourceHandle(name); 
+    }
 
     ResourceHandleProxy RenderGraph::PassBuilder::Write(const std::string& name, VkFormat format)
     {
@@ -270,7 +335,6 @@ namespace Chimera
         graph.m_Resources[handle].desc.format = f; 
         graph.m_Resources[handle].image.format = f;
         
-        // Correct Usage if format changed to Depth
         bool isDepth = VulkanUtils::IsDepthFormat(f);
         for (auto& out : pass.outputs)
         {
@@ -291,28 +355,191 @@ namespace Chimera
         return *this; 
     }
 
-    ResourceHandleProxy& ResourceHandleProxy::Clear(const VkClearColorValue& c) { for (auto& out : pass.outputs) if (out.handle == handle) out.clearValue.color = c; return *this; }
-    ResourceHandleProxy& ResourceHandleProxy::ClearDepthStencil(float d, uint32_t s) { for (auto& out : pass.outputs) if (out.handle == handle) out.clearValue.depthStencil = { d, s }; return *this; }
-    ResourceHandleProxy& ResourceHandleProxy::Persistent() { return *this; }
-    ResourceHandleProxy& ResourceHandleProxy::SaveAsHistory(const std::string& n) { return *this; }
+    ResourceHandleProxy& ResourceHandleProxy::Clear(const VkClearColorValue& c) 
+    { 
+        for (auto& out : pass.outputs)
+        {
+            if (out.handle == handle)
+            {
+                out.clearValue.color = c;
+            }
+        }
+        return *this; 
+    }
 
-    RGResourceHandle RenderGraph::GetResourceHandle(const std::string& name) { return m_ResourceMap.count(name) ? m_ResourceMap[name] : INVALID_RESOURCE; }
-    void RenderGraph::DrawPerformanceStatistics() {}
-    std::string RenderGraph::ExportToMermaid() const { return ""; }
-    bool RenderGraph::ContainsImage(const std::string& name) { return m_ResourceMap.count(name); }
-    const GraphImage& RenderGraph::GetImage(const std::string& name) const { static GraphImage empty{}; return m_ResourceMap.count(name) ? m_Resources[m_ResourceMap.at(name)].image : empty; }
+    ResourceHandleProxy& ResourceHandleProxy::ClearDepthStencil(float d, uint32_t s) 
+    { 
+        for (auto& out : pass.outputs)
+        {
+            if (out.handle == handle)
+            {
+                out.clearValue.depthStencil = { d, s };
+            }
+        }
+        return *this; 
+    }
+
+    ResourceHandleProxy& ResourceHandleProxy::Persistent() 
+    { 
+        return *this; 
+    }
+
+    ResourceHandleProxy& ResourceHandleProxy::SaveAsHistory(const std::string& n) 
+    { 
+        graph.m_Resources[handle].historyName = n;
+        return *this; 
+    }
+
+    RGResourceHandle RenderGraph::GetResourceHandle(const std::string& name) 
+    { 
+        return m_ResourceMap.count(name) ? m_ResourceMap[name] : INVALID_RESOURCE; 
+    }
+
+    void RenderGraph::DrawPerformanceStatistics() 
+    {
+    }
+    
+    std::string RenderGraph::ExportToMermaid() const 
+    {
+        std::stringstream ss;
+        ss << "graph LR\n";
+        
+        ss << "    classDef graphics fill:#2d5a27,stroke:#afff9e,stroke-width:2px,color:#fff\n";
+        ss << "    classDef compute fill:#2d3e5a,stroke:#9ecaff,stroke-width:2px,color:#fff\n";
+        ss << "    classDef raytrace fill:#5a2d2d,stroke:#ff9e9e,stroke-width:2px,color:#fff\n";
+        ss << "    classDef resource fill:#333,stroke:#ccc,stroke-width:1px,color:#fff,stroke-dasharray: 5 5\n";
+
+        std::vector<std::string> graphicsPasses;
+        std::vector<std::string> computePasses;
+        std::vector<std::string> raytracePasses;
+        std::unordered_set<std::string> handledResources;
+
+        for (const auto& pass : m_PassStack)
+        {
+            std::string shape = "[";
+            std::string endShape = "]";
+            std::string passNode = "Pass_" + pass.name;
+            std::replace(passNode.begin(), passNode.end(), ' ', '_');
+
+            if (pass.isCompute) 
+            { 
+                shape = "{{";
+                endShape = "}}"; 
+                computePasses.push_back(passNode); 
+            }
+            else if (pass.name.find("RT") != std::string::npos || pass.name.find("Ray") != std::string::npos) 
+            { 
+                shape = "((";
+                endShape = "))"; 
+                raytracePasses.push_back(passNode); 
+            }
+            else 
+            {
+                graphicsPasses.push_back(passNode);
+            }
+
+            std::string shaderLabel = "";
+            if (!pass.shaderNames.empty())
+            {
+                shaderLabel = "<br/>(";
+                for (size_t i = 0; i < pass.shaderNames.size(); ++i)
+                {
+                    shaderLabel += pass.shaderNames[i];
+                    if (i < pass.shaderNames.size() - 1)
+                    {
+                        shaderLabel += ", ";
+                    }
+                }
+                shaderLabel += ")";
+            }
+
+            ss << "    " << passNode << shape << "\"" << pass.name << shaderLabel << "\"" << endShape << "\n";
+
+            for (const auto& in : pass.inputs)
+            {
+                std::string resName = m_Resources[in.handle].name;
+                std::string resID = "Res_" + resName;
+                std::replace(resID.begin(), resID.end(), ' ', '_');
+
+                if (handledResources.find(resID) == handledResources.end())
+                {
+                    ss << "    " << resID << "(\"" << resName << "\")\n";
+                    ss << "    class " << resID << " resource\n";
+                    handledResources.insert(resID);
+                }
+                ss << "    " << resID << " --> " << passNode << "\n";
+            }
+
+            for (const auto& out : pass.outputs)
+            {
+                std::string resName = m_Resources[out.handle].name;
+                std::string resID = "Res_" + resName;
+                std::replace(resID.begin(), resID.end(), ' ', '_');
+
+                if (handledResources.find(resID) == handledResources.end())
+                {
+                    ss << "    " << resID << "(\"" << resName << "\")\n";
+                    ss << "    class " << resID << " resource\n";
+                    handledResources.insert(resID);
+                }
+                ss << "    " << passNode << " --> " << resID << "\n";
+            }
+        }
+
+        auto addClass = [&](const std::vector<std::string>& nodes, const std::string& className)
+        {
+            if (!nodes.empty())
+            {
+                ss << "    class ";
+                for (size_t i = 0; i < nodes.size(); ++i)
+                {
+                    ss << nodes[i] << (i < nodes.size() - 1 ? "," : "");
+                }
+                ss << " " << className << "\n";
+            }
+        };
+
+        addClass(graphicsPasses, "graphics");
+        addClass(computePasses, "compute");
+        addClass(raytracePasses, "raytrace");
+
+        return ss.str();
+    }
+
+    bool RenderGraph::ContainsImage(const std::string& name) 
+    { 
+        return m_ResourceMap.count(name); 
+    }
+
+    const GraphImage& RenderGraph::GetImage(const std::string& name) const 
+    { 
+        static GraphImage empty{}; 
+        return m_ResourceMap.count(name) ? m_Resources[m_ResourceMap.at(name)].image : empty; 
+    }
 
     void RenderGraph::BeginPassDebugLabel(VkCommandBuffer cmd, const RenderPass& pass)
     {
         VkDebugUtilsLabelEXT l{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, pass.name.c_str(), {0.8f, 0.8f, 0.1f, 1.0f} };
-        if (vkCmdBeginDebugUtilsLabelEXT) vkCmdBeginDebugUtilsLabelEXT(cmd, &l);
+        if (vkCmdBeginDebugUtilsLabelEXT)
+        {
+            vkCmdBeginDebugUtilsLabelEXT(cmd, &l);
+        }
     }
 
-    void RenderGraph::EndPassDebugLabel(VkCommandBuffer cmd) { if (vkCmdEndDebugUtilsLabelEXT) vkCmdEndDebugUtilsLabelEXT(cmd); }
+    void RenderGraph::EndPassDebugLabel(VkCommandBuffer cmd) 
+    { 
+        if (vkCmdEndDebugUtilsLabelEXT)
+        {
+            vkCmdEndDebugUtilsLabelEXT(cmd); 
+        }
+    }
 
     bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd, const RenderPass& pass)
     {
-        if (pass.colorFormats.empty() && pass.depthFormat == VK_FORMAT_UNDEFINED) return false;
+        if (pass.colorFormats.empty() && pass.depthFormat == VK_FORMAT_UNDEFINED)
+        {
+            return false;
+        }
         std::vector<VkRenderingAttachmentInfo> colorAtts;
         for (auto& req : pass.outputs)
         {
@@ -331,7 +558,8 @@ namespace Chimera
                 if (req.usage == ResourceUsage::DepthStencilWrite)
                 {
                     depthAtt = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO, nullptr, m_Resources[req.handle].image.view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, req.clearValue };
-                    hasDepth = true; break;
+                    hasDepth = true; 
+                    break;
                 }
             }
         }
@@ -342,10 +570,28 @@ namespace Chimera
 
     void RenderGraph::UpdatePersistentResources(VkCommandBuffer cmd) 
     {
-        // CRITICAL: Transition non-depth output textures to SHADER_READ_ONLY for ImGui Preview
+        // Internal lambda for history cleanup to avoid scope issues
+        auto FreeGraphImageLocal = [&](GraphImage& img) 
+        {
+            if (img.handle != VK_NULL_HANDLE && !img.is_external) 
+            {
+                if (ResourceManager::HasInstance())
+                {
+                    ResourceManager::Get().DestroyGraphImage(img);
+                }
+            }
+            img.handle = VK_NULL_HANDLE;
+            img.view = VK_NULL_HANDLE;
+            img.debug_view = VK_NULL_HANDLE;
+            img.allocation = VK_NULL_HANDLE;
+        };
+
         for (auto& res : m_Resources)
         {
-            if (res.image.handle == VK_NULL_HANDLE || res.name == RS::RENDER_OUTPUT) continue;
+            if (res.image.handle == VK_NULL_HANDLE || res.name == RS::RENDER_OUTPUT)
+            {
+                continue;
+            }
             
             bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
             if (!isDepth && res.currentState.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
@@ -354,6 +600,21 @@ namespace Chimera
                 res.currentState.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 res.currentState.access = VK_ACCESS_2_SHADER_READ_BIT;
                 res.currentState.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            }
+
+            // [NEW] Update History
+            if (!res.historyName.empty())
+            {
+                if (m_HistoryResources.count(res.historyName))
+                {
+                    GraphImage oldImg = m_HistoryResources[res.historyName].image;
+                    if (oldImg.handle != res.image.handle)
+                    {
+                        FreeGraphImageLocal(oldImg);
+                    }
+                }
+                
+                m_HistoryResources[res.historyName] = { res.image, res.currentState };
             }
         }
     }

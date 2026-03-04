@@ -4,6 +4,7 @@
 #include "VulkanInstance.h"
 #include "VulkanDevice.h"
 #include "DeletionQueue.h"
+#include <memory>
 
 namespace Chimera
 {
@@ -11,23 +12,25 @@ namespace Chimera
      * @brief VulkanContext acts as the primary owner of the Vulkan logical device and instance.
      * It manages the core lifecycle of the GPU connection and provides access to standard resources.
      */
-    class VulkanContext
+    class VulkanContext : public std::enable_shared_from_this<VulkanContext>
     {
     public:
         VulkanContext(GLFWwindow* window);
         ~VulkanContext();
 
-                static VulkanContext& Get()
-                {
-                    return *s_Instance;
-                }
+        static VulkanContext& Get()
+        {
+            return *s_Instance;
+        }
         
-                std::shared_ptr<VulkanContext> GetShared()
-                {
-                    return std::shared_ptr<VulkanContext>(s_Instance, [](VulkanContext*) {});
-                }
+        std::shared_ptr<VulkanContext> GetShared()
+        {
+            auto ptr = shared_from_this();
+            CH_CORE_TRACE("VulkanContext: GetShared called. count: {}", ptr.use_count());
+            return ptr;
+        }
         
-                static bool HasInstance()
+        static bool HasInstance()
         {
             return s_Instance != nullptr;
         }

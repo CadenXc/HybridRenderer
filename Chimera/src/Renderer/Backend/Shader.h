@@ -19,7 +19,7 @@ namespace Chimera
     class Shader
     {
     public:
-        Shader(const std::string& path);
+        Shader(const std::filesystem::path& path);
         ~Shader();
 
         const std::string& GetPath() const

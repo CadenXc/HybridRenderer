@@ -13,7 +13,7 @@
 namespace Chimera
 {
     RayQueryRenderPath::RayQueryRenderPath(VulkanContext& context)
-        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}))
+        : RenderPath(context.GetShared())
     {
     }
 

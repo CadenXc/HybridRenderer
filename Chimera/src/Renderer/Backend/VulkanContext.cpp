@@ -26,8 +26,9 @@ namespace Chimera
 
     VulkanContext::~VulkanContext()
     {
-        CH_CORE_INFO("VulkanContext: Finalizing shutdown...");
-        
+        CH_CORE_INFO("VulkanContext: Destructor CALLED.");
+        s_Instance = nullptr;
+
         if (m_Device)
         {
             vkDeviceWaitIdle(GetDevice());
@@ -55,8 +56,13 @@ namespace Chimera
             m_CommandPool = VK_NULL_HANDLE;
         }
 
-        vkDeviceWaitIdle(GetDevice());
+        if (m_Device)
+        {
+            vkDeviceWaitIdle(GetDevice());
+        }
+
         // 4. Reset the logical device (triggers ~VulkanDevice and vmaDestroyAllocator)
+        CH_CORE_INFO("VulkanContext: Resetting Device (Triggering VMA destruction)...");
         m_Device.reset();
 
         if (m_Surface != VK_NULL_HANDLE)
@@ -65,7 +71,6 @@ namespace Chimera
         }
 
         m_Instance.reset();
-        s_Instance = nullptr;
         CH_CORE_INFO("VulkanContext: Device and Instance destroyed.");
     }
 

@@ -25,21 +25,38 @@ namespace Chimera
         // Skybox
         void LoadSkybox(const std::string& path);
         void ClearSkybox();
-        uint32_t GetSkyboxTextureIndex() const { return m_SkyboxTexture.IsValid() ? m_SkyboxTexture.id : 0xFFFFFFFF; }
+        
+        uint32_t GetSkyboxTextureIndex() const 
+        { 
+            return m_SkyboxTexture.IsValid() ? m_SkyboxTexture.id : 0xFFFFFFFF; 
+        }
 
         // Lights
-        struct DirectionalLight {
-            glm::vec4 direction = glm::vec4(0, -1, 0, 0);
-            glm::vec4 color = glm::vec4(1, 1, 1, 1);
-            glm::vec4 intensity = glm::vec4(3.0f, 0.05f, 0, 0); // x: strength, y: radius
+        struct DirectionalLight 
+        {
+            // [FIX] Changed from (0, -1, 0) top-down light to a more pleasing slanted light
+            glm::vec4 direction = glm::vec4(glm::normalize(glm::vec3(0.5f, -0.8f, 0.2f)), 0.0f);
+            glm::vec4 color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+            glm::vec4 intensity = glm::vec4(3.0f, 0.05f, 0.0f, 0.0f); // Intensity, Radius, etc.
         };
-        DirectionalLight& GetLight() { return m_MainLight; }
+        
+        DirectionalLight& GetLight() 
+        { 
+            return m_MainLight; 
+        }
 
         // Acceleration Structures
         void UpdateTLAS();
-        VkAccelerationStructureKHR GetTLAS() const { return m_TopLevelAS; }
         
-        const std::vector<Entity>& GetEntities() const { return m_Entities; }
+        VkAccelerationStructureKHR GetTLAS() const 
+        { 
+            return m_TopLevelAS; 
+        }
+        
+        const std::vector<Entity>& GetEntities() const 
+        { 
+            return m_Entities; 
+        }
 
     private:
         VulkanContext* m_Context;
@@ -50,6 +67,6 @@ namespace Chimera
 
         VkAccelerationStructureKHR m_TopLevelAS = VK_NULL_HANDLE;
         std::unique_ptr<Buffer> m_TLASBuffer;
-        std::unique_ptr<Buffer> m_ASInstanceBuffer; // [NEW] Manage instance buffer lifecycle
+        std::unique_ptr<Buffer> m_ASInstanceBuffer;
     };
 }

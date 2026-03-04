@@ -36,6 +36,25 @@ namespace Chimera
 
         if (m_Allocator != nullptr)
         {
+            VmaTotalStatistics stats;
+            vmaCalculateStatistics(m_Allocator, &stats);
+            if (stats.total.statistics.allocationBytes > 0)
+            {
+                CH_CORE_ERROR("VulkanDevice: LEAK DETECTED! Total VMA allocations: {}, size: {} bytes", stats.total.statistics.allocationCount, stats.total.statistics.allocationBytes);
+                
+                char* statsString = nullptr;
+                vmaBuildStatsString(m_Allocator, &statsString, VK_TRUE);
+                if (statsString)
+                {
+                    CH_CORE_INFO("VulkanDevice: VMA Stats: {}", statsString);
+                    vmaFreeStatsString(m_Allocator, statsString);
+                }
+            }
+            else
+            {
+                CH_CORE_INFO("VulkanDevice: No VMA leaks detected.");
+            }
+
             vmaDestroyAllocator(m_Allocator);
             m_Allocator = nullptr;
         }

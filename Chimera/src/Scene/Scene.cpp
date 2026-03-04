@@ -5,6 +5,8 @@
 #include "Renderer/Backend/RenderContext.h"
 #include "Assets/AssetImporter.h"
 #include "Model.h"
+#include "Core/Application.h"
+#include "Renderer/Pipelines/RenderPath.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <filesystem>
 
@@ -18,26 +20,47 @@ namespace Chimera
 
     Scene::~Scene()
     {
-        auto device = m_Context->GetDevice();
-
-        if (m_TopLevelAS != VK_NULL_HANDLE)
+        CH_CORE_INFO("Scene: Destructor CALLED.");
+        if (m_Context)
         {
-            vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
-            m_TopLevelAS = VK_NULL_HANDLE;
-        }
+            VkDevice device = m_Context->GetDevice();
+            if (device != VK_NULL_HANDLE)
+            {
+                if (m_TopLevelAS != VK_NULL_HANDLE)
+                {
+                    // [SAFETY] Check if extension function is available
+                    if (vkDestroyAccelerationStructureKHR)
+                    {
+                        vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
+                    }
+                    else
+                    {
+                        CH_CORE_WARN("Scene: vkDestroyAccelerationStructureKHR is NULL during destruction!");
+                    }
+                    m_TopLevelAS = VK_NULL_HANDLE;
+                }
+            }
 
-        m_TLASBuffer.reset();
-        m_ASInstanceBuffer.reset();
+            m_TLASBuffer.reset();
+            m_ASInstanceBuffer.reset();
+        }
+        CH_CORE_INFO("Scene: Destructor FINISHED.");
     }
 
     void Scene::LoadModel(const std::string& path)
     {
         VkDevice device = m_Context->GetDevice();
         vkDeviceWaitIdle(device);
-        m_Entities.clear();
+        
+        // Clear old model and assets
+        ClearScene();
+        ResourceManager::Get().ClearRuntimeAssets();
 
         auto imported = AssetImporter::ImportScene(path, &ResourceManager::Get());
-        if (!imported) return;
+        if (!imported)
+        {
+            return;
+        }
 
         std::vector<uint32_t> globalMatIndices;
         for (const auto& gpuMat : imported->Materials)
@@ -51,7 +74,9 @@ namespace Chimera
         for (auto& mesh : imported->Meshes)
         {
             if (mesh.materialIndex < globalMatIndices.size())
+            {
                 mesh.materialIndex = globalMatIndices[mesh.materialIndex];
+            }
         }
 
         ResourceManager::Get().SyncMaterialsToGPU();
@@ -65,6 +90,12 @@ namespace Chimera
 
         m_Entities.push_back(entity);
         UpdateTLAS();
+
+        // [CRITICAL] Trigger RenderPath rebuild to clear history resources and pool images
+        if (auto* renderPath = Application::Get().GetActiveRenderPath())
+        {
+            renderPath->OnSceneUpdated();
+        }
     }
 
     void Scene::UpdateEntityTRS(uint32_t index, const glm::vec3& pos, const glm::vec3& rot, const glm::vec3& scale)
@@ -82,8 +113,11 @@ namespace Chimera
 
     void Scene::ClearScene()
     {
+        CH_CORE_INFO("Scene: ClearScene() started. Entities: {}", m_Entities.size());
         m_Entities.clear();
+        CH_CORE_INFO("Scene: Entities cleared. Updating TLAS...");
         UpdateTLAS();
+        CH_CORE_INFO("Scene: ClearScene() finished.");
     }
 
     void Scene::LoadSkybox(const std::string& path)
@@ -98,15 +132,26 @@ namespace Chimera
 
     void Scene::UpdateTLAS()
     {
-        CH_CORE_INFO("Scene: Updating TLAS using volk dispatch...");
+        CH_CORE_INFO("Scene: UpdateTLAS() started.");
+        if (!m_Context) {
+            CH_CORE_WARN("Scene: UpdateTLAS called with NULL context!");
+            return;
+        }
         VkDevice device = m_Context->GetDevice();
+        if (device == VK_NULL_HANDLE) {
+            CH_CORE_WARN("Scene: UpdateTLAS called with NULL device!");
+            return;
+        }
         
         std::vector<VkAccelerationStructureInstanceKHR> instances;
         uint32_t globalMeshIndex = 0;
 
         for (auto& entity : m_Entities)
         {
-            if (!entity.mesh.model) continue;
+            if (!entity.mesh.model)
+            {
+                continue;
+            }
 
             const auto& blasHandles = entity.mesh.model->GetBLASHandles();
             const auto& meshes = entity.mesh.model->GetMeshes();
@@ -115,8 +160,14 @@ namespace Chimera
             uint32_t handleIdx = 0;
             for (uint32_t i = 0; i < (uint32_t)meshes.size(); ++i)
             {
-                if (meshes[i].indexCount == 0) continue;
-                if (handleIdx >= blasHandles.size()) break;
+                if (meshes[i].indexCount == 0)
+                {
+                    continue;
+                }
+                if (handleIdx >= blasHandles.size())
+                {
+                    break;
+                }
 
                 VkAccelerationStructureInstanceKHR inst{};
                 glm::mat4 transpose = glm::transpose(trs * meshes[i].transform);
@@ -126,7 +177,16 @@ namespace Chimera
                 inst.mask = 0xFF;
                 
                 VkAccelerationStructureDeviceAddressInfoKHR addrInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR, nullptr, blasHandles[handleIdx++] };
-                inst.accelerationStructureReference = vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
+                
+                if (vkGetAccelerationStructureDeviceAddressKHR)
+                {
+                    inst.accelerationStructureReference = vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
+                }
+                else
+                {
+                    CH_CORE_ERROR("Scene: vkGetAccelerationStructureDeviceAddressKHR is NULL!");
+                    return;
+                }
                 inst.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
                 instances.push_back(inst);
             }
@@ -134,11 +194,18 @@ namespace Chimera
 
         if (instances.empty())
         {
+            CH_CORE_INFO("Scene: No instances for TLAS. Destroying old AS if exists.");
             if (m_TopLevelAS != VK_NULL_HANDLE)
             {
-                vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
+                if (vkDestroyAccelerationStructureKHR)
+                {
+                    vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
+                }
                 m_TopLevelAS = VK_NULL_HANDLE;
             }
+            m_TLASBuffer.reset();
+            m_ASInstanceBuffer.reset();
+            CH_CORE_INFO("Scene: UpdateTLAS (empty) finished.");
             return;
         }
 
@@ -148,7 +215,11 @@ namespace Chimera
         
         m_ASInstanceBuffer = std::make_unique<Buffer>(instSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         
-        { ScopedCommandBuffer cmd; VkBufferCopy copy{ 0, 0, instSize }; vkCmdCopyBuffer(cmd, (VkBuffer)instStaging.GetBuffer(), (VkBuffer)m_ASInstanceBuffer->GetBuffer(), 1, &copy); }
+        {
+            ScopedCommandBuffer cmd;
+            VkBufferCopy copy{ 0, 0, instSize };
+            vkCmdCopyBuffer(cmd, (VkBuffer)instStaging.GetBuffer(), (VkBuffer)m_ASInstanceBuffer->GetBuffer(), 1, &copy);
+        }
 
         VkAccelerationStructureBuildGeometryInfoKHR buildInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
         VkAccelerationStructureGeometryKHR geom{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
@@ -163,13 +234,25 @@ namespace Chimera
 
         uint32_t count = (uint32_t)instances.size();
         VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-        vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &count, &sizeInfo);
+        
+        if (vkGetAccelerationStructureBuildSizesKHR)
+        {
+            vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &count, &sizeInfo);
+        }
+        else
+        {
+            CH_CORE_ERROR("Scene: vkGetAccelerationStructureBuildSizesKHR is NULL!");
+            return;
+        }
         
         m_TLASBuffer = std::make_unique<Buffer>(sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         
         if (m_TopLevelAS != VK_NULL_HANDLE)
         {
-            vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
+            if (vkDestroyAccelerationStructureKHR)
+            {
+                vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
+            }
             m_TopLevelAS = VK_NULL_HANDLE;
         }
 
@@ -177,7 +260,16 @@ namespace Chimera
         createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR; 
         createInfo.buffer = (VkBuffer)m_TLASBuffer->GetBuffer(); 
         createInfo.size = sizeInfo.accelerationStructureSize;
-        vkCreateAccelerationStructureKHR(device, &createInfo, nullptr, &m_TopLevelAS);
+        
+        if (vkCreateAccelerationStructureKHR)
+        {
+            vkCreateAccelerationStructureKHR(device, &createInfo, nullptr, &m_TopLevelAS);
+        }
+        else
+        {
+            CH_CORE_ERROR("Scene: vkCreateAccelerationStructureKHR is NULL!");
+            return;
+        }
         
         Buffer scratch(sizeInfo.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
         buildInfo.dstAccelerationStructure = m_TopLevelAS; 
@@ -185,6 +277,17 @@ namespace Chimera
         
         VkAccelerationStructureBuildRangeInfoKHR rangeInfo{ count, 0, 0, 0 };
         const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
-        { ScopedCommandBuffer cmd; vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange); }
+        {
+            ScopedCommandBuffer cmd;
+            if (vkCmdBuildAccelerationStructuresKHR)
+            {
+                vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
+            }
+            else
+            {
+                CH_CORE_ERROR("Scene: vkCmdBuildAccelerationStructuresKHR is NULL!");
+            }
+        }
+        CH_CORE_INFO("Scene: UpdateTLAS() finished successfully.");
     }
 }

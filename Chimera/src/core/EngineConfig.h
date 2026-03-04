@@ -27,17 +27,21 @@ namespace Chimera
                     foundRoot = true;
                     break;
                 }
-                if (!root.has_parent_path()) break;
+                if (!root.has_parent_path()) 
+                {
+                    break;
+                }
                 root = root.parent_path();
             }
 
             if (foundRoot)
             {
                 SHADER_SOURCE_DIR = (root / "Chimera" / "shaders").string();
-                
-                // Authoritative source: the shaders folder next to the EXE
-                SHADER_DIR = "shaders/";
             }
+
+            // Always default to local shaders folder. 
+            // ShaderManager will handle absolute path fallbacks if needed.
+            SHADER_DIR = "shaders/";
         }
 
         // 全局引擎设置

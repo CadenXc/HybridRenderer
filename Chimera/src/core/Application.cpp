@@ -25,9 +25,14 @@ namespace Chimera
         CH_CORE_INFO("Application: Booting engine...");
 
         m_Window = Window::Create(WindowProps(spec.Name, spec.Width, spec.Height));
-        m_Window->SetEventCallback([this](Event& e) { OnEvent(e); });
+        m_Window->SetEventCallback([this](Event& e)
+        {
+            OnEvent(e);
+        });
 
         m_Context = std::make_shared<VulkanContext>(m_Window->GetNativeWindow());
+        m_ContextAnchor = m_Context; // Anchor it
+        
         m_Renderer = std::make_unique<Renderer>();
         m_ResourceManager = std::make_unique<ResourceManager>();
         m_ResourceManager->InitGlobalResources();
@@ -38,46 +43,126 @@ namespace Chimera
         
         m_ImGuiLayer = std::make_shared<ImGuiLayer>(m_Context);
         PushLayer(m_ImGuiLayer);
+
+        // Load Blue Noise texture for advanced sampling
+        auto hBlueNoise = m_ResourceManager->LoadTexture("assets/textures/noise/blue_noise.png", false);
+        m_BlueNoiseTextureIndex = hBlueNoise.IsValid() ? (int)hBlueNoise.id : -1;
     }
 
     Application::~Application()
     {
+        CH_CORE_INFO("Application: Destructor started. Starting surgical teardown...");
+        
+        // 1. [CRITICAL] Hold the context alive until the very last line of this destructor
+        std::shared_ptr<VulkanContext> contextKeepAlive = m_Context;
+        
         if (m_Context)
         {
-            VkDevice device = m_Context->GetDevice();
-            vkDeviceWaitIdle(device);
-
-            // Detach layers to shutdown ImGui while device is alive
-            for (auto& layer : m_LayerStack)
+            try 
             {
-                layer->OnDetach();
+                VkDevice device = m_Context->GetDevice();
+                vkDeviceWaitIdle(device);
+
+                // 2. Kill the window callback immediately to stop any incoming events
+                if (m_Window)
+                {
+                    m_Window->SetEventCallback([](Event&) {});
+                }
+
+                // 3. Clear Event Queue to release any captures
+                {
+                    std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
+                    m_EventQueue.clear();
+                }
+
+                // 4. [STEP 1] DESTROY RENDER PIPELINES
+                // Must do this first because RenderGraph/Models need ResourceManager to stay alive during their destruction.
+                CH_CORE_INFO("Application: [Step 1/5] Destroying RenderPath and Scene...");
+                m_RenderPath.reset();
+
+                // 5. [STEP 2] DESTROY BUSINESS LAYERS (ImGui context must still be alive)
+                CH_CORE_INFO("Application: [Step 2/5] Purging LayerStack...");
+                while (m_LayerStack.size() > 1) 
+                {
+                    auto layer = m_LayerStack.back();
+                    if (layer != m_ImGuiLayer)
+                    {
+                        CH_CORE_INFO("Application: Releasing layer: {}", layer->GetName());
+                        layer->OnDetach();
+                        m_LayerStack.pop_back();
+                        layer.reset(); 
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                // 6. [STEP 3] DESTROY CORE RENDER SUBSYSTEMS (This releases the 6 leaking buffers)
+                CH_CORE_INFO("Application: [Step 3/5] Destroying core rendering subsystems...");
+                m_RenderState.reset(); // This destroys per-frame camera/material UBOs
+                
+                if (m_PipelineManager)
+                {
+                    m_PipelineManager->ClearCache();
+                    m_PipelineManager.reset();
+                }
+                
+                ShaderManager::ClearCache();
+                m_Renderer.reset(); // This destroys frame-sync objects
+
+                // 7. [STEP 4] CLEAR RESOURCE POOL
+                if (m_ResourceManager)
+                {
+                    CH_CORE_INFO("Application: [Step 4/5] Clearing ResourceManager pool...");
+                    CH_CORE_INFO("Application: Calling SetActiveScene(nullptr)...");
+                    m_ResourceManager->SetActiveScene(nullptr);
+                    CH_CORE_INFO("Application: SetActiveScene(nullptr) completed.");
+                    
+                    CH_CORE_INFO("Application: Calling m_ResourceManager->Clear()...");
+                    m_ResourceManager->Clear(); 
+                    CH_CORE_INFO("Application: m_ResourceManager->Clear() completed.");
+                    
+                    CH_CORE_INFO("Application: Calling m_ResourceManager.reset()...");
+                    m_ResourceManager.reset();
+                    CH_CORE_INFO("Application: m_ResourceManager.reset() completed.");
+                }
+
+                // 8. [STEP 5] SHUT DOWN IMGUI
+                if (m_ImGuiLayer)
+                {
+                    CH_CORE_INFO("Application: [Step 5/5] Final ImGui shutdown...");
+                    m_ImGuiLayer->OnDetach();
+                    
+                    auto it = std::find(m_LayerStack.begin(), m_LayerStack.end(), m_ImGuiLayer);
+                    if (it != m_LayerStack.end()) m_LayerStack.erase(it);
+                    m_ImGuiLayer.reset();
+                }
+                
+                CH_CORE_INFO("Application: ImGui shutdown completed.");
+
+                // 9. FINAL HARDWARE FLUSH
+                CH_CORE_INFO("Application: Final hardware DeletionQueue flush...");
+                m_Context->GetDeletionQueue().FlushAll();
+                
+                vkDeviceWaitIdle(device);
+                CH_CORE_INFO("Application: Device idle, resetting m_Window...");
+                m_Window.reset();
+                CH_CORE_INFO("Application: m_Window reset completed.");
             }
-            m_LayerStack.clear();
-            m_ImGuiLayer.reset();
-
-            m_RenderPath.reset();
-            m_Renderer.reset();
-
-            // [STEP 3] Clear Scene and Models while context is active
-            if (m_ResourceManager)
+            catch (...)
             {
-                m_ResourceManager->SetActiveScene(nullptr);
+                CH_CORE_ERROR("Application: CRITICAL CRASH during destruction sequence! Potential resource leak.");
             }
-
-            m_RenderState.reset();
-            m_PipelineManager.reset();
-            
-            if (m_ResourceManager)
-            {
-                m_ResourceManager->Clear();
-                m_ResourceManager.reset();
-            }
-
-            m_Context->GetDeletionQueue().FlushAll();
-            vkDeviceWaitIdle(device);
-            m_Window.reset();
         }
         
+        CH_CORE_INFO("Application: Resetting m_ContextAnchor...");
+        m_ContextAnchor.reset();
+        CH_CORE_INFO("Application: Resetting m_Context...");
+        m_Context.reset(); 
+        CH_CORE_INFO("Application: m_Context reset completed.");
+        
+        CH_CORE_INFO("Application: Teardown finished successfully. Context count: {}", contextKeepAlive.use_count());
         s_Instance = nullptr;
     }
 
@@ -90,7 +175,10 @@ namespace Chimera
                 while (!m_EventQueue.empty())
                 {
                     auto& func = m_EventQueue.front();
-                    if (func) func();
+                    if (func)
+                    {
+                        func();
+                    }
                     m_EventQueue.pop_front();
                 }
             }
@@ -105,10 +193,16 @@ namespace Chimera
                 if (cmd != VK_NULL_HANDLE)
                 {
                     uint32_t frameIndex = m_Renderer->GetCurrentFrameIndex();
-                    for (auto& layer : m_LayerStack) layer->OnUpdate(deltaTime);
+                    for (auto& layer : m_LayerStack)
+                    {
+                        layer->OnUpdate(deltaTime);
+                    }
                     UpdateGlobalUBO(frameIndex);
                     m_ImGuiLayer->Begin();
-                    for (auto& layer : m_LayerStack) layer->OnImGuiRender();
+                    for (auto& layer : m_LayerStack)
+                    {
+                        layer->OnImGuiRender();
+                    }
                     m_ImGuiLayer->End(cmd);
                     m_Renderer->EndFrame();
                     m_TotalFrameCount++;
@@ -121,12 +215,21 @@ namespace Chimera
     void Application::OnEvent(Event& e)
     {
         EventDispatcher dispatcher(e);
-        dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent& ev) { return OnWindowClose(ev); });
-        dispatcher.Dispatch<WindowResizeEvent>([this](WindowResizeEvent& ev) { return OnWindowResize(ev); });
+        dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent& ev)
+        {
+            return OnWindowClose(ev);
+        });
+        dispatcher.Dispatch<WindowResizeEvent>([this](WindowResizeEvent& ev)
+        {
+            return OnWindowResize(ev);
+        });
 
         for (auto it = m_LayerStack.rbegin(); it != m_LayerStack.rend(); ++it)
         {
-            if (e.Handled) break;
+            if (e.Handled)
+            {
+                break;
+            }
             (*it)->OnEvent(e);
         }
     }
@@ -166,6 +269,8 @@ namespace Chimera
         ubo.exposure = m_FrameContext.Exposure;
         ubo.ambientStrength = m_FrameContext.AmbientStrength;
         ubo.bloomStrength = m_FrameContext.BloomStrength;
+        ubo.blueNoiseTextureIndex = m_BlueNoiseTextureIndex;
+        ubo.skyboxTextureIndex = (m_ResourceManager->HasActiveScene()) ? (int)m_ResourceManager->GetActiveScene()->GetSkyboxTextureIndex() : -1;
         ubo.svgfAlpha = glm::vec4(m_FrameContext.SVGFAlphaColor, m_FrameContext.SVGFAlphaMoments, 0.0f, 0.0f);
         ubo.clearColor = m_FrameContext.ClearColor;
 
@@ -181,10 +286,19 @@ namespace Chimera
         m_PrevProj = ubo.camera.proj;
     }
 
-    bool Application::OnWindowClose(WindowCloseEvent& e) { m_Running = false; return true; }
+    bool Application::OnWindowClose(WindowCloseEvent& e) 
+    { 
+        m_Running = false; 
+        return true; 
+    }
+
     bool Application::OnWindowResize(WindowResizeEvent& e)
     {
-        if (e.GetWidth() == 0 || e.GetHeight() == 0) { m_Minimized = true; return false; }
+        if (e.GetWidth() == 0 || e.GetHeight() == 0) 
+        { 
+            m_Minimized = true; 
+            return false; 
+        }
         m_Minimized = false;
         m_Specification.Width = e.GetWidth();
         m_Specification.Height = e.GetHeight();
@@ -192,19 +306,36 @@ namespace Chimera
         return false;
     }
 
-    void Application::PushLayer(std::shared_ptr<Layer> layer) { m_LayerStack.emplace_back(layer); layer->OnAttach(); }
+    void Application::PushLayer(std::shared_ptr<Layer> layer) 
+    { 
+        m_LayerStack.emplace_back(layer); 
+        layer->OnAttach(); 
+    }
 
     void Application::SwitchRenderPath(std::unique_ptr<RenderPath> path)
     {
         if (m_Context)
         {
             vkDeviceWaitIdle(m_Context->GetDevice());
-            if (m_Renderer) m_Renderer->ResetSwapchainLayouts();
+            if (m_Renderer)
+            {
+                m_Renderer->ResetSwapchainLayouts();
+            }
         }
         m_RenderPath = std::move(path);
-        if (m_RenderPath) m_RenderPath->SetViewportSize(m_Specification.Width, m_Specification.Height);
+        if (m_RenderPath)
+        {
+            m_RenderPath->SetViewportSize(m_Specification.Width, m_Specification.Height);
+        }
     }
 
-    void Application::Close() { m_Running = false; }
-    uint32_t Application::GetCurrentImageIndex() const { return m_Renderer->GetCurrentImageIndex(); }
+    void Application::Close() 
+    { 
+        m_Running = false; 
+    }
+
+    uint32_t Application::GetCurrentImageIndex() const 
+    { 
+        return m_Renderer->GetCurrentImageIndex(); 
+    }
 }

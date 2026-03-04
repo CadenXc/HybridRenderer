@@ -15,10 +15,12 @@ namespace Chimera::SVGFPass
             RGResourceHandle motion; 
             RGResourceHandle history; 
             RGResourceHandle historyMoments; 
-            RGResourceHandle depth;
-            RGResourceHandle normal;
             RGResourceHandle output; 
             RGResourceHandle outMoments; 
+            RGResourceHandle depth;
+            RGResourceHandle normal;
+            RGResourceHandle prevDepth;
+            RGResourceHandle prevNormal;
         };
 
         std::string temporalMomentsName = config.prefix + "_TemporalMoments";
@@ -26,18 +28,19 @@ namespace Chimera::SVGFPass
         graph.AddComputePass<TemporalData>(config.prefix + "_Temporal",
             [&](TemporalData& data, RenderGraph::PassBuilder& builder)
             {
-                data.cur            = builder.ReadCompute(config.inputName);
-                data.motion         = builder.ReadCompute(RS::Motion);
-                data.history        = builder.ReadHistory(config.historyBaseName);
-                data.historyMoments = builder.ReadHistory(config.prefix + "Moments");
-                data.depth          = builder.ReadCompute(RS::Depth);
-                data.normal         = builder.ReadCompute(RS::Normal);
+                // BINDING ORDER MUST MATCH SHADER SET 2
+                data.cur            = builder.ReadCompute(config.inputName);        // Binding 0
+                data.motion         = builder.ReadCompute(RS::Motion);             // Binding 1
+                data.history        = builder.ReadHistory(config.historyBaseName); // Binding 2
+                data.historyMoments = builder.ReadHistory(config.prefix + "Moments"); // Binding 3
                 
-                builder.ReadHistory(RS::Depth); 
-                builder.ReadHistory(RS::Normal);
-
-                data.output         = builder.WriteStorage(config.prefix + "_TemporalColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.historyBaseName);
-                data.outMoments     = builder.WriteStorage(temporalMomentsName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.prefix + "Moments");
+                data.output         = builder.WriteStorage(config.prefix + "_TemporalColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.historyBaseName); // Binding 4
+                data.outMoments     = builder.WriteStorage(temporalMomentsName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.prefix + "Moments"); // Binding 5
+                
+                data.depth          = builder.ReadCompute(RS::Depth);              // Binding 6
+                data.normal         = builder.ReadCompute(RS::Normal);             // Binding 7
+                data.prevDepth      = builder.ReadHistory(RS::Depth);              // Binding 8
+                data.prevNormal     = builder.ReadHistory(RS::Normal);             // Binding 9
             },
             [config](const TemporalData& data, ComputeExecutionContext& ctx)
             {
@@ -64,11 +67,11 @@ namespace Chimera::SVGFPass
             graph.AddComputePass<AtrousData>(config.prefix + "_Atrous_" + std::to_string(i),
                 [&, temporalMomentsName, outputName](AtrousData& data, RenderGraph::PassBuilder& builder)
                 {
-                    data.input   = builder.ReadCompute(currentInput);
-                    data.moments = builder.ReadCompute(temporalMomentsName);
-                    data.normal  = builder.ReadCompute(RS::Normal);
-                    data.depth   = builder.ReadCompute(RS::Depth);
-                    data.output  = builder.WriteStorage(outputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                    data.input   = builder.ReadCompute(currentInput);        // Binding 0
+                    data.moments = builder.ReadCompute(temporalMomentsName); // Binding 1
+                    data.normal  = builder.ReadCompute(RS::Normal);          // Binding 2
+                    data.depth   = builder.ReadCompute(RS::Depth);           // Binding 3
+                    data.output  = builder.WriteStorage(outputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT); // Binding 4
                 },
                 [i](const AtrousData& data, ComputeExecutionContext& ctx)
                 {

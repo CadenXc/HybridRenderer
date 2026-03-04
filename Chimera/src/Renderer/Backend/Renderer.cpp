@@ -101,7 +101,10 @@ namespace Chimera
 
     void Renderer::ResetSwapchainLayouts()
     {
-        if (!VulkanContext::HasInstance()) return;
+        if (!VulkanContext::HasInstance())
+        {
+            return;
+        }
         
         auto images = VulkanContext::Get().GetSwapChainImages();
         

@@ -18,8 +18,45 @@ namespace Chimera
 
     PipelineManager::~PipelineManager()
     {
-        VkDevice device = VulkanContext::Get().GetDevice();
+        CH_CORE_INFO("PipelineManager: Destructor CALLED.");
+        ClearCache();
+        
+        if (VulkanContext::HasInstance())
+        {
+            VkDevice device = VulkanContext::Get().GetDevice();
+            
+            CH_CORE_INFO("PipelineManager: Destroying Layout Cache ({} layouts)...", m_LayoutCache.size());
+            for (auto& [hash, layout] : m_LayoutCache)
+            {
+                vkDestroyPipelineLayout(device, layout, nullptr);
+            }
+            m_LayoutCache.clear();
 
+            CH_CORE_INFO("PipelineManager: Destroying Set2Layout Cache ({} layouts)...", m_Set2LayoutCache.size());
+            for (auto& [hash, layout] : m_Set2LayoutCache)
+            {
+                vkDestroyDescriptorSetLayout(device, layout, nullptr);
+            }
+            m_Set2LayoutCache.clear();
+        }
+        
+        s_Instance = nullptr;
+        CH_CORE_INFO("PipelineManager: Destructor FINISHED.");
+    }
+
+    void PipelineManager::ClearCache()
+    {
+        if (!VulkanContext::HasInstance())
+        {
+            return;
+        }
+
+        VkDevice device = VulkanContext::Get().GetDevice();
+        vkDeviceWaitIdle(device);
+
+        CH_CORE_INFO("PipelineManager: Clearing Pipeline Caches...");
+
+        CH_CORE_INFO("PipelineManager: Destroying Graphics Pipelines ({})...", m_GraphicsCache.size());
         for (auto& [name, p] : m_GraphicsCache)
         {
             if (p->handle != VK_NULL_HANDLE)
@@ -27,15 +64,20 @@ namespace Chimera
                 vkDestroyPipeline(device, p->handle, nullptr);
             }
         }
+        m_GraphicsCache.clear();
 
+        CH_CORE_INFO("PipelineManager: Destroying Raytracing Pipelines ({})...", m_RaytracingCache.size());
         for (auto& [name, p] : m_RaytracingCache)
         {
             if (p->handle != VK_NULL_HANDLE)
             {
                 vkDestroyPipeline(device, p->handle, nullptr);
             }
+            // SBT Buffer will be destroyed by unique_ptr
         }
+        m_RaytracingCache.clear();
 
+        CH_CORE_INFO("PipelineManager: Destroying Compute Pipelines ({})...", m_ComputeCache.size());
         for (auto& [name, p] : m_ComputeCache)
         {
             if (p->handle != VK_NULL_HANDLE)
@@ -43,23 +85,15 @@ namespace Chimera
                 vkDestroyPipeline(device, p->handle, nullptr);
             }
         }
-
-        for (auto& [hash, layout] : m_LayoutCache)
-        {
-            vkDestroyPipelineLayout(device, layout, nullptr);
-        }
-
-        for (auto& [hash, layout] : m_Set2LayoutCache)
-        {
-            vkDestroyDescriptorSetLayout(device, layout, nullptr);
-        }
+        m_ComputeCache.clear();
+        
+        CH_CORE_INFO("PipelineManager: Pipeline Caches cleared.");
     }
 
     GraphicsPipeline& PipelineManager::GetGraphicsPipeline(const std::vector<VkFormat>& colorFormats, VkFormat depthFormat, const GraphicsPipelineDescription& desc)
     {
-        // 1. Robust cache key including specialization constants
         std::string cacheKey = desc.name;
-        for (uint32_t val : desc.specializationConstants) 
+        for (uint32_t val : desc.specializationConstants)
         {
             cacheKey += "_" + std::to_string(val);
         }
@@ -79,7 +113,6 @@ namespace Chimera
         VkShaderModule vMod = CreateShaderModule(VulkanContext::Get().GetDevice(), vSh->GetBytecode());
         VkShaderModule fMod = CreateShaderModule(VulkanContext::Get().GetDevice(), fSh->GetBytecode());
 
-        // 2. Build Specialization Info
         std::vector<VkSpecializationMapEntry> specEntries;
         for (uint32_t i = 0; i < (uint32_t)desc.specializationConstants.size(); ++i)
         {
@@ -105,7 +138,10 @@ namespace Chimera
             ss[1].pSpecializationInfo = &specInfo;
         }
 
-        bool isFullscreen = (desc.name == "Composition" || desc.name == "FinalBlit");
+        bool isFullscreen = (desc.name == "Composition" || desc.name == "FinalBlit" || desc.name == "LinearizeDepth" ||
+                            desc.vertex_shader.find("fullscreen") != std::string::npos || 
+                            desc.vertex_shader.find("Fullscreen") != std::string::npos);
+
         auto bD = VertexInfo::getBindingDescription();
         auto aD = VertexInfo::getAttributeDescriptions();
 
@@ -120,18 +156,18 @@ namespace Chimera
         VkPipelineRasterizationStateCreateInfo rA{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, nullptr, 0, VK_FALSE, VK_FALSE, VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_FALSE, 0, 0, 0, 1.0f };
         VkPipelineMultisampleStateCreateInfo mS{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, nullptr, 0, VK_SAMPLE_COUNT_1_BIT };
         VkPipelineDepthStencilStateCreateInfo dS{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO, nullptr, 0, desc.depth_test, desc.depth_write, VK_COMPARE_OP_GREATER_OR_EQUAL };
-        
+
         std::vector<VkPipelineColorBlendAttachmentState> bA(colorFormats.size(), { VK_FALSE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD, VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT });
         VkPipelineColorBlendStateCreateInfo cB{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, nullptr, 0, VK_FALSE, VK_LOGIC_OP_COPY, (uint32_t)bA.size(), bA.data() };
-        
+
         VkDynamicState dy[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
         VkPipelineDynamicStateCreateInfo dY{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO, nullptr, 0, 2, dy };
-        
+
         VkPipelineRenderingCreateInfo rE{ VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO, nullptr, 0, (uint32_t)colorFormats.size(), colorFormats.data(), depthFormat };
         VkGraphicsPipelineCreateInfo info{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &rE, 0, 2, ss, &vI, &iA, nullptr, &vP, &rA, &mS, &dS, &cB, &dY, p->layout };
 
         vkCreateGraphicsPipelines(VulkanContext::Get().GetDevice(), VK_NULL_HANDLE, 1, &info, nullptr, &p->handle);
-        
+
         vkDestroyShaderModule(VulkanContext::Get().GetDevice(), vMod, nullptr);
         vkDestroyShaderModule(VulkanContext::Get().GetDevice(), fMod, nullptr);
 
@@ -142,7 +178,7 @@ namespace Chimera
     RaytracingPipeline& PipelineManager::GetRaytracingPipeline(const RaytracingPipelineDescription& desc)
     {
         std::string cacheKey = desc.raygen_shader;
-        for (uint32_t val : desc.specializationConstants) 
+        for (uint32_t val : desc.specializationConstants)
         {
             cacheKey += "_" + std::to_string(val);
         }
@@ -198,7 +234,7 @@ namespace Chimera
             s.stage = stageBit;
             s.module = mod;
             s.pName = "main";
-            if (!specEntries.empty()) 
+            if (!specEntries.empty())
             {
                 s.pSpecializationInfo = &specInfo;
             }
@@ -215,7 +251,7 @@ namespace Chimera
         rgGroup.intersectionShader = VK_SHADER_UNUSED_KHR;
         groups.push_back(rgGroup);
 
-        for (uint32_t i = 0; i < desc.miss_shaders.size(); ++i)
+        for (uint32_t i = 0; i < (uint32_t)desc.miss_shaders.size(); ++i)
         {
             uint32_t mIdx = addStage(ShaderManager::GetShader(desc.miss_shaders[i]).get(), VK_SHADER_STAGE_MISS_BIT_KHR);
             VkRayTracingShaderGroupCreateInfoKHR mGroup{ VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR };
@@ -227,7 +263,7 @@ namespace Chimera
             groups.push_back(mGroup);
         }
 
-        for (uint32_t i = 0; i < desc.hit_shaders.size(); ++i)
+        for (uint32_t i = 0; i < (uint32_t)desc.hit_shaders.size(); ++i)
         {
             VkRayTracingShaderGroupCreateInfoKHR hGroup{ VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR };
             hGroup.type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
@@ -272,7 +308,7 @@ namespace Chimera
     ComputePipeline& PipelineManager::GetComputePipeline(const ComputePipelineDescription::Kernel& kernel)
     {
         std::string cacheKey = kernel.shader;
-        for (uint32_t val : kernel.specializationConstants) 
+        for (uint32_t val : kernel.specializationConstants)
         {
             cacheKey += "_" + std::to_string(val);
         }
@@ -306,7 +342,7 @@ namespace Chimera
 
         VkComputePipelineCreateInfo info{ VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
         info.stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, mod, "main" };
-        if (!specEntries.empty()) 
+        if (!specEntries.empty())
         {
             info.stage.pSpecializationInfo = &specInfo;
         }
@@ -355,7 +391,7 @@ namespace Chimera
 
         VkPipelineLayout layout;
         vkCreatePipelineLayout(VulkanContext::Get().GetDevice(), &info, nullptr, &layout);
-        
+
         m_LayoutCache[hash] = layout;
         return layout;
     }

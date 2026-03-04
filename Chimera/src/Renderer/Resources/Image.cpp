@@ -30,6 +30,8 @@ namespace Chimera
             throw std::runtime_error("failed to create image!");
         }
 
+        CH_CORE_TRACE("Image: ALLOCATED. Handle: [0x{:x}], Size: {}x{}, Name: {}", (uint64_t)m_Image, m_Width, m_Height, name);
+
         if (!name.empty())
         {
             VulkanContext::Get().SetDebugName((uint64_t)m_Image, VK_OBJECT_TYPE_IMAGE, name.c_str());
@@ -62,10 +64,13 @@ namespace Chimera
         if (m_View != VK_NULL_HANDLE)
         {
             vkDestroyImageView(m_Device, m_View, nullptr);
+            m_View = VK_NULL_HANDLE;
         }
         if (m_Image != VK_NULL_HANDLE)
         {
+            CH_CORE_TRACE("Image: DESTROYING. Handle: [0x{:x}], Size: {}x{}", (uint64_t)m_Image, m_Width, m_Height);
             vmaDestroyImage(m_Allocator, m_Image, m_Allocation);
+            m_Image = VK_NULL_HANDLE;
         }
     }
 

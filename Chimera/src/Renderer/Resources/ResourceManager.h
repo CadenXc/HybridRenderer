@@ -18,6 +18,7 @@ namespace Chimera
         ~ResourceManager();
 
         void Clear();
+        void ClearRuntimeAssets();
         void InitGlobalResources();
         void UpdateGlobalResources(uint32_t currentFrame, const UniformBufferObject& ubo);
         
@@ -172,6 +173,7 @@ namespace Chimera
 
     private:
         static ResourceManager* s_Instance;
+        std::shared_ptr<VulkanContext> m_Context;
         
         VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
         std::vector<VkDescriptorPool> m_TransientDescriptorPools;

@@ -9,7 +9,7 @@
 namespace Chimera
 {
     ForwardRenderPath::ForwardRenderPath(VulkanContext& context)
-        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}))
+        : RenderPath(context.GetShared())
     {
     }
 
@@ -19,6 +19,6 @@ namespace Chimera
         ForwardPass::AddToGraph(graph, scene);
 
         // 2. Linearize Depth (For debug visualization)
-        StandardPasses::AddLinearizeDepthPass(graph);
+        // StandardPasses::AddLinearizeDepthPass(graph);
     }
 }

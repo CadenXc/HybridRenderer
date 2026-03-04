@@ -22,13 +22,13 @@ void main()
     vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
     vec3 normal = normalize(texture(gNormal, inUV).xyz * 2.0 - 1.0);
 
-    // 1. 初始化随机种子 (Using common.glsl)
-    uint seed = InitRandomSeed(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, global.ubo.frameCount);
-    vec2 randSample = vec2(RandomFloat(seed), RandomFloat(seed));
+    // 1. 使用蓝噪声获取随机采样点 (Using common.glsl)
+    vec4 blueNoise = GetBlueNoise(ivec2(gl_LaunchIDEXT.xy));
+    vec2 randSample = blueNoise.xy;
 
     // 2. 计算软阴影采样方向
     vec3 L = normalize(global.ubo.sunLight.direction.xyz);
-    float lightRadius = global.ubo.sunLight.intensity.y; // 假设 intensity.y 存储了半径/圆锥角
+    float lightRadius = global.ubo.sunLight.intensity.y; 
 
     if (lightRadius > 0.0)
     {
@@ -36,12 +36,11 @@ void main()
         vec3 bitangent = normalize(cross(L, tangent));
         tangent = cross(bitangent, L);
 
-        // 使用 common.glsl 中的统一锥形采样函数
         vec3 coneSample = SquareToUniformCone(randSample, cos(lightRadius));
         L = normalize(tangent * coneSample.x + bitangent * coneSample.y + L * coneSample.z);
     }
 
-    // 3. 硬件光线追踪阴影 (Using unified OffsetRay)
+    // 3. 硬件光线追踪阴影
     float shadow = 1.0;
     if ((global.ubo.renderFlags & RENDER_FLAG_SHADOW_BIT) != 0)
     {

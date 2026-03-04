@@ -19,10 +19,7 @@ namespace Chimera
 
     ImGuiLayer::~ImGuiLayer()
     {
-        if (ImGui::GetCurrentContext())
-        {
-            OnDetach();
-        }
+        OnDetach();
     }
 
     void ImGuiLayer::OnAttach()
@@ -35,7 +32,6 @@ namespace Chimera
         ImGui::StyleColorsDark();
         SetDarkThemeColors();
 
-        // Create a dedicated descriptor pool for ImGui
         VkDescriptorPoolSize pool_sizes[] =
         {
             { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
@@ -73,7 +69,6 @@ namespace Chimera
         init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
         init_info.UseDynamicRendering = true;
         
-        // --- [FIX] Correct Pipeline Rendering Info Placement ---
         init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
         init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
@@ -87,67 +82,84 @@ namespace Chimera
 
     void ImGuiLayer::OnDetach()
     {
-        vkDeviceWaitIdle(m_Context->GetDevice());
-        ClearTextureCache();
-        ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
-
-        if (m_Pool != VK_NULL_HANDLE)
+        if (!ImGui::GetCurrentContext())
         {
-            vkDestroyDescriptorPool(m_Context->GetDevice(), m_Pool, nullptr);
-            m_Pool = VK_NULL_HANDLE;
+            return;
+        }
+
+        if (m_Context && m_Context->GetDevice() != VK_NULL_HANDLE)
+        {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            ClearTextureCache();
+            ImGui_ImplVulkan_Shutdown();
+            ImGui_ImplGlfw_Shutdown();
+            ImGui::DestroyContext();
+            
+            if (m_Pool != VK_NULL_HANDLE)
+            {
+                vkDestroyDescriptorPool(m_Context->GetDevice(), m_Pool, nullptr);
+                m_Pool = VK_NULL_HANDLE;
+            }
         }
     }
 
     void ImGuiLayer::OnEvent(Event& e)
     {
-        ImGuiIO& io = ImGui::GetIO();
-        e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
-        e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
+        if (ImGui::GetCurrentContext())
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;
+            e.Handled |= e.IsInCategory(EventCategoryKeyboard) & io.WantCaptureKeyboard;
+        }
     }
 
     void ImGuiLayer::Begin()
     {
-        ImGui_ImplVulkan_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        if (ImGui::GetCurrentContext())
+        {
+            ImGui_ImplVulkan_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+        }
     }
 
     void ImGuiLayer::End(VkCommandBuffer commandBuffer)
     {
-        ImGui::Render();
-
-        VkExtent2D extent = m_Context->GetSwapChainExtent();
-        uint32_t imageIndex = Application::Get().GetCurrentImageIndex();
-        VkImageView targetView = m_Context->GetSwapchain()->GetImageViews()[imageIndex];
-
-        VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-        colorAttachment.imageView = targetView;
-        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; 
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        
-        VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-        renderingInfo.renderArea = { {0, 0}, extent };
-        renderingInfo.layerCount = 1;
-        renderingInfo.colorAttachmentCount = 1;
-        renderingInfo.pColorAttachments = &colorAttachment;
-        
-        vkCmdBeginRendering(commandBuffer, &renderingInfo);
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
-        vkCmdEndRendering(commandBuffer);
-
-        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+        if (ImGui::GetCurrentContext())
         {
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
+            ImGui::Render();
+
+            VkExtent2D extent = m_Context->GetSwapChainExtent();
+            uint32_t imageIndex = Application::Get().GetCurrentImageIndex();
+            VkImageView targetView = m_Context->GetSwapchain()->GetImageViews()[imageIndex];
+
+            VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+            colorAttachment.imageView = targetView;
+            colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; 
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            
+            VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+            renderingInfo.renderArea = { {0, 0}, extent };
+            renderingInfo.layerCount = 1;
+            renderingInfo.colorAttachmentCount = 1;
+            renderingInfo.pColorAttachments = &colorAttachment;
+            
+            vkCmdBeginRendering(commandBuffer, &renderingInfo);
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+            vkCmdEndRendering(commandBuffer);
+
+            if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+            {
+                ImGui::UpdatePlatformWindows();
+                ImGui::RenderPlatformWindowsDefault();
+            }
         }
     }
 
     ImTextureID ImGuiLayer::GetTextureID(VkImageView view, VkSampler sampler)
     {
-        if (view == VK_NULL_HANDLE)
+        if (view == VK_NULL_HANDLE || !ImGui::GetCurrentContext())
         {
             return (ImTextureID)0;
         }
@@ -166,8 +178,13 @@ namespace Chimera
         return id;
     }
 
-    void Chimera::ImGuiLayer::ClearTextureCache()
+    void ImGuiLayer::ClearTextureCache()
     {
+        if (!ImGui::GetCurrentContext())
+        {
+            return;
+        }
+
         for (auto& [view, id] : m_TextureCache)
         {
             ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)id);

@@ -7,8 +7,11 @@ layout(location = 1) in vec2 inUV;
 layout(location = 2) in vec3 inWorldPos;
 layout(location = 3) in vec4 inTangent;
 layout(location = 4) in flat uint inObjectId; 
+layout(location = 5) in vec4 inCurPos;
+layout(location = 6) in vec4 inPrevPos;
 
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec2 outMotionVector;
 
 void main() 
 {
@@ -37,11 +40,36 @@ void main()
     // 4. 计算直接光 (Sunlight)
     vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
     vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
-    vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor);
+
+    // [NEW] Ray Query Shadows
+    vec3 shadowOrigin = OffsetRay(inWorldPos, N);
+    float shadow = CalculateRayQueryShadow(shadowOrigin, L, 1000.0);
+
+    vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor) * shadow;
     
-    // 5. 环境光 (Apply AO)
+    // 5. 环境光 (Basic IBL fallback)
     vec3 ambient = global.ubo.ambientStrength * albedo.rgb * ao;
+    if (global.ubo.skyboxTextureIndex >= 0)
+    {
+        vec3 reflectDir = reflect(-V, N);
+        // Simple IBL approximation: sample skybox for both diffuse and specular
+        // In a real engine, we would use pre-filtered maps
+        vec3 envSpecular = texture(textureArray[nonuniformEXT(global.ubo.skyboxTextureIndex)], SampleEquirectangular(reflectDir)).rgb;
+        vec3 envDiffuse = texture(textureArray[nonuniformEXT(global.ubo.skyboxTextureIndex)], SampleEquirectangular(N)).rgb;
+        
+        vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
+        vec3 F = F_SchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+        vec3 kS = F;
+        vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+        
+        ambient = (kD * envDiffuse * albedo.rgb + kS * envSpecular) * ao * global.ubo.ambientStrength;
+    }
     
-    // 6. 最终合并
+    // 6. 计算运动矢量
+    vec2 curPos = (inCurPos.xy / inCurPos.w) * 0.5 + 0.5;
+    vec2 prevPos = (inPrevPos.xy / inPrevPos.w) * 0.5 + 0.5;
+    outMotionVector = curPos - prevPos;
+
+    // 7. 最终合并
     outColor = vec4(ambient + directLighting + emissive, albedo.a);
 }

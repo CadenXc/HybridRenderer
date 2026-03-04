@@ -179,14 +179,19 @@ namespace Chimera
                         v1.tangent += glm::vec4(tangent, 0.0f);
                         v2.tangent += glm::vec4(tangent, 0.0f);
                     }
+// [FIX] Improved Tangent Calculation with correct Handedness (w)
+for (size_t k = 0; k < posAcc->count; ++k)
+{
+    VertexInfo& v = outScene->Vertices[startIdx + k];
+    glm::vec3 t = glm::vec3(v.tangent);
+    glm::vec3 n = v.normal;
+    glm::vec3 orthoT = glm::normalize(t - n * glm::dot(n, t));
 
-                    for (size_t k = 0; k < posAcc->count; ++k)
-                    {
-                        VertexInfo& v = outScene->Vertices[startIdx + k];
-                        glm::vec3 t = glm::vec3(v.tangent);
-                        glm::vec3 n = v.normal;
-                        v.tangent = glm::vec4(glm::normalize(t - n * glm::dot(n, t)), 1.0f);
-                    }
+    // Preserve original handedness if provided, otherwise default to 1.0
+    float w = (v.tangent.w != 0.0f) ? v.tangent.w : 1.0f;
+    v.tangent = glm::vec4(orthoT, w);
+}
+
                 }
 
                 mesh.indexCount = indexCount;

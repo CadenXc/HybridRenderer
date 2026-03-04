@@ -11,7 +11,7 @@
 namespace Chimera
 {
     RayTracedRenderPath::RayTracedRenderPath(VulkanContext& context)
-        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}))
+        : RenderPath(context.GetShared())
     {
     }
 
@@ -28,8 +28,9 @@ namespace Chimera
     {
         if (ImGui::TreeNodeEx("Ray Tracing Settings", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::Checkbox("Alpha Test for Shadows", &m_UseAlphaTest);
+            ImGui::Checkbox("Use Alpha Testing", &m_UseAlphaTest);
             ImGui::TreePop();
         }
     }
 }
+

@@ -20,7 +20,7 @@
 namespace Chimera
 {
     HybridRenderPath::HybridRenderPath(VulkanContext& context)
-        : RenderPath(std::shared_ptr<VulkanContext>(&context, [](VulkanContext*){}))
+        : RenderPath(context.GetShared())
     {
     }
 
@@ -38,7 +38,7 @@ namespace Chimera
             RTDiffuseGIPass::AddToGraph(graph, scene);
         }
 
-        // 3. SVGF Denoising Passes [REFACTORED: Config Descriptor Pattern]
+        // 3. SVGF Denoising Passes
         if (scene) 
         {
             SVGFPass::AddToGraph(graph, scene, {
@@ -60,7 +60,7 @@ namespace Chimera
             });
         }
 
-        // 4. Composition Pass [REFACTORED: Config Descriptor Pattern]
+        // 4. Composition Pass
         CompositionPass::AddToGraph(graph, {
             .shadowName = "Shadow_Filtered_4",
             .reflectionName = "Refl_Filtered_4",
@@ -69,7 +69,5 @@ namespace Chimera
 
         // 5. Post-processing
         StandardPasses::AddLinearizeDepthPass(graph);
-        // BloomPass::AddToGraph(graph);
-        // TAAPass::AddToGraph(graph);
     }
 }

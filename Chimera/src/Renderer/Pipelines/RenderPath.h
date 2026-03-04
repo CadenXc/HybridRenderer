@@ -20,7 +20,6 @@ namespace Chimera
 
         virtual void Init();
         
-        // [Template Method] Finalized to ensure consistent lifecycle management
         virtual VkSemaphore Render(const RenderFrameInfo& frameInfo) final;
 
         void SetViewportSize(uint32_t width, uint32_t height)
@@ -39,7 +38,6 @@ namespace Chimera
             m_NeedsRebuild = true;
         }
 
-        // --- Optimized [NEW] ---
         Scene* GetScene() const { return ResourceManager::Get().GetActiveScene(); }
         std::shared_ptr<Scene> GetSceneShared() const { return ResourceManager::Get().GetActiveSceneShared(); }
 

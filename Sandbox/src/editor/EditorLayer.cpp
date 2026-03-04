@@ -503,7 +503,10 @@ namespace Chimera
                 activePath->GetRenderGraph().DrawPerformanceStatistics();
             }
             ImGui::Separator();
-            if (ImGui::Button("Export Graph (Mermaid)", ImVec2(-1, 0)) && activePath) ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
+            if (ImGui::Button("Export Graph (Mermaid)", ImVec2(-1, 0)) && activePath)
+            {
+                ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
+            }
         }
     }
 

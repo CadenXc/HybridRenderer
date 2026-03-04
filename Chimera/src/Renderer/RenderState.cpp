@@ -18,11 +18,21 @@ namespace Chimera
         VkDevice device = VulkanContext::Get().GetDevice();
         vkDeviceWaitIdle(device);
 
-        // [FIX] Explicitly clear frame buffers first
+        CH_CORE_INFO("RenderState: Destructor CALLED. Clearing UBOs...");
         m_Frames.clear();
 
-        vkDestroyDescriptorSetLayout(device, m_DescriptorSetLayout, nullptr);
-        vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
+        if (m_DescriptorSetLayout != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorSetLayout(device, m_DescriptorSetLayout, nullptr);
+            m_DescriptorSetLayout = VK_NULL_HANDLE;
+        }
+        
+        if (m_DescriptorPool != VK_NULL_HANDLE)
+        {
+            vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
+            m_DescriptorPool = VK_NULL_HANDLE;
+        }
+        CH_CORE_INFO("RenderState: Destructor FINISHED.");
     }
 
     void RenderState::Update(uint32_t frameIndex, const UniformBufferObject& data)
@@ -49,7 +59,8 @@ namespace Chimera
             m_Frames[i].UBO = std::make_unique<Buffer>(
                 sizeof(UniformBufferObject),
                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                VMA_MEMORY_USAGE_CPU_TO_GPU
+                VMA_MEMORY_USAGE_CPU_TO_GPU,
+                "Global_UBO_" + std::to_string(i)
             );
             CH_CORE_TRACE("RenderState: Allocated UBO[{0}] at {1}", i, (void*)m_Frames[i].UBO->GetBuffer());
         }
@@ -92,5 +103,4 @@ namespace Chimera
         }
         CH_CORE_INFO("RenderState: Descriptor Sets Updated.");
     }
-
 }

@@ -69,6 +69,21 @@ float RandomFloat(inout uint seed)
     return float(NextRandom(seed) & 0x00FFFFFFu) / float(0x01000000u);
 }
 
+// 获取蓝噪声采样 (256x256 规格)
+vec4 GetBlueNoise(ivec2 screenPos)
+{
+    if (global.ubo.blueNoiseTextureIndex < 0)
+    {
+        uint seed = InitRandomSeed(screenPos.x, screenPos.y);
+        return vec4(RandomFloat(seed));
+    }
+
+    // Tile the 256x256 texture across the screen
+    // Apply a frame-based offset to animate the noise (Animated Blue Noise)
+    ivec2 noiseCoords = (screenPos + ivec2(global.ubo.frameCount * 149, global.ubo.frameCount * 79)) % 256;
+    return texelFetch(textureArray[nonuniformEXT(global.ubo.blueNoiseTextureIndex)], noiseCoords, 0);
+}
+
 vec3 SquareToUniformCone(vec2 sampleIn, float cosThetaMax) 
 {
     float cosTheta = (1.0 - sampleIn.x) + sampleIn.x * cosThetaMax;

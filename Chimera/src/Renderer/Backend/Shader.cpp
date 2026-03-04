@@ -3,34 +3,29 @@
 #include <spirv_reflect.h>
 #include <fstream>
 #include <stdexcept>
+#include <filesystem>
 
 namespace Chimera
 {
-    Shader::Shader(const std::string& path) 
-        : m_Path(path)
+    Shader::Shader(const std::filesystem::path& path) 
     {
-        size_t lastSlash = path.find_last_of("/\\");
-        m_Name = (lastSlash == std::string::npos) ? path : path.substr(lastSlash + 1);
+        m_Path = path.string();
+        m_Name = path.stem().string();
         
-        size_t spvExt = m_Name.find(".spv");
-        if (spvExt != std::string::npos)
-        {
-            m_Name = m_Name.substr(0, spvExt);
-        }
-
+        // CRITICAL: Open file using the path object directly
         std::ifstream file(path, std::ios::ate | std::ios::binary);
         
         if (!file.is_open())
         {
-            CH_CORE_ERROR("Shader: Failed to open SPV file at path: {0}", path);
-            throw std::runtime_error("Required shader file missing: " + path);
+            CH_CORE_ERROR("Shader: FAILED TO OPEN FILE. Normalized path: {0}", m_Path);
+            throw std::runtime_error("Required shader file missing or unreadable: " + m_Path);
         }
 
         size_t fileSize = (size_t)file.tellg();
         if (fileSize == 0 || fileSize == (size_t)-1)
         {
-            CH_CORE_ERROR("Shader: SPV file is empty or invalid: {0}", path);
-            throw std::runtime_error("Empty or invalid shader file: " + path);
+            CH_CORE_ERROR("Shader: File is EMPTY: {0}", m_Path);
+            throw std::runtime_error("Empty or invalid shader file: " + m_Path);
         }
 
         m_Bytecode.resize(fileSize / 4);

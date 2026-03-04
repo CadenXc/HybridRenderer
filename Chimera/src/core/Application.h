@@ -161,9 +161,10 @@ namespace Chimera
         static Application* s_Instance;
         ApplicationSpecification m_Specification;
 
-        std::unique_ptr<Window> m_Window;
-        std::shared_ptr<VulkanContext> m_Context;
+        std::shared_ptr<VulkanContext> m_Context; // Primary lifecycle owner
+        std::shared_ptr<VulkanContext> m_ContextAnchor; // Secondary anchor for safety
 
+        std::unique_ptr<Window> m_Window;
         std::unique_ptr<ResourceManager> m_ResourceManager;
         std::unique_ptr<PipelineManager> m_PipelineManager;
         std::unique_ptr<RenderState> m_RenderState;
@@ -185,6 +186,8 @@ namespace Chimera
         float m_LastFrameTime = 0.0f;
         uint32_t m_TotalFrameCount = 0;
         float m_DepthScale = 1.0f;
+
+        int m_BlueNoiseTextureIndex = -1; // [NEW]
 
         glm::mat4 m_PrevView = glm::mat4(1.0f);
         glm::mat4 m_PrevProj = glm::mat4(1.0f);

@@ -20,6 +20,13 @@ namespace Chimera
         static bool CheckForUpdates();
         static void RecompileAll();
 
+        static void ClearCache()
+        {
+            s_ShaderCache.clear();
+            s_Timestamps.clear();
+            s_AliasMap.clear();
+        }
+
     private:
         inline static std::string s_ShaderDir;
         inline static std::string s_SourceDir;

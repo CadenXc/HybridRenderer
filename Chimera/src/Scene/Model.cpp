@@ -3,14 +3,13 @@
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Backend/RenderContext.h"
 #include "Renderer/Resources/Buffer.h"
-#include "Renderer/Graph/GraphicsExecutionContext.h"
-#include "Core/Log.h"
+#include "Renderer/Backend/ShaderCommon.h"
+#include "Utils/VulkanBarrier.h"
 
 namespace Chimera
 {
-
     Model::Model(std::shared_ptr<VulkanContext> context, const ImportedScene& importedScene)
-        : m_Context(context), m_Meshes(importedScene.Meshes)
+        : m_Context(context)
     {
         m_VertexCount = (uint32_t)importedScene.Vertices.size();
         m_IndexCount = (uint32_t)importedScene.Indices.size();
@@ -18,103 +17,82 @@ namespace Chimera
         CH_CORE_INFO("Model: Creating buffers for {0} vertices, {1} indices...", m_VertexCount, m_IndexCount);
 
         VkDeviceSize vertexBufferSize = sizeof(GpuVertex) * m_VertexCount;
+        VkDeviceSize indexBufferSize = sizeof(uint32_t) * m_IndexCount;
+
+        // [OPTIMIZATION] 1. Create Staging Buffers (CPU Visible)
+        Buffer stagingVBO(vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        stagingVBO.Update(importedScene.Vertices.data(), vertexBufferSize);
+
+        Buffer stagingIBO(indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+        stagingIBO.Update(importedScene.Indices.data(), indexBufferSize);
+
+        // [OPTIMIZATION] 2. Create GPU-Only High Performance Final Buffers
         m_VertexBuffer = std::make_unique<Buffer>(
             vertexBufferSize,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-            VMA_MEMORY_USAGE_CPU_TO_GPU
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+            VMA_MEMORY_USAGE_GPU_ONLY
         );
-        m_VertexBuffer->Update(importedScene.Vertices.data(), vertexBufferSize);
 
-        VkDeviceSize indexBufferSize = sizeof(uint32_t) * m_IndexCount;
         m_IndexBuffer = std::make_unique<Buffer>(
             indexBufferSize,
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-            VMA_MEMORY_USAGE_CPU_TO_GPU
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
+            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+            VMA_MEMORY_USAGE_GPU_ONLY
         );
-        m_IndexBuffer->Update(importedScene.Indices.data(), indexBufferSize);
 
-        BuildBLAS();
-    }
-
-    Model::~Model()
-    {
-        if (m_Context && !m_BLASHandles.empty())
+        // [OPTIMIZATION] 3. Perform the copy on GPU
         {
-            VkDevice device = m_Context->GetDevice();
-            for (auto handle : m_BLASHandles)
-            {
-                if (handle != VK_NULL_HANDLE)
-                {
-                    vkDestroyAccelerationStructureKHR(device, handle, nullptr);
-                }
-            }
+            ScopedCommandBuffer cmd;
+            VkBufferCopy vCopy{ 0, 0, vertexBufferSize };
+            VkBufferCopy iCopy{ 0, 0, indexBufferSize };
+            vkCmdCopyBuffer(cmd, (VkBuffer)stagingVBO.GetBuffer(), (VkBuffer)m_VertexBuffer->GetBuffer(), 1, &vCopy);
+            vkCmdCopyBuffer(cmd, (VkBuffer)stagingIBO.GetBuffer(), (VkBuffer)m_IndexBuffer->GetBuffer(), 1, &iCopy);
         }
-        m_BLASHandles.clear();
+
+        // --- Build BLAS for each mesh ---
+        const auto& meshes = importedScene.Meshes;
+        m_Meshes = meshes;
         m_BLASBuffers.clear();
-    }
-
-    void Model::Draw(GraphicsExecutionContext& ctx)
-    {
-        VkBuffer vBuffer = (VkBuffer)m_VertexBuffer->GetBuffer();
-        VkDeviceSize offset = 0;
-        ctx.BindVertexBuffers(0, 1, &vBuffer, &offset);
-        ctx.BindIndexBuffer((VkBuffer)m_IndexBuffer->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
-
-        for (const auto& mesh : m_Meshes)
-        {
-            ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
-        }
-    }
-
-    void Model::BuildBLAS()
-    {
-        VkDevice device = m_Context->GetDevice();
-        CH_CORE_INFO("Model: Building {0} BLAS using volk dispatch...", m_Meshes.size());
-
         m_BLASHandles.clear();
-        m_BLASBuffers.clear();
 
-        for (uint32_t i = 0; i < (uint32_t)m_Meshes.size(); ++i)
+        for (uint32_t i = 0; i < meshes.size(); ++i)
         {
-            const auto& mesh = m_Meshes[i];
-            if (mesh.indexCount == 0) continue;
+            const auto& mesh = meshes[i];
+            uint32_t maxPrimitiveCount = mesh.indexCount / 3;
 
-            VkAccelerationStructureGeometryKHR geom{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
-            geom.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-            geom.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-            geom.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-            geom.geometry.triangles.vertexData.deviceAddress = m_VertexBuffer->GetDeviceAddress();
-            geom.geometry.triangles.vertexStride = sizeof(GpuVertex);
-            geom.geometry.triangles.maxVertex = m_VertexCount;
-            geom.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
-            geom.geometry.triangles.indexData.deviceAddress = m_IndexBuffer->GetDeviceAddress();
-            geom.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+            VkAccelerationStructureGeometryKHR geo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+            geo.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+            geo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+            geo.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+            geo.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+            geo.geometry.triangles.vertexData.deviceAddress = m_VertexBuffer->GetDeviceAddress() + (mesh.vertexOffset * sizeof(GpuVertex));
+            geo.geometry.triangles.vertexStride = sizeof(GpuVertex);
+            geo.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
+            geo.geometry.triangles.indexData.deviceAddress = m_IndexBuffer->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
+            geo.geometry.triangles.maxVertex = m_VertexCount;
 
             VkAccelerationStructureBuildGeometryInfoKHR buildInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
             buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
             buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
             buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
             buildInfo.geometryCount = 1;
-            buildInfo.pGeometries = &geom;
+            buildInfo.pGeometries = &geo;
 
-            uint32_t maxPrimitiveCount = mesh.indexCount / 3;
             VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-            
-            vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &maxPrimitiveCount, &sizeInfo);
+            vkGetAccelerationStructureBuildSizesKHR(VulkanContext::Get().GetDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &maxPrimitiveCount, &sizeInfo);
 
             auto blasBuffer = std::make_unique<Buffer>(sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-            
+
             VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
-            createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
             createInfo.buffer = (VkBuffer)blasBuffer->GetBuffer();
             createInfo.size = sizeInfo.accelerationStructureSize;
+            createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
 
             VkAccelerationStructureKHR handle;
-            if (vkCreateAccelerationStructureKHR(device, &createInfo, nullptr, &handle) != VK_SUCCESS)
-            {
-                CH_CORE_ERROR("  [BLAS {0}] FAILED to create AS handle!", i);
-                continue;
-            }
+            vkCreateAccelerationStructureKHR(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &handle);
 
             Buffer scratch(sizeInfo.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
             buildInfo.dstAccelerationStructure = handle;
@@ -122,8 +100,8 @@ namespace Chimera
 
             VkAccelerationStructureBuildRangeInfoKHR rangeInfo{};
             rangeInfo.primitiveCount = maxPrimitiveCount;
-            rangeInfo.primitiveOffset = static_cast<uint32_t>(mesh.indexOffset * sizeof(uint32_t));
-            rangeInfo.firstVertex = static_cast<int32_t>(mesh.vertexOffset);
+            rangeInfo.primitiveOffset = 0;
+            rangeInfo.firstVertex = 0;
             rangeInfo.transformOffset = 0;
 
             const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
@@ -136,5 +114,26 @@ namespace Chimera
             m_BLASBuffers.push_back(std::move(blasBuffer));
             m_BLASHandles.push_back(handle);
         }
+    }
+
+    Model::~Model()
+    {
+        CH_CORE_INFO("Model: Destructor CALLED. m_Context count: {}", m_Context ? m_Context->GetShared().use_count() : 0);
+        if (m_Context)
+        {
+            VkDevice device = m_Context->GetDevice();
+            if (device != VK_NULL_HANDLE && vkDestroyAccelerationStructureKHR)
+            {
+                for (auto h : m_BLASHandles)
+                {
+                    vkDestroyAccelerationStructureKHR(device, h, nullptr);
+                }
+            }
+            else if (device != VK_NULL_HANDLE && !vkDestroyAccelerationStructureKHR)
+            {
+                CH_CORE_WARN("Model: vkDestroyAccelerationStructureKHR is NULL during destruction!");
+            }
+        }
+        CH_CORE_INFO("Model: Destructor FINISHED.");
     }
 }
