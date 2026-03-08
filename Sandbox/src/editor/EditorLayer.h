@@ -98,6 +98,7 @@ namespace Chimera
 			std::string Path;
 		};
 		std::vector<ModelAsset> m_AvailableModels;
+		char m_AssetSearchFilter[256] = { 0 }; // [NEW] Search filter for models
 		std::string m_ActiveModelPath = "";
 		int m_SelectedModelIndex = -1;
 

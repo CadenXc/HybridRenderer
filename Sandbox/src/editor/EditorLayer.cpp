@@ -36,8 +36,8 @@ namespace Chimera
         m_EditorCamera.SetFocalPoint({ 0.0f, 1.0f, 0.0f });
         m_EditorCamera.SetDistance(5.0f);
 
-        // [INITIAL] Enable core Hybrid features by default
-        m_RenderFlags = RENDER_FLAG_SVGF_BIT | RENDER_FLAG_GI_BIT | RENDER_FLAG_SHADOW_BIT | RENDER_FLAG_REFLECTION_BIT | RENDER_FLAG_TAA_BIT;
+        // [PHASE 2 DEBUG] Start with TAA/SVGF OFF for pixel-perfect validation
+        m_RenderFlags = RENDER_FLAG_SHADOW_BIT; 
 
         auto scene = std::make_shared<Scene>(app.GetContext());
         ResourceManager::Get().SetActiveScene(scene);
@@ -90,6 +90,12 @@ namespace Chimera
 
         m_EditorCamera.OnUpdate(ts, m_ViewportHovered, m_ViewportFocused);
 
+        // [FIX] Update scene to sync prevTransforms for motion vectors
+        if (auto scene = GetActiveSceneRaw())
+        {
+            scene->OnUpdate(ts.GetSeconds());
+        }
+
         AppFrameContext context;
         context.View = m_EditorCamera.GetViewMatrix();
         context.Projection = m_EditorCamera.GetProjection();
@@ -119,8 +125,13 @@ namespace Chimera
             static const float haltonX[] = { 0.5f, 0.25f, 0.75f, 0.125f, 0.625f, 0.375f, 0.875f, 0.0625f };
             static const float haltonY[] = { 0.333f, 0.666f, 0.111f, 0.444f, 0.777f, 0.222f, 0.555f, 0.888f };
             uint32_t jitterIdx = Application::Get().GetTotalFrameCount() % 8;
+            
+            // Calculate jitter in NDC space
             glm::vec2 jitter = { (haltonX[jitterIdx] - 0.5f) / m_ViewportSize.x, (haltonY[jitterIdx] - 0.5f) / m_ViewportSize.y };
-            context.Projection = glm::translate(glm::mat4(1.0f), glm::vec3(jitter.x, jitter.y, 0.0f)) * context.Projection;
+            context.Jitter = jitter;
+            
+            // DO NOT apply jitter to context.Projection here anymore. 
+            // We will pass context.Jitter to UBO and handle it in Vertex Shader.
         }
 
         Application::Get().SetFrameContext(context);
@@ -350,6 +361,38 @@ namespace Chimera
         if (!scene) return;
         auto& light = scene->GetLight();
         bool changed = false;
+
+        if (ImGui::TreeNodeEx("Environment (Skybox)", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            static char hdrPath[256] = "assets\\textures\\newport_loft.hdr";
+            ImGui::InputText("HDR Path", hdrPath, sizeof(hdrPath));
+
+            if (ImGui::Button("Load HDR Skybox"))
+            {
+                std::string path = hdrPath;
+                if (std::filesystem::exists(path))
+                {
+                    scene->LoadHDRSkybox(path);
+                    changed = true;
+                }
+                else
+                {
+                    CH_CORE_WARN("EditorLayer: HDR not found at {}.", path);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Skybox"))
+            {
+                scene->ClearSkybox();
+                changed = true;
+            }
+            
+            ImGui::Text("Ambient Strength:");
+            if (ImGui::SliderFloat("##AmbientStrength", &m_AmbientStrength, 0.0f, 10.0f)) changed = true;
+            
+            ImGui::TreePop();
+        }
+
         if (ImGui::TreeNodeEx("Directional Light", ImGuiTreeNodeFlags_DefaultOpen))
         {
             if (ImGui::DragFloat3("Direction", &light.direction.x, 0.01f, -1.0f, 1.0f))
@@ -390,9 +433,31 @@ namespace Chimera
         ImGui::Separator();
         ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 10.0f);
         
-        const char* displayModes[] = { "Final Color", "Albedo", "Normal", "Material", "Motion", "Depth", "Shadow/AO", "Reflection", "Diffuse GI" };
+        // [PHASE 1 DEBUG] Strictly aligned with ShaderCommon.h constants
+        // Index 0: FINAL, 1: ALBEDO, 2: NORMAL, 3: MATERIAL, 4: MOTION, 5: DEPTH ... 9: EMISSIVE
+        const char* displayModes[] = { 
+            "Final Color",   // 0
+            "Albedo",        // 1
+            "Normal",        // 2
+            "Material",      // 3
+            "Motion",        // 4
+            "Depth",         // 5
+            "Shadow/AO",     // 6
+            "Reflection",    // 7
+            "Diffuse GI",    // 8
+            "Emissive"       // 9
+        };
+        
         int currentDisplayMode = (int)m_DisplayMode;
-        if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes, IM_ARRAYSIZE(displayModes))) m_DisplayMode = (uint32_t)currentDisplayMode;
+        if (currentDisplayMode > 9) 
+        {
+            currentDisplayMode = 0;
+        }
+
+        if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes, IM_ARRAYSIZE(displayModes))) 
+        {
+            m_DisplayMode = (uint32_t)currentDisplayMode;
+        }
 
         ImGui::Separator();
 
@@ -401,19 +466,38 @@ namespace Chimera
             if (ImGui::TreeNodeEx("Ray Tracing Features", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 bool shadow = (m_RenderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
-                if (ImGui::Checkbox("RT Shadows", &shadow)) m_RenderFlags ^= RENDER_FLAG_SHADOW_BIT;
+                if (ImGui::Checkbox("RT Shadows", &shadow)) 
+                {
+                    if (shadow) m_RenderFlags |= RENDER_FLAG_SHADOW_BIT;
+                    else        m_RenderFlags &= ~RENDER_FLAG_SHADOW_BIT;
+                }
 
                 bool refl = (m_RenderFlags & RENDER_FLAG_REFLECTION_BIT) != 0;
-                if (ImGui::Checkbox("RT Reflections", &refl)) m_RenderFlags ^= RENDER_FLAG_REFLECTION_BIT;
+                if (ImGui::Checkbox("RT Reflections", &refl)) 
+                {
+                    if (refl) m_RenderFlags |= RENDER_FLAG_REFLECTION_BIT;
+                    else      m_RenderFlags &= ~RENDER_FLAG_REFLECTION_BIT;
+                }
 
                 bool gi = (m_RenderFlags & RENDER_FLAG_GI_BIT) != 0;
-                if (ImGui::Checkbox("RT Diffuse GI", &gi)) m_RenderFlags ^= RENDER_FLAG_GI_BIT;
+                if (ImGui::Checkbox("RT Diffuse GI", &gi)) 
+                {
+                    if (gi) m_RenderFlags |= RENDER_FLAG_GI_BIT;
+                    else    m_RenderFlags &= ~RENDER_FLAG_GI_BIT;
+                }
 
                 ImGui::TreePop();
             }
 
             if (ImGui::TreeNodeEx("Denoising & AA", ImGuiTreeNodeFlags_DefaultOpen))
             {
+                bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
+                if (ImGui::Checkbox("Enable TAA (Jitter)", &taa)) 
+                {
+                    if (taa) m_RenderFlags |= RENDER_FLAG_TAA_BIT;
+                    else     m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
+                }
+
                 bool svgf = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
                 if (ImGui::Checkbox("Enable SVGF", &svgf))
                 {
@@ -428,16 +512,9 @@ namespace Chimera
                     ImGui::SliderFloat("Moments Alpha", &m_SVGFAlphaMoments, 0.01f, 1.0f);
                     ImGui::SliderFloat("Phi Color", &m_SVGFPhiColor, 0.1f, 50.0f);
                     ImGui::SliderFloat("Phi Normal", &m_SVGFPhiNormal, 1.0f, 256.0f);
-                    ImGui::SliderFloat("Phi Depth", &m_SVGFPhiDepth, 0.01f, 1.0f);
+                    ImGui::SliderFloat("Phi Depth", &m_SVGFPhiDepth, 0.001f, 0.1f);
                     ImGui::Unindent();
                 }
-
-                bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
-                if (ImGui::Checkbox("Enable TAA", &taa)) m_RenderFlags ^= RENDER_FLAG_TAA_BIT;
-
-                bool var = (m_RenderFlags & RENDER_FLAG_SHOW_VARIANCE) != 0;
-                if (ImGui::Checkbox("Show Denoising Variance", &var)) m_RenderFlags ^= RENDER_FLAG_SHOW_VARIANCE;
-
                 ImGui::TreePop();
             }
         }
@@ -466,11 +543,29 @@ namespace Chimera
         if (ImGui::CollapsingHeader("4. Asset Library"))
         {
             if (ImGui::Button("Refresh List")) RefreshModelList();
+            
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint("##AssetSearch", "Search models...", m_AssetSearchFilter, sizeof(m_AssetSearchFilter));
+
             ImGui::BeginChild("ModelList", ImVec2(0, 200), true);
+            
+            std::string filterStr = m_AssetSearchFilter;
+            std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), ::tolower);
+
             for (int i = 0; i < (int)m_AvailableModels.size(); i++)
             {
+                std::string modelName = m_AvailableModels[i].Name;
+                std::string modelNameLower = modelName;
+                std::transform(modelNameLower.begin(), modelNameLower.end(), modelNameLower.begin(), ::tolower);
+
+                if (!filterStr.empty() && modelNameLower.find(filterStr) == std::string::npos)
+                {
+                    continue;
+                }
+
                 ImGui::PushID(i);
-                if (ImGui::Selectable(m_AvailableModels[i].Name.c_str(), m_SelectedModelIndex == i))
+                if (ImGui::Selectable(modelName.c_str(), m_SelectedModelIndex == i))
                 {
                     m_SelectedModelIndex = i;
                     LoadModel(m_AvailableModels[i].Path);

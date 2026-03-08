@@ -19,17 +19,17 @@ layout(push_constant) uniform PushConstants
 void main() 
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel.x >= global.ubo.displaySize.x || pixel.y >= global.ubo.displaySize.y) 
+    if (pixel.x >= global.ubo.displayData.x || pixel.y >= global.ubo.displayData.y) 
     {
         return;
     }
 
-    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displaySize;
+    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displayData.xy;
     
     float weight[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
     vec3 result = texture(inputColor, uv).rgb * weight[0];
 
-    vec2 tex_offset = global.ubo.displaySizeInverse;
+    vec2 tex_offset = global.ubo.displayData.zw;
 
     if (pc.horizontal != 0) 
     {

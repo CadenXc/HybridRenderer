@@ -237,8 +237,19 @@ namespace Chimera
     void Application::UpdateGlobalUBO(uint32_t frameIndex)
     {
         UniformBufferObject ubo{};
+        
+        // [TAA FIX] m_FrameContext.Projection might be jittered. 
+        // We want to pass both the raw projection AND the jitter values.
+        
         ubo.camera.view = m_FrameContext.View;
-        ubo.camera.proj = m_FrameContext.Projection;
+        ubo.camera.proj = m_FrameContext.Projection; 
+        
+        // Extract jitter from projection if possible, or just pass it through
+        // Currently jitter is baked into Proj in EditorLayer. 
+        // We'll calculate the non-jittered Proj here by undoing the translation if needed,
+        // but it's cleaner to handle this in EditorLayer by passing Jitter separately.
+        // For now, we assume Proj has jitter and we also pass jitter to let shader undo it.
+        
         ubo.camera.viewInverse = glm::inverse(ubo.camera.view);
         ubo.camera.projInverse = glm::inverse(ubo.camera.proj);
         ubo.camera.viewProjInverse = glm::inverse(ubo.camera.proj * ubo.camera.view);
@@ -246,6 +257,12 @@ namespace Chimera
         ubo.camera.prevProj = m_PrevProj;
         ubo.camera.position = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
         
+        // [TAA] Handle Jitter
+        // Note: EditorLayer should be updated to pass jitter in m_FrameContext
+        // For Phase 1 Debug, we'll ensure static objects have 0 motion by using clean proj for CurPos.
+        m_CurrentJitter = m_FrameContext.Jitter;
+        ubo.camera.jitterData = glm::vec4(m_CurrentJitter.x, m_CurrentJitter.y, m_PrevJitter.x, m_PrevJitter.y);
+
         if (m_ResourceManager->HasActiveScene())
         {
             auto& sceneLight = m_ResourceManager->GetActiveScene()->GetLight();
@@ -260,17 +277,20 @@ namespace Chimera
             ubo.sunLight.intensity = glm::vec4(3.0f, 0.05f, 0.0f, 0.0f);
         }
 
-        ubo.displaySize = m_FrameContext.ViewportSize;
-        ubo.displaySizeInverse = 1.0f / ubo.displaySize;
-        ubo.frameIndex = frameIndex;
-        ubo.frameCount = m_TotalFrameCount;
-        ubo.displayMode = m_FrameContext.DisplayMode;
-        ubo.renderFlags = m_FrameContext.RenderFlags;
-        ubo.exposure = m_FrameContext.Exposure;
-        ubo.ambientStrength = m_FrameContext.AmbientStrength;
-        ubo.bloomStrength = m_FrameContext.BloomStrength;
-        ubo.blueNoiseTextureIndex = m_BlueNoiseTextureIndex;
-        ubo.skyboxTextureIndex = (m_ResourceManager->HasActiveScene()) ? (int)m_ResourceManager->GetActiveScene()->GetSkyboxTextureIndex() : -1;
+        // Block 1: displayData
+        ubo.displayData = glm::vec4(m_FrameContext.ViewportSize.x, m_FrameContext.ViewportSize.y, 
+                                    1.0f / m_FrameContext.ViewportSize.x, 1.0f / m_FrameContext.ViewportSize.y);
+        
+        // Block 2: frameData
+        ubo.frameData = glm::uvec4(frameIndex, m_TotalFrameCount, m_FrameContext.DisplayMode, m_FrameContext.RenderFlags);
+        
+        // Block 3: postData
+        ubo.postData = glm::vec4(m_FrameContext.Exposure, m_FrameContext.AmbientStrength, m_FrameContext.BloomStrength, (float)m_BlueNoiseTextureIndex);
+        
+        // Block 4: envData
+        int skyboxIdx = (m_ResourceManager->HasActiveScene()) ? (int)m_ResourceManager->GetActiveScene()->GetSkyboxTextureIndex() : -1;
+        ubo.envData = glm::vec4((float)skyboxIdx, 0.0f, 0.0f, 0.0f);
+
         ubo.svgfAlpha = glm::vec4(m_FrameContext.SVGFAlphaColor, m_FrameContext.SVGFAlphaMoments, 0.0f, 0.0f);
         ubo.clearColor = m_FrameContext.ClearColor;
 
@@ -282,8 +302,10 @@ namespace Chimera
 
         m_ResourceManager->UpdateFrameIndex(frameIndex);
         m_RenderState->Update(frameIndex, ubo);
+        
         m_PrevView = ubo.camera.view;
         m_PrevProj = ubo.camera.proj;
+        m_PrevJitter = m_CurrentJitter;
     }
 
     bool Application::OnWindowClose(WindowCloseEvent& e) 
@@ -316,12 +338,14 @@ namespace Chimera
     {
         if (m_Context)
         {
-            vkDeviceWaitIdle(m_Context->GetDevice());
             if (m_Renderer)
             {
+                m_Renderer->WaitForAllFrames();
                 m_Renderer->ResetSwapchainLayouts();
+                m_Renderer->ResetFrameState();
             }
         }
+        
         m_RenderPath = std::move(path);
         if (m_RenderPath)
         {
@@ -337,5 +361,10 @@ namespace Chimera
     uint32_t Application::GetCurrentImageIndex() const 
     { 
         return m_Renderer->GetCurrentImageIndex(); 
+    }
+
+    uint32_t Application::GetCurrentFrameIndex() const 
+    { 
+        return m_Renderer->GetCurrentFrameIndex(); 
     }
 }

@@ -39,14 +39,11 @@ namespace Chimera
 
         vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.handle);
 
-        uint32_t fIdx = Application::Get().GetTotalFrameCount() % MAX_FRAMES_IN_FLIGHT;
+        uint32_t fIdx = Application::Get().GetCurrentFrameIndex();
 
         VkDescriptorSet globals[] = { 
-
             Application::Get().GetRenderState()->GetDescriptorSet(fIdx), 
-
             ResourceManager::Get().GetSceneDescriptorSet(fIdx) 
-
         };
 
         vkCmdBindDescriptorSets(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.layout, 0, 2, globals, 0, nullptr);

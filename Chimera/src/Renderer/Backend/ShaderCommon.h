@@ -8,6 +8,7 @@ namespace Chimera {
 using vec2 = glm::vec2;
 using vec3 = glm::vec3;
 using vec4 = glm::vec4;
+using uvec4 = glm::uvec4; // [NEW]
 using mat4 = glm::mat4;
 using uint = uint32_t;
 using uint64 = uint64_t;
@@ -17,13 +18,6 @@ using uint64 = uint64_t;
 
 // Define uint64 for GLSL
 #define uint64 uint64_t
-
-vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
-{
-    vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
-    vec4 world = invViewProj * clip;
-    return world.xyz / world.w;
-}
 #endif
 
 // --- 0. Shared Bindings ---
@@ -33,6 +27,7 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 #define BINDING_PRIMITIVES           2
 #define BINDING_TEXTURES            3
 #define BINDING_RT_OUTPUT           0
+#define BINDING_RT_MOTION           1
 
 // --- 1. Shared Constants ---
 #define REVERSED_Z              1 // 1: Near=1.0, Far=0.0 (High Precision)
@@ -46,6 +41,7 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 #define DISPLAY_MODE_SHADOW_AO  6
 #define DISPLAY_MODE_REFLECTION 7
 #define DISPLAY_MODE_GI         8
+#define DISPLAY_MODE_EMISSIVE   9
 
 #define RENDER_FLAG_SVGF_BIT        (1 << 0)
 #define RENDER_FLAG_GI_BIT          (1 << 1)
@@ -103,6 +99,7 @@ struct CameraData
     mat4 prevView;
     mat4 prevProj;
     vec4 position;
+    vec4 jitterData; // xy: current jitter, zw: previous jitter
 };
 
 struct LightData 
@@ -113,33 +110,31 @@ struct LightData
     vec4 intensity; 
 };
 
-struct UniformBufferObject 
+struct UniformBufferObject
 {
     CameraData camera;
     LightData  sunLight;
-    vec2 displaySize;
-    vec2 displaySizeInverse;
-    uint frameIndex;
-    uint frameCount;
-    uint displayMode; 
-    uint renderFlags;
-    float exposure;
-    float ambientStrength;
-    float bloomStrength;
-    int blueNoiseTextureIndex; 
-    int skyboxTextureIndex;
-    int padding_int[3];
+
+    // Block 1: Sizes & Frame Info
+    vec4 displayData; // x: width, y: height, z: 1/width, w: 1/height
+
+    // Block 2: Indices & Flags
+    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w: renderFlags
+
+    // Block 3: Lighting & Post Parameters
+    vec4 postData;   // x: exposure, y: ambientStrength, z: bloomStrength, w: blueNoiseTextureIndex
+
+    // Block 4: Environment & Other
+    vec4 envData;    // x: skyboxTextureIndex, yzw: padding
+
     vec4 svgfAlpha; 
     vec4 clearColor; 
 };
-
 struct HitPayload
 {
-    vec3 color;
-    float distance;
-    vec3 normal;
-    float roughness;
-    bool hit;
+    vec4 color_dist;   // rgb: color, a: distance
+    vec4 normal_rough; // rgb: normal, a: roughness
+    vec4 motion_hit;   // rg: motion, b: hit (bool as float), a: padding
 };
 
 struct ScenePushConstants

@@ -58,38 +58,14 @@ uint InitRandomSeed(uint val0, uint val1)
     return v0;
 }
 
-uint NextRandom(inout uint seed) 
-{
-    seed = (1664525u * seed + 1013904223u);
-    return seed;
-}
-
 float RandomFloat(inout uint seed) 
 {
-    return float(NextRandom(seed) & 0x00FFFFFFu) / float(0x01000000u);
-}
-
-// 获取蓝噪声采样 (256x256 规格)
-vec4 GetBlueNoise(ivec2 screenPos)
-{
-    if (global.ubo.blueNoiseTextureIndex < 0)
-    {
-        uint seed = InitRandomSeed(screenPos.x, screenPos.y);
-        return vec4(RandomFloat(seed));
-    }
-
-    // Tile the 256x256 texture across the screen
-    // Apply a frame-based offset to animate the noise (Animated Blue Noise)
-    ivec2 noiseCoords = (screenPos + ivec2(global.ubo.frameCount * 149, global.ubo.frameCount * 79)) % 256;
-    return texelFetch(textureArray[nonuniformEXT(global.ubo.blueNoiseTextureIndex)], noiseCoords, 0);
-}
-
-vec3 SquareToUniformCone(vec2 sampleIn, float cosThetaMax) 
-{
-    float cosTheta = (1.0 - sampleIn.x) + sampleIn.x * cosThetaMax;
-    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-    float phi = sampleIn.y * 2.0 * PI;
-    return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return float(seed) / 4294967296.0;
 }
 
 vec3 GetCosHemisphereSample(inout uint seed, vec3 normal) 
@@ -98,16 +74,152 @@ vec3 GetCosHemisphereSample(inout uint seed, vec3 normal)
     float r2 = RandomFloat(seed);
     float r = sqrt(r1);
     float phi = 2.0 * PI * r2;
-    vec3 localDir = vec3(r * cos(phi), r * sin(phi), sqrt(max(0.0, 1.0 - r1)));
-    
-    vec3 up = abs(normal.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
-    vec3 tangent = normalize(cross(up, normal));
+    vec3 tangent = normalize(cross(normal, abs(normal.x) > 0.1 ? vec3(0, 1, 0) : vec3(1, 0, 0)));
     vec3 bitangent = cross(normal, tangent);
-    return tangent * localDir.x + bitangent * localDir.y + normal * localDir.z;
+    return normalize(tangent * r * cos(phi) + bitangent * r * sin(phi) + normal * sqrt(1.0 - r1));
 }
 
-// 4.1 PBR Math Utilities (Cook-Torrance BRDF)
-float D_GGX(float NoH, float roughness)
+vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
+{
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 world = invViewProj * clip;
+    return world.xyz / world.w;
+}
+
+vec2 SampleEquirectangular(vec3 v)
+{
+    vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
+    uv *= vec2(0.1591, 0.3183); // 1/(2*PI), 1/PI
+    uv += 0.5;
+    return uv;
+}
+
+// 4.1 Vertex Transformation Utilities
+vec4 LocalToWorld(vec3 pos, mat4 transform)
+{
+    return transform * vec4(pos, 1.0);
+}
+
+vec4 ProjectPosition(vec3 pos, mat4 transform)
+{
+    return global.ubo.camera.proj * global.ubo.camera.view * transform * vec4(pos, 1.0);
+}
+
+vec4 ProjectPreviousPosition(vec3 pos, mat4 prevTransform)
+{
+    return global.ubo.camera.prevProj * global.ubo.camera.prevView * prevTransform * vec4(pos, 1.0);
+}
+
+// 4.2 Ray Tracing Utilities
+struct Ray { vec3 origin; vec3 dir; };
+
+float CalculateRayQueryShadow(vec3 origin, vec3 L, float maxDist) 
+{
+    rayQueryEXT rq;
+    rayQueryInitializeEXT(rq, TLAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.001, L, maxDist);
+    while (rayQueryProceedEXT(rq)) 
+    {
+        if (rayQueryGetIntersectionTypeEXT(rq, false) == gl_RayQueryCandidateIntersectionTriangleEXT) 
+        {
+            uint objId = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false);
+            uint primIdx = rayQueryGetIntersectionPrimitiveIndexEXT(rq, false);
+            vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rq, false);
+            GpuPrimitive prim = primBuf.primitives[objId];
+            GpuMaterial mat = materialBuffer.m[prim.materialIndex];
+            if (mat.albedoTex >= 0) 
+            {
+                VertexBufferRef vBuf = VertexBufferRef(prim.vertexAddress);
+                IndexBufferRef iBuf = IndexBufferRef(prim.indexAddress);
+                uint i0 = iBuf.i[primIdx * 3 + 0];
+                uint i1 = iBuf.i[primIdx * 3 + 1];
+                uint i2 = iBuf.i[primIdx * 3 + 2];
+                vec2 uv = vBuf.v[i0].texCoord * (1.0 - bary.x - bary.y) + vBuf.v[i1].texCoord * bary.x + vBuf.v[i2].texCoord * bary.y;
+                if (texture(textureArray[nonuniformEXT(mat.albedoTex)], uv).a < 0.5) continue;
+            }
+            return 0.0;
+        }
+    }
+    return 1.0;
+}
+
+vec3 OffsetRay(vec3 p, vec3 n) 
+{
+    const float origin = 1.0 / 32.0;
+    const float float_scale = 1.0 / 65536.0;
+    const float int_scale = 256.0;
+    ivec3 of_i = ivec3(int_scale * n.x, int_scale * n.y, int_scale * n.z);
+    vec3 p_i = vec3(intBitsToFloat(floatBitsToInt(p.x) + ((p.x < 0) ? -of_i.x : of_i.x)),
+                    intBitsToFloat(floatBitsToInt(p.y) + ((p.y < 0) ? -of_i.y : of_i.y)),
+                    intBitsToFloat(floatBitsToInt(p.z) + ((p.z < 0) ? -of_i.z : of_i.z)));
+    return vec3(abs(p.x) < origin ? p.x + float_scale * n.x : p_i.x,
+                abs(p.y) < origin ? p.y + float_scale * n.y : p_i.y,
+                abs(p.z) < origin ? p.z + float_scale * n.z : p_i.z);
+}
+
+// 4.2 Material & PBR Utilities
+vec4 GetAlbedo(GpuMaterial mat, vec2 uv) 
+{
+    vec4 base = mat.albedo;
+    if (mat.albedoTex >= 0) base *= texture(textureArray[nonuniformEXT(mat.albedoTex)], uv);
+    return base;
+}
+
+// 4.2 Sampling & Noise Utilities
+vec4 GetBlueNoise(ivec2 coord)
+{
+    int blueNoiseIdx = int(global.ubo.postData.w);
+    if (blueNoiseIdx < 0) return vec4(0.0);
+    ivec2 noiseSize = textureSize(textureArray[nonuniformEXT(blueNoiseIdx)], 0);
+    return texture(textureArray[nonuniformEXT(blueNoiseIdx)], (vec2(coord) + 0.5) / vec2(noiseSize));
+}
+
+vec3 SquareToUniformCone(vec2 u, float cosThetaMax)
+{
+    float cosTheta = (1.0 - u.x) + u.x * cosThetaMax;
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    float phi = u.y * 2.0 * PI;
+    return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+}
+
+vec3 CalculateNormal(GpuMaterial mat, vec3 N, vec4 tangent, vec2 uv) 
+{
+    if (mat.normalTex < 0) return normalize(N);
+    vec3 T = normalize(tangent.xyz);
+    vec3 B = cross(N, T) * tangent.w;
+    mat3 TBN = mat3(T, B, N);
+    vec3 nm = texture(textureArray[nonuniformEXT(mat.normalTex)], uv).xyz * 2.0 - 1.0;
+    return normalize(TBN * nm);
+}
+
+float GetAmbientOcclusion(GpuMaterial mat, vec2 uv) 
+{
+    if (mat.aoTex < 0) return 1.0;
+    return texture(textureArray[nonuniformEXT(mat.aoTex)], uv).r;
+}
+
+vec3 GetEmissive(GpuMaterial mat, vec2 uv) 
+{
+    vec3 e = mat.emission.rgb;
+    if (mat.emissiveTex >= 0) e *= texture(textureArray[nonuniformEXT(mat.emissiveTex)], uv).rgb;
+    return e;
+}
+
+vec3 ACESToneMapping(vec3 color) 
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+}
+
+vec3 F_SchlickRoughness(float cosTheta, vec3 F0, float roughness) 
+{
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+float D_GGX(float NoH, float roughness) 
 {
     float a = roughness * roughness;
     float a2 = a * a;
@@ -116,160 +228,29 @@ float D_GGX(float NoH, float roughness)
     return a2 / (PI * denom * denom);
 }
 
-float G_SchlickGGX(float NoV, float roughness)
+float G_SchlickGGX(float NoV, float NoL, float roughness) 
 {
     float r = (roughness + 1.0);
     float k = (r * r) / 8.0;
-    float num = NoV;
-    float denom = NoV * (1.0 - k) + k;
-    return num / denom;
+    float g1 = NoV / (NoV * (1.0 - k) + k);
+    float g2 = NoL / (NoL * (1.0 - k) + k);
+    return g1 * g2;
 }
 
-float G_Smith(float NoV, float NoL, float roughness)
-{
-    return G_SchlickGGX(NoV, roughness) * G_SchlickGGX(NoL, roughness);
-}
-
-vec3 F_Schlick(float cosTheta, vec3 F0)
-{
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-vec3 F_SchlickRoughness(float cosTheta, vec3 F0, float roughness) 
-{
-    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-vec3 EvaluateDirectPBR(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metallic, vec3 lightColor)
+vec3 EvaluateDirectPBR(vec3 N, vec3 V, vec3 L, vec3 albedo, float roughness, float metallic, vec3 lightColor) 
 {
     vec3 H = normalize(V + L);
     float NoV = max(dot(N, V), 0.001);
     float NoL = max(dot(N, L), 0.001);
     float NoH = max(dot(N, H), 0.0);
     float HoV = max(dot(H, V), 0.0);
-
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
-
     float D = D_GGX(NoH, roughness);
-    float G = G_Smith(NoV, NoL, roughness);
-    vec3  F = F_Schlick(HoV, F0);
-
-    vec3 specular = (D * G * F) / max(4.0 * NoV * NoL, 0.001);
-    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);	
-
+    float G = G_SchlickGGX(NoV, NoL, roughness);
+    vec3 F = F_SchlickRoughness(HoV, F0, roughness);
+    vec3 specular = (D * G * F) / (4.0 * NoV * NoL);
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
     return (kD * albedo / PI + specular) * lightColor * NoL;
-}
-
-// 4.2 Material & Shading Utilities
-vec4 GetAlbedo(GpuMaterial mat, vec2 uv)
-{
-    vec4 albedo = mat.albedo;
-    if (mat.albedoTex >= 0) 
-    {
-        albedo *= texture(textureArray[nonuniformEXT(mat.albedoTex)], uv);
-    }
-    return albedo;
-}
-
-vec3 GetEmissive(GpuMaterial mat, vec2 uv)
-{
-    vec3 emissive = mat.emission.rgb;
-    if (mat.emissiveTex >= 0)
-    {
-        emissive *= texture(textureArray[nonuniformEXT(mat.emissiveTex)], uv).rgb;
-    }
-    return emissive;
-}
-
-float GetAmbientOcclusion(GpuMaterial mat, vec2 uv)
-{
-    if (mat.aoTex >= 0)
-    {
-        // GLTF standard: occlusion is in the R channel
-        return texture(textureArray[nonuniformEXT(mat.aoTex)], uv).r;
-    }
-    return 1.0;
-}
-
-vec3 CalculateNormal(GpuPrimitive prim, GpuMaterial mat, vec3 inNormal, vec4 inTangent, vec2 uv)
-{
-    vec3 N = normalize(inNormal);
-    if (mat.normalTex < 0) 
-    {
-        return N;
-    }
-    vec3 T = normalize(mat3(prim.normalMatrix) * inTangent.xyz);
-    vec3 B = normalize(cross(N, T) * inTangent.w);
-    mat3 TBN = mat3(T, B, N);
-    vec3 mapNormal = texture(textureArray[nonuniformEXT(mat.normalTex)], uv).xyz * 2.0 - 1.0;
-    return normalize(TBN * mapNormal);
-}
-
-// 4.3 Ray Query & Post-Processing Helpers
-float CalculateRayQueryShadow(vec3 origin, vec3 lightDir, float maxDist)
-{
-    rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, TLAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.001, lightDir, maxDist);
-    while (rayQueryProceedEXT(rq)) 
-    { 
-    } 
-    return (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionNoneEXT) ? 0.0 : 1.0;
-}
-
-vec3 ACESToneMapping(vec3 x) 
-{
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-
-vec2 SampleEquirectangular(vec3 v) 
-{
-    vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
-    uv *= vec2(0.1591, 0.3183); 
-    uv += 0.5;
-    return uv;
-}
-
-// 4.4 Geometry & Transformation Utilities
-vec4 LocalToWorld(vec3 localPos, mat4 model) 
-{ 
-    return model * vec4(localPos, 1.0); 
-}
-
-vec4 ProjectPosition(vec3 localPos, mat4 model) 
-{ 
-    return global.ubo.camera.proj * global.ubo.camera.view * model * vec4(localPos, 1.0); 
-}
-
-vec4 ProjectPreviousPosition(vec3 localPos, mat4 prevModel) 
-{ 
-    return global.ubo.camera.prevProj * global.ubo.camera.prevView * prevModel * vec4(localPos, 1.0); 
-}
-
-// 统一的射线偏移函数 (用于防止阴影自相交/Shadow Acne)
-vec3 OffsetRay(vec3 p, vec3 n)
-{
-    const float origin = 1.0 / 32.0;
-    const float float_scale = 1.0 / 65536.0;
-    const float int_scale = 256.0;
-
-    ivec3 of_i = ivec3(int_scale * n.x, int_scale * n.y, int_scale * n.z);
-
-    vec3 p_i = vec3(
-        intBitsToFloat(floatBitsToInt(p.x) + ((p.x < 0) ? -of_i.x : of_i.x)),
-        intBitsToFloat(floatBitsToInt(p.y) + ((p.y < 0) ? -of_i.y : of_i.y)),
-        intBitsToFloat(floatBitsToInt(p.z) + ((p.z < 0) ? -of_i.z : of_i.z))
-    );
-
-    return vec3(
-        abs(p.x) < origin ? p.x + float_scale * n.x : p_i.x,
-        abs(p.y) < origin ? p.y + float_scale * n.y : p_i.y,
-        abs(p.z) < origin ? p.z + float_scale * n.z : p_i.z
-    );
 }
 
 #endif // CHIMERA_COMMON_GLSL

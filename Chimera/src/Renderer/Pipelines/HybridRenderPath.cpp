@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "HybridRenderPath.h"
+#include <imgui.h>
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
@@ -63,11 +64,20 @@ namespace Chimera
         // 4. Composition Pass
         CompositionPass::AddToGraph(graph, {
             .shadowName = "Shadow_Filtered_4",
-            .reflectionName = "Refl_Filtered_4",
-            .giName = "GI_Filtered_4"
+            .reflectionName = "Refl_Filtered_4", // Restore SVGF for Reflection
+            .giName = "GI_Filtered_4"           // Restore SVGF for GI
         });
 
         // 5. Post-processing
         StandardPasses::AddLinearizeDepthPass(graph);
+
+        // 6. Final Polish (Bloom & TAA)
+        BloomPass::AddToGraph(graph);
+        TAAPass::AddToGraph(graph);
+    }
+
+    void HybridRenderPath::OnImGui()
+    {
+        // Control is handled by EditorLayer to prevent state conflicts
     }
 }

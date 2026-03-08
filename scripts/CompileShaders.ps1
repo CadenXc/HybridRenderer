@@ -1,39 +1,46 @@
 $SourceDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\Chimera\shaders"))
 $OutputDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\build\Sandbox\Debug\shaders"))
+$BackendDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\Chimera\src\Renderer\Backend"))
 $GlslcPath = "D:\Software\Vulkan\Bin\glslc.exe"
 
-# Ensure output directory exists
-if (!(Test-Path -Path $OutputDir)) {
-    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+if (-not (Test-Path $SourceDir))
+{
+    Write-Host "Source directory not found: $SourceDir" -ForegroundColor Red
+    exit 1
 }
 
-$Shaders = Get-ChildItem -Path $SourceDir -Recurse -Include *.vert, *.frag, *.comp, *.rgen, *.rchit, *.rmiss, *.rahit
+$ShaderExtensions = @("*.vert", "*.frag", "*.comp", "*.rgen", "*.rmiss", "*.rchit", "*.rahit", "*.rcall", "*.rahit", "*.rint")
+$ShaderFiles = Get-ChildItem -Path $SourceDir -Recurse -Include $ShaderExtensions
 
-Write-Host "Found $($Shaders.Count) shaders. Compiling into $OutputDir" -ForegroundColor Cyan
+Write-Host "Found $($ShaderFiles.Count) shaders. Compiling into $OutputDir" -ForegroundColor Cyan
 
-foreach ($Shader in $Shaders) {
-    $InputFile = $Shader.FullName
-    $RelativePath = ""
-    if ($Shader.DirectoryName.Length -gt $SourceDir.Length) {
-        $RelativePath = $Shader.DirectoryName.Substring($SourceDir.Length).TrimStart("\").TrimStart("/")
+foreach ($File in $ShaderFiles)
+{
+    $RelativePath = $File.FullName.Replace($SourceDir + "\", "")
+    $OutputFile = Join-Path $OutputDir ($RelativePath + ".spv")
+    $OutputSubDir = Split-Path $OutputFile -Parent
+
+    if (-not (Test-Path $OutputSubDir))
+    {
+        New-Item -ItemType Directory -Path $OutputSubDir -Force | Out-Null
     }
+
+    Write-Host "Compiling: $RelativePath..."
     
-    $FileName = $Shader.Name
-    $TargetDir = if ($RelativePath) { Join-Path $OutputDir $RelativePath } else { $OutputDir }
-    if (!(Test-Path -Path $TargetDir)) {
-        New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
-    }
+    $Params = @(
+        $File.FullName,
+        "--target-env=vulkan1.3",
+        "-I", "$BackendDir",
+        "-I", "$SourceDir/common",
+        "-I", "$SourceDir",
+        "-o", $OutputFile
+    )
 
-    $OutputFile = Join-Path -Path $TargetDir -ChildPath "$FileName.spv"
-    $BackendDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\Chimera\src\Renderer\Backend"))
+    & $GlslcPath @Params
 
-    Write-Host "Compiling: $FileName..."
-    
-    # CRITICAL: Use full path and explicit target environment
-    & $GlslcPath --target-env=vulkan1.3 -I "$SourceDir\common" -I "$SourceDir" -I "$BackendDir" $InputFile -o $OutputFile
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "FATAL ERROR compiling $FileName" -ForegroundColor Red
+    if ($LASTEXITCODE -ne 0)
+    {
+        Write-Host "FATAL ERROR compiling $RelativePath" -ForegroundColor Red
         exit 1
     }
 }

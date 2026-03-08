@@ -60,6 +60,9 @@ if(GLSLC_EXECUTABLE)
         "${SHADER_SOURCE_DIR}/*.rgen" 
         "${SHADER_SOURCE_DIR}/*.rchit" 
         "${SHADER_SOURCE_DIR}/*.rmiss"
+        "${SHADER_SOURCE_DIR}/*.rahit"
+        "${SHADER_SOURCE_DIR}/*.rcall"
+        "${SHADER_SOURCE_DIR}/*.rint"
     )
 
     set(SPIRV_BINARIES "")

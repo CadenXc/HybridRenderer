@@ -14,12 +14,12 @@ layout(set = 2, binding = 1, rgba16f) uniform image2D outBright;
 void main() 
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel.x >= global.ubo.displaySize.x || pixel.y >= global.ubo.displaySize.y) 
+    if (pixel.x >= global.ubo.displayData.x || pixel.y >= global.ubo.displayData.y) 
     {
         return;
     }
 
-    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displaySize;
+    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displayData.xy;
     vec3 color = texture(inputColor, uv).rgb;
 
     // Brightness threshold

@@ -99,6 +99,24 @@ namespace Chimera
         m_NeedResize = true;
     }
 
+    void Renderer::WaitForAllFrames()
+    {
+        VkDevice device = VulkanContext::Get().GetDevice();
+        if (device == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        for (auto& resource : m_FrameResources)
+        {
+            if (resource.inFlightFence != VK_NULL_HANDLE)
+            {
+                vkWaitForFences(device, 1, &resource.inFlightFence, VK_TRUE, UINT64_MAX);
+            }
+        }
+        vkDeviceWaitIdle(device);
+    }
+
     void Renderer::ResetSwapchainLayouts()
     {
         if (!VulkanContext::HasInstance())
@@ -130,19 +148,38 @@ namespace Chimera
     {
         if (m_NeedResize)
         {
+            // [STABILITY] Must wait for everything to finish before recreating swapchain
+            WaitForAllFrames();
             RecreateSwapchain();
             return VK_NULL_HANDLE;
         }
+
         VkDevice device = VulkanContext::Get().GetDevice();
         auto& frameResource = m_FrameResources[m_CurrentFrameIndex];
-        VK_CHECK(vkWaitForFences(device, 1, &frameResource.inFlightFence, VK_TRUE, UINT64_MAX));
+        
+        // Wait for previous work on this frame resource to finish
+        VkResult waitResult = vkWaitForFences(device, 1, &frameResource.inFlightFence, VK_TRUE, UINT64_MAX);
+        if (waitResult != VK_SUCCESS)
+        {
+            CH_CORE_ERROR("Renderer: vkWaitForFences failed with error {0}", (int)waitResult);
+            return VK_NULL_HANDLE;
+        }
+
         VulkanContext::Get().GetDeletionQueue().FlushFrame(m_CurrentFrameIndex);
         ResourceManager::Get().UpdateFrameIndex(m_CurrentFrameIndex);
         ResourceManager::Get().ClearResourceFreeQueue(m_CurrentFrameIndex);
+
         VkResult result = vkAcquireNextImageKHR(device, VulkanContext::Get().GetSwapChain(), UINT64_MAX, frameResource.imageAvailableSemaphore, VK_NULL_HANDLE, &m_CurrentImageIndex);
+        
         if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
+            WaitForAllFrames();
             RecreateSwapchain();
+            return VK_NULL_HANDLE;
+        }
+        else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+        {
+            CH_CORE_ERROR("Renderer: vkAcquireNextImageKHR failed!");
             return VK_NULL_HANDLE;
         }
         

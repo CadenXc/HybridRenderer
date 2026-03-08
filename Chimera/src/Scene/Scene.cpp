@@ -98,12 +98,26 @@ namespace Chimera
         }
     }
 
+    void Scene::OnUpdate(float ts)
+    {
+        // SYNC: After the frame is potentially finished (or at start of new one)
+        // ensure prevTransform tracks the transform from the previous frame.
+        for (auto& entity : m_Entities)
+        {
+            // If the object didn't move this frame via UpdateEntityTRS, 
+            // then prev and current will eventually converge here.
+            entity.prevTransform = entity.transform.GetTransform();
+        }
+    }
+
     void Scene::UpdateEntityTRS(uint32_t index, const glm::vec3& pos, const glm::vec3& rot, const glm::vec3& scale)
     {
         if (index < m_Entities.size())
         {
             auto& e = m_Entities[index];
+            // [FIX] Store actual current as previous before changing current
             e.prevTransform = e.transform.GetTransform();
+            
             e.transform.position = pos;
             e.transform.rotation = rot;
             e.transform.scale = scale;
@@ -121,6 +135,12 @@ namespace Chimera
     }
 
     void Scene::LoadSkybox(const std::string& path)
+    {
+        // Fallback for standard textures if needed
+        m_SkyboxTexture = ResourceManager::Get().LoadTexture(path, true);
+    }
+
+    void Scene::LoadHDRSkybox(const std::string& path)
     {
         m_SkyboxTexture = ResourceManager::Get().LoadHDRTexture(path);
     }

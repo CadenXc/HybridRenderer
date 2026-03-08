@@ -48,6 +48,7 @@ namespace Chimera
         // Called when window is resized
         void OnResize(uint32_t width, uint32_t height);
         void ResetSwapchainLayouts(); // [STABILITY] Fix for path switching layout mismatches
+        void WaitForAllFrames(); // [NEW] Ensure all frames in flight are finished correctly
 
         // Getters
         uint32_t GetCurrentFrameIndex() const

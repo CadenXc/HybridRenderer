@@ -49,8 +49,10 @@ namespace Chimera
 
         SpvReflectShaderModule module;
         SpvReflectResult result = spvReflectCreateShaderModule(m_Bytecode.size() * 4, m_Bytecode.data(), &module);
+        
         if (result != SPV_REFLECT_RESULT_SUCCESS)
         {
+            CH_CORE_ERROR("Shader: SPIR-V Reflection FAILED for {0}", m_Name);
             return;
         }
         
@@ -65,6 +67,7 @@ namespace Chimera
             std::string rawName = b->name;
             
             std::string cleanName = rawName;
+            
             if (cleanName.find("rt") == 0 && cleanName.size() > 2 && isupper(cleanName[2]))
             {
                 cleanName = cleanName.substr(2);
@@ -88,6 +91,7 @@ namespace Chimera
     std::vector<ShaderResource> Shader::GetSetBindings(uint32_t setIndex) const
     {
         std::vector<ShaderResource> result;
+        
         for (const auto& [name, res] : m_ReflectionData)
         {
             if (res.set == setIndex)
@@ -95,10 +99,12 @@ namespace Chimera
                 result.push_back(res);
             }
         }
+        
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) 
         { 
             return a.binding < b.binding; 
         });
+        
         return result;
     }
 }

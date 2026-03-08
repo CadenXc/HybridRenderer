@@ -595,19 +595,29 @@ namespace Chimera
     {
         if (m_TextureMap.count(p)) return m_TextureMap[p];
         int tw, th, tc;
+        // Load as RGBA float to maintain 4-channel alignment
         float* px = stbi_loadf(p.c_str(), &tw, &th, &tc, STBI_rgb_alpha);
-        if (!px) return TextureHandle();
+        if (!px) 
+        {
+            CH_CORE_ERROR("ResourceManager: Failed to load HDR texture: {}", p);
+            return TextureHandle();
+        }
+
         VkDeviceSize s = (VkDeviceSize)tw * th * 4 * sizeof(float);
         Buffer st(s, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, "Staging_LoadHDRTexture");
-        st.Update(px, s);
+        st.UploadData(px, s);
         stbi_image_free(px);
-        auto im = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL, "Texture_HDR_" + p);
+
+        auto im = std::make_unique<Image>((uint32_t)tw, (uint32_t)th, VK_FORMAT_R32G32B32A32_SFLOAT, 
+            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, 
+            VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL, "Texture_HDR_" + p);
+        
         {
             ScopedCommandBuffer c;
-            VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
+            VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
             VkBufferImageCopy r{ 0, 0, 0, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }, { 0, 0, 0 }, { (uint32_t)tw, (uint32_t)th, 1 } };
             vkCmdCopyBufferToImage(c, (VkBuffer)st.GetBuffer(), (VkImage)im->GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r);
-            VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+            VulkanUtils::TransitionImageLayout(c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
         }
         return AddTexture(std::move(im), p);
     }

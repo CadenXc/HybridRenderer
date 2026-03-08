@@ -13,6 +13,7 @@ namespace Chimera
         inline static const std::string Normal        = "Normal";
         inline static const std::string Material      = "Material";
         inline static const std::string Motion        = "Motion";
+        inline static const std::string Emissive      = "Emissive";
         inline static const std::string Depth         = "Depth";
 
         // --- 场景数据 ---

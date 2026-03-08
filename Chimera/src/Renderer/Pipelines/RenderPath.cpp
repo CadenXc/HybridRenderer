@@ -35,8 +35,13 @@ namespace Chimera
 
             CH_CORE_INFO("RenderPath: Rebuilding RenderGraph (Resize: {}, Rebuild: {})...", m_NeedsResize, m_NeedsRebuild);
             
+            // [FIX] CRITICAL: Wait for GPU to finish work before destroying old RenderGraph
+            // Otherwise we might destroy image views currently in use by active descriptor sets.
+            vkDeviceWaitIdle(m_Context->GetDevice());
+
             // Re-creating the RenderGraph forces old resources (and history) to be destroyed
             m_RenderGraph = std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
+            
             m_NeedsResize = false;
             m_NeedsRebuild = false;
         }

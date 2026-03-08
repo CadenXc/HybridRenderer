@@ -20,10 +20,12 @@ namespace Chimera
         // Scene Management
         void LoadModel(const std::string& path);
         void UpdateEntityTRS(uint32_t index, const glm::vec3& pos, const glm::vec3& rot, const glm::vec3& scale);
+        void OnUpdate(float ts); // [NEW]
         void ClearScene();
 
         // Skybox
         void LoadSkybox(const std::string& path);
+        void LoadHDRSkybox(const std::string& path);
         void ClearSkybox();
         
         uint32_t GetSkyboxTextureIndex() const 

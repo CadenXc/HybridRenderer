@@ -17,5 +17,6 @@ namespace Chimera
 
     protected:
         virtual void BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene) override;
+        virtual void OnImGui() override;
     };
 }

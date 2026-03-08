@@ -46,21 +46,21 @@ vec3 ACESToneMapping(vec3 x)
 void main() 
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel.x >= global.ubo.displaySize.x || pixel.y >= global.ubo.displaySize.y) 
+    if (pixel.x >= global.ubo.displayData.x || pixel.y >= global.ubo.displayData.y) 
     {
         return;
     }
 
-    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displaySize;
+    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displayData.xy;
     vec3 currentRGB = texture(curColor, uv).rgb;
     
     // 1. TAA Disable Check
-    if ((global.ubo.renderFlags & 2) == 0) 
+    if ((global.ubo.frameData.w & 2) == 0) 
     {
         // Even if TAA is off, we still need to add Bloom and ToneMap
         vec3 bloom = texture(gBloom, uv).rgb;
-        vec3 result = currentRGB + bloom * global.ubo.bloomStrength;
-        result *= global.ubo.exposure;
+        vec3 result = currentRGB + bloom * global.ubo.postData.z;
+        result *= global.ubo.postData.x;
         result = ACESToneMapping(result);
         imageStore(outColor, pixel, vec4(pow(result, vec3(1.0/2.2)), 1.0));
         return;
@@ -79,7 +79,7 @@ void main()
     {
         for (int y = -1; y <= 1; ++y) 
         {
-            vec3 c = RGBToYCoCg(texture(curColor, uv + vec2(x, y) * global.ubo.displaySizeInverse).rgb);
+            vec3 c = RGBToYCoCg(texture(curColor, uv + vec2(x, y) * global.ubo.displayData.zw).rgb);
             m1 += c;
             m2 += c * c;
         }
@@ -99,11 +99,11 @@ void main()
     vec3 resolvedRGB = YCoCgToRGB(resolvedYCoCg);
 
     // 3. Add Bloom (in linear HDR space)
-    vec3 bloom = texture(gBloom, uv).rgb;
-    vec3 finalHDR = resolvedRGB + bloom * global.ubo.bloomStrength;
+    vec3 bloomVal = texture(gBloom, uv).rgb;
+    vec3 finalHDR = resolvedRGB + bloomVal * global.ubo.postData.z;
 
     // 4. Final Tone Mapping (Keep in linear space, FinalBlit handles SRGB)
-    finalHDR *= global.ubo.exposure;
+    finalHDR *= global.ubo.postData.x;
     vec3 finalSDR = ACESToneMapping(finalHDR);
     // [FIX] DO NOT pow(1/2.2) here because the Swapchain is already _SRGB!
 

@@ -24,7 +24,9 @@ namespace Chimera
         m_ActiveLayout = layout; 
         vkCmdBindPipeline(m_Cmd, bindPoint, handle);
 
-        uint32_t fIdx = Application::Get().GetTotalFrameCount() % MAX_FRAMES_IN_FLIGHT;
+        // [FIX] Use the same frame index as Application::UpdateGlobalUBO
+        uint32_t fIdx = Application::Get().GetCurrentFrameIndex();
+        
         VkDescriptorSet globals[] = { 
             Application::Get().GetRenderState()->GetDescriptorSet(fIdx), 
             ResourceManager::Get().GetSceneDescriptorSet(fIdx) 

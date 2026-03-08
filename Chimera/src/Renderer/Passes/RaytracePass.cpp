@@ -15,6 +15,7 @@ namespace Chimera::RaytracePass
             [&](PassData& data, RenderGraph::PassBuilder& builder)
             {
                 data.output = builder.WriteStorage(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                builder.WriteStorage(RS::Motion).Format(VK_FORMAT_R16G16_SFLOAT);
             },
             [=](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {

@@ -64,7 +64,7 @@ namespace Chimera
             uint32_t maxPrimitiveCount = mesh.indexCount / 3;
 
             VkAccelerationStructureGeometryKHR geo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
-            geo.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+            geo.flags = 0; // [FIX] Allow AnyHit/Alpha Test
             geo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
             geo.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
             geo.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;

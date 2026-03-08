@@ -23,18 +23,22 @@ void main()
 {
     GpuPrimitive prim = primBuf.primitives[pc.objectId];
     
-    // 1. 统一位置变换 (Using common.glsl)
+    // 1. 计算非抖动的投影坐标 (用于运动矢量)
+    // 注意：ProjectPosition 内部使用的是 UBO 里的 proj，目前它是非抖动的（由 Application.cpp 保证）
     outCurPos = ProjectPosition(inPos, prim.transform);
     outPrevPos = ProjectPreviousPosition(inPos, prim.prevTransform);
     
+    // 2. 最终渲染坐标 (应用 TAA 抖动)
+    // 抖动是在 NDC 空间应用的：pos.xy += jitter * pos.w
     gl_Position = outCurPos;
+    gl_Position.xy += global.ubo.camera.jitterData.xy * gl_Position.w;
     
-    // 2. 法线与切线变换
+    // 3. 法线与切线变换
     mat3 normalMat = mat3(prim.normalMatrix);
     outNormal = normalize(normalMat * inNormal);
     outTangent = vec4(normalize(normalMat * inTangent.xyz), inTangent.w);
     
-    // 3. 通用输出
+    // 4. 通用输出
     outTexCoord = inTexCoord;
     outObjectId = pc.objectId;
 }

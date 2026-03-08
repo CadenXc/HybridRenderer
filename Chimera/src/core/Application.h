@@ -28,6 +28,7 @@ namespace Chimera
         glm::vec2 ViewportSize;
         glm::mat4 View;
         glm::mat4 Projection;
+        glm::vec2 Jitter = { 0.0f, 0.0f }; // [NEW] Separated jitter
         glm::vec3 CameraPosition;
         float DeltaTime;
         float Time;
@@ -112,6 +113,7 @@ namespace Chimera
         }
 
         uint32_t GetCurrentImageIndex() const;
+        uint32_t GetCurrentFrameIndex() const; // [NEW]
         uint32_t GetTotalFrameCount() const
         {
             return m_TotalFrameCount;
@@ -191,5 +193,7 @@ namespace Chimera
 
         glm::mat4 m_PrevView = glm::mat4(1.0f);
         glm::mat4 m_PrevProj = glm::mat4(1.0f);
+        glm::vec2 m_PrevJitter = glm::vec2(0.0f);
+        glm::vec2 m_CurrentJitter = glm::vec2(0.0f);
     };
 }

@@ -27,45 +27,29 @@ void main()
     }
 
     vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
-    vec3 normal = normalize(texture(gNormal, inUV).xyz * 2.0 - 1.0);
+    vec3 normal = normalize(texture(gNormal, inUV).xyz);
     vec4 material = texture(gMaterial, inUV);
-    vec3 albedo = texture(gAlbedo, inUV).rgb;
     
-    // Standardized: R = Roughness, G = Metallic
     float roughness = material.r;
-    float metallic = material.g;
-    
-    vec3 viewDir = normalize(worldPos - global.ubo.camera.position.xyz);
-    
-    // Simple specular reflection direction
-    vec3 reflectDir = reflect(viewDir, normal);
-
-    vec3 origin = OffsetRay(worldPos, normal);
-    
-    payload.hit = false;
-    payload.color = vec3(0.0);
-
-    vec3 outColor = vec3(0.0);
-
-    if ((global.ubo.renderFlags & RENDER_FLAG_REFLECTION_BIT) != 0)
+    if (roughness > 0.6) 
     {
-        // 1. 发射硬件加速光线 (Using unified TLAS from common.glsl)
-        traceRayEXT(TLAS, gl_RayFlagsOpaqueEXT, 0xFF, 0, 0, 0, origin, 0.001, reflectDir, 10000.0, 0);
-
-        if (payload.hit) 
-        {
-            outColor = payload.color;
-        }
-        else if (pc.skyboxIndex >= 0) 
-        {
-            outColor = texture(textureArray[nonuniformEXT(pc.skyboxIndex)], SampleEquirectangular(reflectDir)).rgb;
-        } 
-        else 
-        {
-            outColor = vec3(0.02);
-        }
+        imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(0.0, 0.0, 0.0, 1.0));
+        return;
     }
 
-    // 2. 将反射结果写入输出纹理
-    imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(outColor, 1.0));
+    vec3 viewDir = normalize(worldPos - global.ubo.camera.position.xyz);
+    vec3 reflectDir = reflect(viewDir, normal);
+    vec3 origin = OffsetRay(worldPos, normal);
+    
+    payload.color_dist = vec4(0.0);
+    payload.normal_rough = vec4(0.0);
+    payload.motion_hit = vec4(0.0);
+
+    if ((global.ubo.frameData.w & RENDER_FLAG_REFLECTION_BIT) != 0)
+    {
+        // Using Tmin=0.01 to avoid precision issues
+        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, reflectDir, 10000.0, 0);
+    }
+
+    imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(payload.color_dist.rgb, 1.0));
 }

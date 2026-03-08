@@ -21,7 +21,7 @@ void main()
     
     // 2. 解包材质参数 (Using common.glsl helpers)
     vec4 albedo = GetAlbedo(mat, inUV);
-    vec3 N = CalculateNormal(prim, mat, inNormal, inTangent, inUV);
+    vec3 N = CalculateNormal(mat, inNormal, inTangent, inUV);
     vec3 V = normalize(global.ubo.camera.position.xyz - inWorldPos);
     
     float roughness = mat.roughness;
@@ -42,27 +42,38 @@ void main()
     vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
 
     // [NEW] Ray Query Shadows
-    vec3 shadowOrigin = OffsetRay(inWorldPos, N);
+    vec3 ddx = dFdx(inWorldPos);
+    vec3 ddy = dFdy(inWorldPos);
+    vec3 faceNormal = normalize(cross(ddx, ddy));
+    if (dot(faceNormal, V) < 0.0) 
+    {
+        faceNormal = -faceNormal;
+    }
+    
+    vec3 shadowOrigin = OffsetRay(inWorldPos, faceNormal);
     float shadow = CalculateRayQueryShadow(shadowOrigin, L, 1000.0);
 
     vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor) * shadow;
     
     // 5. 环境光 (Basic IBL fallback)
-    vec3 ambient = global.ubo.ambientStrength * albedo.rgb * ao;
-    if (global.ubo.skyboxTextureIndex >= 0)
+    float ambStr = global.ubo.postData.y;
+    int skyIdx = int(global.ubo.envData.x);
+
+    vec3 ambient = ambStr * albedo.rgb * ao;
+    if (skyIdx >= 0)
     {
         vec3 reflectDir = reflect(-V, N);
         // Simple IBL approximation: sample skybox for both diffuse and specular
         // In a real engine, we would use pre-filtered maps
-        vec3 envSpecular = texture(textureArray[nonuniformEXT(global.ubo.skyboxTextureIndex)], SampleEquirectangular(reflectDir)).rgb;
-        vec3 envDiffuse = texture(textureArray[nonuniformEXT(global.ubo.skyboxTextureIndex)], SampleEquirectangular(N)).rgb;
+        vec3 envSpecular = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(reflectDir)).rgb;
+        vec3 envDiffuse = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(N)).rgb;
         
         vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
         vec3 F = F_SchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
         vec3 kS = F;
         vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
         
-        ambient = (kD * envDiffuse * albedo.rgb + kS * envSpecular) * ao * global.ubo.ambientStrength;
+        ambient = (kD * envDiffuse * albedo.rgb + kS * envSpecular) * ao * ambStr;
     }
     
     // 6. 计算运动矢量

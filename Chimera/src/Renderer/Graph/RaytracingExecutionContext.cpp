@@ -34,7 +34,7 @@ namespace Chimera
         m_ActiveLayout = pipe.layout;
         vkCmdBindPipeline(m_Cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipe.handle);
 
-        uint32_t fIdx = Application::Get().GetTotalFrameCount() % MAX_FRAMES_IN_FLIGHT;
+        uint32_t fIdx = Application::Get().GetCurrentFrameIndex();
         VkDescriptorSet globals[] = { 
             Application::Get().GetRenderState()->GetDescriptorSet(fIdx), 
             ResourceManager::Get().GetSceneDescriptorSet(fIdx) 
