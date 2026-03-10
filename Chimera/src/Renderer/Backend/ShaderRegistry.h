@@ -32,8 +32,8 @@ namespace Chimera
             ShaderManager::RegisterAlias("SVGF_Temporal",    "postprocess/svgf/temporal.comp");
             ShaderManager::RegisterAlias("SVGF_Atrous",      "postprocess/svgf/atrous.comp");
             ShaderManager::RegisterAlias("TAA_Comp",         "postprocess/taa.comp");
-            ShaderManager::RegisterAlias("Bloom_Blur",       "postprocess/bloom_blur.comp");
-            ShaderManager::RegisterAlias("Bloom_Threshold",  "postprocess/bloom_threshold.comp");
+            ShaderManager::RegisterAlias("PostProcess_Frag", "postprocess/postprocess.frag");
+            ShaderManager::RegisterAlias("Skybox_Frag",      "postprocess/skybox.frag");
             ShaderManager::RegisterAlias("Fullscreen_Vert",  "common/fullscreen.vert");
         }
     };

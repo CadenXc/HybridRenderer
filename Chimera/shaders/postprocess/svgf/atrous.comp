@@ -16,67 +16,84 @@ layout(set = 2, binding = 3) uniform sampler2D gDepth;
 
 layout(set = 2, binding = 4, rgba16f) uniform image2D outFiltered;
 
+// [FIX] Convert non-linear Depth to Linear View Distance for robust edge-stopping
+float LinearizeDepth(float d) 
+{
+    vec4 target = camera.projInverse * vec4(0.0, 0.0, d, 1.0);
+    return abs(target.z / target.w);
+}
+
 void main()
 {
     ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
-    vec2 displaySize = global.ubo.displayData.xy;
+    if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
+
+    vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
     
-    if (ipos.x >= int(displaySize.x) || ipos.y >= int(displaySize.y)) 
-    {
-        return;
-    }
+    // 1. Center Pixel Data
+    vec3  centerColor   = texture(gInputColor, uv).rgb;
+    vec4  centerMoments = texture(gInputMoments, uv);
+    
+    // [FIX] Normal is already in [-1, 1] range in SFLOAT G-Buffer
+    vec3  centerNormal  = normalize(texture(gNormal, uv).xyz);
+    
+    float centerDepth   = texture(gDepth, uv).r;
+    float centerLinearZ = LinearizeDepth(centerDepth);
+    float centerLuma    = dot(centerColor, vec3(0.299, 0.587, 0.114));
 
-    vec2 uv = (vec2(ipos) + 0.5) / global.ubo.displayData.xy;
-    vec3 centerColor = texture(gInputColor, uv).rgb;
-    float centerLuma = dot(centerColor, vec3(0.299, 0.587, 0.114));
-    vec4 centerMoments = texture(gInputMoments, uv);
-    vec3 centerNormal = normalize(texture(gNormal, uv).xyz * 2.0 - 1.0);
-    float centerDepth = texture(gDepth, uv).r;
-
+    // Variance-guided filtering
     float variance = centerMoments.b;
 
-    // A-Trous edge-stopping weights
-    float phiColor = 10.0; 
+    // 2. Edge-Stopping Thresholds (Phi)
+    float phiColor  = 10.0; 
     float phiNormal = 128.0;
-    float phiDepth = 0.01; // Reduced from 0.1 to tighten depth rejection
+    // [MOD] Depth threshold in world units (e.g., 0.1m)
+    float phiDepth  = 0.1; 
 
-    float sumWeight = 1.0;
-    vec3 sumColor = centerColor;
+    // Standard 5x5 A-Trous Gaussian Kernel Weights
+    const float kernel[3] = { 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0 };
 
+    float sumWeight = kernel[0] * kernel[0]; // Center weight
+    vec3  sumColor  = centerColor * sumWeight;
+
+    // 3. A-Trous 5x5 Sparse Kernel
     for (int y = -2; y <= 2; y++)
     {
         for (int x = -2; x <= 2; x++)
         {
-            if (x == 0 && y == 0) 
-            {
-                continue;
-            }
+            if (x == 0 && y == 0) continue;
 
             ivec2 neighborPos = ipos + ivec2(x, y) * pc.step;
-            if (neighborPos.x < 0 || neighborPos.x >= int(global.ubo.displayData.x) || 
-                neighborPos.y < 0 || neighborPos.y >= int(global.ubo.displayData.y)) 
-            {
-                continue;
-            }
+            if (neighborPos.x < 0 || neighborPos.x >= int(displayData.x) || 
+                neighborPos.y < 0 || neighborPos.y >= int(displayData.y)) continue;
 
-            vec2 neighborUV = (vec2(neighborPos) + 0.5) / global.ubo.displayData.xy;
-            vec3 neighborColor = texture(gInputColor, neighborUV).rgb;
-            float neighborLuma = dot(neighborColor, vec3(0.299, 0.587, 0.114));
-            vec3 neighborNormal = normalize(texture(gNormal, neighborUV).xyz * 2.0 - 1.0);
-            float neighborDepth = texture(gDepth, neighborUV).r;
+            vec2  neighborUV     = (vec2(neighborPos) + 0.5) / displayData.xy;
+            vec3  neighborColor  = texture(gInputColor, neighborUV).rgb;
+            
+            // [FIX] Correct normal fetch
+            vec3  neighborNormal = normalize(texture(gNormal, neighborUV).xyz);
+            
+            float neighborDepth  = texture(gDepth, neighborUV).r;
+            float neighborLinearZ = LinearizeDepth(neighborDepth);
+            
+            float neighborLuma   = dot(neighborColor, vec3(0.299, 0.587, 0.114));
 
-            // 1. Luminance weight
-            float wL = exp(-abs(centerLuma - neighborLuma) / phiColor);
+            // Spatial Kernel Weight
+            float wSpatial = kernel[abs(x)] * kernel[abs(y)];
 
-            // 2. Normal weight
+            // Compute Edge-Stopping Weights
+            // A. Luminance Weight (using sqrt variance for normalized propagation)
+            float wL = exp(-abs(centerLuma - neighborLuma) / (phiColor * sqrt(max(0.0, variance)) + 1e-6));
+
+            // B. Normal Weight (protects sharp corners)
             float wN = pow(max(0.0, dot(centerNormal, neighborNormal)), phiNormal);
 
-            // 3. Depth weight
-            float wD = (phiDepth == 0.0) ? 1.0 : exp(-abs(centerDepth - neighborDepth) / phiDepth);
+            // C. Depth Weight (using Linearized difference)
+            float wD = exp(-abs(centerLinearZ - neighborLinearZ) / (phiDepth + 1e-6));
 
-            float weight = wL * wN * wD;
+            float weight = wSpatial * wL * wN * wD;
             sumWeight += weight;
-            sumColor += weight * neighborColor;
+            sumColor  += weight * neighborColor;
         }
     }
 

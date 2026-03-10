@@ -117,26 +117,12 @@ namespace Chimera
         context.SVGFPhiDepth = m_SVGFPhiDepth;
         context.LightRadius = m_LightRadius;
 
-        RenderPath* activePath = GetRenderPath();
-        RenderPathType currentType = activePath ? activePath->GetType() : RenderPathType::Forward;
-
-        if ((m_RenderFlags & RENDER_FLAG_TAA_BIT) && currentType == RenderPathType::Hybrid)
-        {
-            static const float haltonX[] = { 0.5f, 0.25f, 0.75f, 0.125f, 0.625f, 0.375f, 0.875f, 0.0625f };
-            static const float haltonY[] = { 0.333f, 0.666f, 0.111f, 0.444f, 0.777f, 0.222f, 0.555f, 0.888f };
-            uint32_t jitterIdx = Application::Get().GetTotalFrameCount() % 8;
-            
-            // Calculate jitter in NDC space
-            glm::vec2 jitter = { (haltonX[jitterIdx] - 0.5f) / m_ViewportSize.x, (haltonY[jitterIdx] - 0.5f) / m_ViewportSize.y };
-            context.Jitter = jitter;
-            
-            // DO NOT apply jitter to context.Projection here anymore. 
-            // We will pass context.Jitter to UBO and handle it in Vertex Shader.
-        }
+        context.Jitter = glm::vec2(0.0f); // Reset jitter, Application will compute it based on flags
 
         Application::Get().SetFrameContext(context);
         Application::Get().SetActiveScene(GetActiveSceneRaw());
 
+        RenderPath* activePath = GetRenderPath();
         if (activePath && Renderer::HasInstance() && Renderer::Get().IsFrameInProgress())
         {
             RenderFrameInfo frameInfo{};
@@ -461,32 +447,35 @@ namespace Chimera
 
         ImGui::Separator();
 
-        if (currentType == RenderPathType::Hybrid)
+        if (currentType == RenderPathType::Hybrid || currentType == RenderPathType::Forward)
         {
-            if (ImGui::TreeNodeEx("Ray Tracing Features", ImGuiTreeNodeFlags_DefaultOpen))
+            if (currentType == RenderPathType::Hybrid)
             {
-                bool shadow = (m_RenderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
-                if (ImGui::Checkbox("RT Shadows", &shadow)) 
+                if (ImGui::TreeNodeEx("Ray Tracing Features", ImGuiTreeNodeFlags_DefaultOpen))
                 {
-                    if (shadow) m_RenderFlags |= RENDER_FLAG_SHADOW_BIT;
-                    else        m_RenderFlags &= ~RENDER_FLAG_SHADOW_BIT;
-                }
+                    bool shadow = (m_RenderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
+                    if (ImGui::Checkbox("RT Shadows", &shadow)) 
+                    {
+                        if (shadow) m_RenderFlags |= RENDER_FLAG_SHADOW_BIT;
+                        else        m_RenderFlags &= ~RENDER_FLAG_SHADOW_BIT;
+                    }
 
-                bool refl = (m_RenderFlags & RENDER_FLAG_REFLECTION_BIT) != 0;
-                if (ImGui::Checkbox("RT Reflections", &refl)) 
-                {
-                    if (refl) m_RenderFlags |= RENDER_FLAG_REFLECTION_BIT;
-                    else      m_RenderFlags &= ~RENDER_FLAG_REFLECTION_BIT;
-                }
+                    bool refl = (m_RenderFlags & RENDER_FLAG_REFLECTION_BIT) != 0;
+                    if (ImGui::Checkbox("RT Reflections", &refl)) 
+                    {
+                        if (refl) m_RenderFlags |= RENDER_FLAG_REFLECTION_BIT;
+                        else      m_RenderFlags &= ~RENDER_FLAG_REFLECTION_BIT;
+                    }
 
-                bool gi = (m_RenderFlags & RENDER_FLAG_GI_BIT) != 0;
-                if (ImGui::Checkbox("RT Diffuse GI", &gi)) 
-                {
-                    if (gi) m_RenderFlags |= RENDER_FLAG_GI_BIT;
-                    else    m_RenderFlags &= ~RENDER_FLAG_GI_BIT;
-                }
+                    bool gi = (m_RenderFlags & RENDER_FLAG_GI_BIT) != 0;
+                    if (ImGui::Checkbox("RT Diffuse GI", &gi)) 
+                    {
+                        if (gi) m_RenderFlags |= RENDER_FLAG_GI_BIT;
+                        else    m_RenderFlags &= ~RENDER_FLAG_GI_BIT;
+                    }
 
-                ImGui::TreePop();
+                    ImGui::TreePop();
+                }
             }
 
             if (ImGui::TreeNodeEx("Denoising & AA", ImGuiTreeNodeFlags_DefaultOpen))
@@ -498,22 +487,25 @@ namespace Chimera
                     else     m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
                 }
 
-                bool svgf = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-                if (ImGui::Checkbox("Enable SVGF", &svgf))
+                if (currentType == RenderPathType::Hybrid)
                 {
-                    if (svgf) m_RenderFlags |= RENDER_FLAG_SVGF_BIT;
-                    else      m_RenderFlags &= ~RENDER_FLAG_SVGF_BIT;
-                }
-                
-                if (svgf)
-                {
-                    ImGui::Indent();
-                    ImGui::SliderFloat("Color Alpha", &m_SVGFAlphaColor, 0.01f, 1.0f);
-                    ImGui::SliderFloat("Moments Alpha", &m_SVGFAlphaMoments, 0.01f, 1.0f);
-                    ImGui::SliderFloat("Phi Color", &m_SVGFPhiColor, 0.1f, 50.0f);
-                    ImGui::SliderFloat("Phi Normal", &m_SVGFPhiNormal, 1.0f, 256.0f);
-                    ImGui::SliderFloat("Phi Depth", &m_SVGFPhiDepth, 0.001f, 0.1f);
-                    ImGui::Unindent();
+                    bool svgf = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+                    if (ImGui::Checkbox("Enable SVGF", &svgf))
+                    {
+                        if (svgf) m_RenderFlags |= RENDER_FLAG_SVGF_BIT;
+                        else      m_RenderFlags &= ~RENDER_FLAG_SVGF_BIT;
+                    }
+                    
+                    if (svgf)
+                    {
+                        ImGui::Indent();
+                        ImGui::SliderFloat("Color Alpha", &m_SVGFAlphaColor, 0.01f, 1.0f);
+                        ImGui::SliderFloat("Moments Alpha", &m_SVGFAlphaMoments, 0.01f, 1.0f);
+                        ImGui::SliderFloat("Phi Color", &m_SVGFPhiColor, 0.1f, 50.0f);
+                        ImGui::SliderFloat("Phi Normal", &m_SVGFPhiNormal, 1.0f, 256.0f);
+                        ImGui::SliderFloat("Phi Depth", &m_SVGFPhiDepth, 0.001f, 0.1f);
+                        ImGui::Unindent();
+                    }
                 }
                 ImGui::TreePop();
             }
@@ -627,10 +619,8 @@ namespace Chimera
         if (activePath)
         {
             auto& graph = activePath->GetRenderGraph();
-            std::string tex = "";
-            if (graph.ContainsImage("TAAOutput")) tex = "TAAOutput";
-            else if (graph.ContainsImage(RS::FinalColor)) tex = RS::FinalColor;
-            else tex = RS::RENDER_OUTPUT;
+            // ALWAYS show the final output pass results
+            std::string tex = RS::RENDER_OUTPUT;
 
             if (graph.ContainsImage(tex))
             {

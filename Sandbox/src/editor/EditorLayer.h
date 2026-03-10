@@ -77,10 +77,8 @@ namespace Chimera
 		uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
 				
 		float m_Exposure = 1.0f;
-        float m_AmbientStrength = 1.0f;
-        float m_BloomStrength = 0.5f;
-        glm::vec4 m_ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f }; // [NEW] Global Background Color
-
+		float m_AmbientStrength = 1.0f;
+		glm::vec4 m_ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f }; // [NEW] Global Background Color
         // --- SVGF Parameters ---
         float m_SVGFAlphaColor = 0.05f;
         float m_SVGFAlphaMoments = 0.2f;

@@ -21,21 +21,27 @@ namespace Chimera
 	{
 		m_AspectRatio = m_ViewportWidth / m_ViewportHeight;
 		
-		// Infinite Reverse-Z Projection Matrix
-		// Standard perspective projection formula adjusted for:
-		// 1. Vulkan Clip Space (Y is down, Z is 0 to 1)
-		// 2. Reverse Z (Near=1, Far=0)
-		// 3. Infinite Far Plane
-		
-		float f = 1.0f / tan(glm::radians(m_FOV) / 2.0f);
-		
+		float focalLength = 1.0f / tan(glm::radians(m_FOV) * 0.5f);
+		float n = m_NearClip;
+		float f = m_FarClip;
+
 		m_Projection = glm::mat4(0.0f);
-		m_Projection[0][0] = f / m_AspectRatio;
-		m_Projection[1][1] = -f; // Vulkan Y is Down
-		m_Projection[2][2] = 0.0f;
+		m_Projection[0][0] = focalLength / m_AspectRatio;
+		m_Projection[1][1] = -focalLength; // Vulkan Y is Down
 		m_Projection[2][3] = -1.0f;
-		m_Projection[3][2] = m_NearClip;
-		m_Projection[3][3] = 0.0f;
+
+		if (USE_REVERSED_Z)
+		{
+			// Reversed-Z: Maps z_near -> 1.0, z_far -> 0.0
+			m_Projection[2][2] = n / (f - n);
+			m_Projection[3][2] = (n * f) / (f - n);
+		}
+		else
+		{
+			// Standard Z: Maps z_near -> 0.0, z_far -> 1.0
+			m_Projection[2][2] = f / (n - f);
+			m_Projection[3][2] = (n * f) / (n - f);
+		}
 	}
 
 	void EditorCamera::UpdateView()

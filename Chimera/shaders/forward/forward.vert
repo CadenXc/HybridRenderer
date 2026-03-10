@@ -22,23 +22,23 @@ layout(push_constant) uniform PushConstants
 
 void main() 
 {
-    GpuPrimitive prim = primBuf.primitives[pc.objectId];
+    GpuPrimitive prim = primitives[pc.objectId];
     
-    // 1. 统一位置变换与世界空间计算
     vec4 worldPos = LocalToWorld(inPosition, prim.transform);
+    vec4 prevWorldPos = LocalToWorld(inPosition, prim.prevTransform);
+    
     outWorldPos = worldPos.xyz;
+    outCurPos = WorldToClip(worldPos);
+    outPrevPos = PrevWorldToClip(prevWorldPos);
     
-    outCurPos = ProjectPosition(inPosition, prim.transform);
-    outPrevPos = ProjectPreviousPosition(inPosition, prim.prevTransform);
-    
+    // [FIX] Apply TAA Jitter to rasterization position
     gl_Position = outCurPos;
+    gl_Position.xy += camera.jitterData.xy * gl_Position.w;
     
-    // 2. 法线与切线变换
     mat3 normalMat = mat3(prim.normalMatrix);
     outNormal = normalize(normalMat * inNormal);
     outTangent = vec4(normalize(normalMat * inTangent.xyz), inTangent.w);
     
-    // 3. 通用输出
     outUV = inTexCoord;
     outObjectId = pc.objectId;
 }

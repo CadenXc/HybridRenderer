@@ -16,6 +16,40 @@
 
 namespace Chimera
 {
+    // --- TAA Jitter Utilities ---
+    static float GetHaltonSequence(int index, int base)
+    {
+        float f = 1.0f;
+        float r = 0.0f;
+        int current = index;
+        while (current > 0)
+        {
+            f = f / (float)base;
+            r = r + f * (float)(current % base);
+            current = current / base;
+        }
+        return r;
+    }
+
+    static glm::vec2 CalculateTAAJitter(uint32_t frameIndex, uint32_t renderWidth, uint32_t renderHeight)
+    {
+        if (renderWidth == 0 || renderHeight == 0) return glm::vec2(0.0f);
+
+        // Use 16-frame cycle for TAA (index must be > 0)
+        int phase = (frameIndex % 16) + 1;
+
+        // Base 2 for X, Base 3 for Y
+        float haltonX = GetHaltonSequence(phase, 2);
+        float haltonY = GetHaltonSequence(phase, 3);
+
+        // Map to [-0.5, 0.5] pixel range and convert to NDC space
+        // NDC is [-1, 1], so total width is 2.0.
+        float ndcOffsetX = (haltonX - 0.5f) * (2.0f / (float)renderWidth);
+        float ndcOffsetY = (haltonY - 0.5f) * (2.0f / (float)renderHeight);
+
+        return glm::vec2(ndcOffsetX, ndcOffsetY);
+    }
+
     Application* Application::s_Instance = nullptr;
 
     Application::Application(const ApplicationSpecification& spec)
@@ -238,17 +272,8 @@ namespace Chimera
     {
         UniformBufferObject ubo{};
         
-        // [TAA FIX] m_FrameContext.Projection might be jittered. 
-        // We want to pass both the raw projection AND the jitter values.
-        
         ubo.camera.view = m_FrameContext.View;
         ubo.camera.proj = m_FrameContext.Projection; 
-        
-        // Extract jitter from projection if possible, or just pass it through
-        // Currently jitter is baked into Proj in EditorLayer. 
-        // We'll calculate the non-jittered Proj here by undoing the translation if needed,
-        // but it's cleaner to handle this in EditorLayer by passing Jitter separately.
-        // For now, we assume Proj has jitter and we also pass jitter to let shader undo it.
         
         ubo.camera.viewInverse = glm::inverse(ubo.camera.view);
         ubo.camera.projInverse = glm::inverse(ubo.camera.proj);
@@ -258,9 +283,25 @@ namespace Chimera
         ubo.camera.position = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
         
         // [TAA] Handle Jitter
-        // Note: EditorLayer should be updated to pass jitter in m_FrameContext
-        // For Phase 1 Debug, we'll ensure static objects have 0 motion by using clean proj for CurPos.
-        m_CurrentJitter = m_FrameContext.Jitter;
+        if (m_FrameContext.RenderFlags & RENDER_FLAG_TAA_BIT) 
+        {
+            m_CurrentJitter = CalculateTAAJitter(
+                m_TotalFrameCount, 
+                (uint32_t)m_FrameContext.ViewportSize.x, 
+                (uint32_t)m_FrameContext.ViewportSize.y
+            );
+
+            // [NEW] Check if history is available to prevent first-frame ghosting/jitters
+            if (m_RenderPath && m_RenderPath->GetRenderGraph().HasHistory("TAA_Ping"))
+            {
+                ubo.frameData.w |= RENDER_FLAG_TAA_HISTORY_BIT;
+            }
+        }
+        else
+        {
+            m_CurrentJitter = glm::vec2(0.0f);
+        }
+
         ubo.camera.jitterData = glm::vec4(m_CurrentJitter.x, m_CurrentJitter.y, m_PrevJitter.x, m_PrevJitter.y);
 
         if (m_ResourceManager->HasActiveScene())
@@ -285,7 +326,7 @@ namespace Chimera
         ubo.frameData = glm::uvec4(frameIndex, m_TotalFrameCount, m_FrameContext.DisplayMode, m_FrameContext.RenderFlags);
         
         // Block 3: postData
-        ubo.postData = glm::vec4(m_FrameContext.Exposure, m_FrameContext.AmbientStrength, m_FrameContext.BloomStrength, (float)m_BlueNoiseTextureIndex);
+        ubo.postData = glm::vec4(m_FrameContext.Exposure, m_FrameContext.AmbientStrength, 0.0f, (float)m_BlueNoiseTextureIndex);
         
         // Block 4: envData
         int skyboxIdx = (m_ResourceManager->HasActiveScene()) ? (int)m_ResourceManager->GetActiveScene()->GetSkyboxTextureIndex() : -1;

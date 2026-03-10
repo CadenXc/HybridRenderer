@@ -230,6 +230,7 @@ namespace Chimera
             return m_Height;
         }
         bool ContainsImage(const std::string& name);
+        bool HasHistory(const std::string& name) const;
         const GraphImage& GetImage(const std::string& name) const;
         std::vector<std::string> GetDebuggableResources() const;
         const std::vector<PassTiming>& GetLatestTimings() const

@@ -157,6 +157,13 @@ namespace Chimera
             CH_CORE_WARN("Scene: UpdateTLAS called with NULL context!");
             return;
         }
+
+        if (!m_Context->IsRayTracingSupported())
+        {
+            CH_CORE_WARN("Scene: Ray Tracing not supported, skipping TLAS update.");
+            return;
+        }
+
         VkDevice device = m_Context->GetDevice();
         if (device == VK_NULL_HANDLE) {
             CH_CORE_WARN("Scene: UpdateTLAS called with NULL device!");

@@ -26,8 +26,10 @@ void main()
         return;
     }
 
-    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
-    vec3 normal = normalize(texture(gNormal, inUV).xyz);
+    // [FIX] Subtract TAA Jitter to reconstruct un-jittered world position
+    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
+    vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
     vec4 material = texture(gMaterial, inUV);
     
     float roughness = material.r;
@@ -37,18 +39,18 @@ void main()
         return;
     }
 
-    vec3 viewDir = normalize(worldPos - global.ubo.camera.position.xyz);
-    vec3 reflectDir = reflect(viewDir, normal);
-    vec3 origin = OffsetRay(worldPos, normal);
+    vec3 viewDirection = normalize(worldPos - camera.position.xyz);
+    vec3 reflectDirection = reflect(viewDirection, worldNormal);
+    vec3 origin = OffsetRay(worldPos, worldNormal);
     
     payload.color_dist = vec4(0.0);
     payload.normal_rough = vec4(0.0);
     payload.motion_hit = vec4(0.0);
 
-    if ((global.ubo.frameData.w & RENDER_FLAG_REFLECTION_BIT) != 0)
+    if ((frameData.w & RENDER_FLAG_REFLECTION_BIT) != 0)
     {
         // Using Tmin=0.01 to avoid precision issues
-        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, reflectDir, 10000.0, 0);
+        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, reflectDirection, 10000.0, 0);
     }
 
     imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(payload.color_dist.rgb, 1.0));

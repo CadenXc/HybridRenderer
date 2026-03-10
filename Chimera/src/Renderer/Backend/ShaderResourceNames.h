@@ -24,7 +24,6 @@ namespace Chimera
         // Compute / Denoising
         inline static const std::string SVGF        = "svgf.comp";
         inline static const std::string SVGFAtrous  = "svgf_atrous.comp";
-        inline static const std::string Bloom       = "bloom.comp";
     }
 
 }

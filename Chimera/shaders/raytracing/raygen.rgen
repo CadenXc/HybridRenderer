@@ -19,39 +19,42 @@ void main()
         return;
     }
 
-    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
-    vec3 normal = normalize(texture(gNormal, inUV).xyz * 2.0 - 1.0);
+    // [FIX] Subtract TAA Jitter to reconstruct un-jittered world position
+    // camera.jitterData.xy is in NDC space [-1, 1], so UV space is 0.5 scale.
+    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
+    vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 
     // 1. 使用蓝噪声获取随机采样点 (Using common.glsl)
     vec4 blueNoise = GetBlueNoise(ivec2(gl_LaunchIDEXT.xy));
     vec2 randSample = blueNoise.xy;
 
     // 2. 计算软阴影采样方向
-    vec3 L = normalize(global.ubo.sunLight.direction.xyz);
-    float lightRadius = global.ubo.sunLight.intensity.y; 
+    vec3 lightDirection = normalize(sunLight.direction.xyz);
+    float lightRadius = sunLight.intensity.y; 
 
     if (lightRadius > 0.0)
     {
-        vec3 tangent = abs(L.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
-        vec3 bitangent = normalize(cross(L, tangent));
-        tangent = cross(bitangent, L);
+        vec3 tangent = abs(lightDirection.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
+        vec3 bitangent = normalize(cross(lightDirection, tangent));
+        tangent = cross(bitangent, lightDirection);
 
         vec3 coneSample = SquareToUniformCone(randSample, cos(lightRadius));
-        L = normalize(tangent * coneSample.x + bitangent * coneSample.y + L * coneSample.z);
+        lightDirection = normalize(tangent * coneSample.x + bitangent * coneSample.y + lightDirection * coneSample.z);
     }
 
     // 3. 硬件光线追踪阴影
     float shadow = 1.0;
-    if ((global.ubo.frameData.w & RENDER_FLAG_SHADOW_BIT) != 0)
+    if ((frameData.w & RENDER_FLAG_SHADOW_BIT) != 0)
     {
-        vec3 origin = OffsetRay(worldPos, normal);
+        vec3 origin = OffsetRay(worldPos, worldNormal);
         
         payload.color_dist = vec4(0.0);
         payload.normal_rough = vec4(0.0);
         payload.motion_hit = vec4(0.0, 0.0, 1.0, 0.0); // b=1.0: Assume shadowed
         
         traceRayEXT(TLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
-                    0xFF, 0, 0, 1, origin, 0.001, L, 10000.0, 0);
+                    0xFF, 0, 0, 1, origin, 0.001, lightDirection, 10000.0, 0);
                     
         shadow = (payload.motion_hit.b > 0.5) ? 0.0 : 1.0;
     }

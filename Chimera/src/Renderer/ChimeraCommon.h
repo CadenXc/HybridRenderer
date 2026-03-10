@@ -18,6 +18,11 @@ namespace Chimera
 {
     static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 
+    // --- Centralized Depth Configuration (Reversed-Z) ---
+    static constexpr bool USE_REVERSED_Z = true;
+    static constexpr float CH_DEPTH_CLEAR_VALUE = USE_REVERSED_Z ? 0.0f : 1.0f;
+    static constexpr VkCompareOp CH_DEPTH_COMPARE_OP = USE_REVERSED_Z ? VK_COMPARE_OP_GREATER_OR_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
+
     struct ApplicationSpecification {
         std::string Name = "Chimera App";
         uint32_t Width = 1280;

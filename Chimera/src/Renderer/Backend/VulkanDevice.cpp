@@ -7,14 +7,14 @@ namespace Chimera
     static const char* requiredDeviceExtensions[] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-        VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
-        VK_KHR_RAY_QUERY_EXTENSION_NAME // [NEW] Required for RayQuery shadows
+        VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME
     };
 
     static const char* optionalDeviceExtensions[] = {
         VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME
+        VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+        VK_KHR_RAY_QUERY_EXTENSION_NAME
     };
 
     VulkanDevice::VulkanDevice(VkInstance instance, VkSurfaceKHR surface)
@@ -187,27 +187,33 @@ namespace Chimera
         vulkan12Features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
         vulkan12Features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
 
-        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
-        rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
-
-        VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
-        asFeatures.accelerationStructure = VK_TRUE;
-        asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
-
-        VkPhysicalDeviceRayQueryFeaturesKHR rqFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
-        rqFeatures.rayQuery = VK_TRUE;
-
         VkPhysicalDeviceVulkan13Features vulkan13Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         vulkan13Features.dynamicRendering = VK_TRUE;
         vulkan13Features.synchronization2 = VK_TRUE;
         vulkan13Features.shaderDemoteToHelperInvocation = VK_TRUE;
 
-        // Build Chain: 13 -> 12 -> RT -> AS -> RQ
         vulkan13Features.pNext = &vulkan12Features;
-        vulkan12Features.pNext = &rtPipelineFeatures;
-        rtPipelineFeatures.pNext = &asFeatures;
-        asFeatures.pNext = &rqFeatures;
-        rqFeatures.pNext = nullptr;
+        vulkan12Features.pNext = nullptr;
+
+
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+        VkPhysicalDeviceRayQueryFeaturesKHR rqFeatures{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+
+        if (m_RayTracingSupported)
+        {
+            rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
+
+            asFeatures.accelerationStructure = VK_TRUE;
+            asFeatures.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
+
+            rqFeatures.rayQuery = VK_TRUE;
+
+            vulkan12Features.pNext = &rtPipelineFeatures;
+            rtPipelineFeatures.pNext = &asFeatures;
+            asFeatures.pNext = &rqFeatures;
+            rqFeatures.pNext = nullptr;
+        }
 
         VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
         createInfo.queueCreateInfoCount = (uint32_t)queueCreateInfos.size();
@@ -222,7 +228,6 @@ namespace Chimera
             throw std::runtime_error("failed to create logical device!");
         }
 
-        // [FIX] Load device-level extension functions (RT, AS, etc.)
         volkLoadDevice(m_LogicalDevice);
 
         m_GraphicsQueueFamily = indices.graphicsFamily.value();
@@ -230,7 +235,6 @@ namespace Chimera
 
         vkGetDeviceQueue(m_LogicalDevice, m_GraphicsQueueFamily, 0, &m_GraphicsQueue);
         
-        // If same family and multiple queues requested, take index 1 for compute
         if (m_GraphicsQueueFamily == m_ComputeQueueFamily)
         {
             uint32_t count = 0;

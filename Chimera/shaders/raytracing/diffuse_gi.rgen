@@ -19,7 +19,7 @@ void main()
     
     // [FIX] Robust random seed for temporal sampling
     uint pixelIdx = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x;
-    uint seed = InitRandomSeed(pixelIdx, global.ubo.frameData.y);
+    uint seed = InitRandomSeed(pixelIdx, frameData.y);
 
     float depth = texture(gDepth, inUV).r;
     if (depth == 0.0) 
@@ -28,21 +28,23 @@ void main()
         return;
     }
 
-    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
-    vec3 normal = normalize(texture(gNormal, inUV).xyz);
+    // [FIX] Subtract TAA Jitter to reconstruct un-jittered world position
+    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
+    vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 
     // 2. 漫反射采样 (Cosine-weighted hemisphere sampling)
-    vec3 rayDir = GetCosHemisphereSample(seed, normal);
-    vec3 origin = OffsetRay(worldPos, normal);
+    vec3 rayDirection = GetCosHemisphereSample(seed, worldNormal);
+    vec3 origin = OffsetRay(worldPos, worldNormal);
     
     // Initialize payload
     payload.color_dist = vec4(0.0);
     payload.normal_rough = vec4(0.0);
     payload.motion_hit = vec4(0.0, 0.0, 0.0, 0.0);
 
-    if ((global.ubo.frameData.w & RENDER_FLAG_GI_BIT) != 0)
+    if ((frameData.w & RENDER_FLAG_GI_BIT) != 0)
     {
-        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, rayDir, 10000.0, 0);
+        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, rayDirection, 10000.0, 0);
     }
 
     // [OUTPUT] Real color retrieved from Hit or Miss shaders

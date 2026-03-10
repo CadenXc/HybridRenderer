@@ -58,61 +58,68 @@ namespace Chimera
         m_BLASBuffers.clear();
         m_BLASHandles.clear();
 
-        for (uint32_t i = 0; i < meshes.size(); ++i)
+        if (m_Context->IsRayTracingSupported())
         {
-            const auto& mesh = meshes[i];
-            uint32_t maxPrimitiveCount = mesh.indexCount / 3;
-
-            VkAccelerationStructureGeometryKHR geo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
-            geo.flags = 0; // [FIX] Allow AnyHit/Alpha Test
-            geo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-            geo.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-            geo.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-            geo.geometry.triangles.vertexData.deviceAddress = m_VertexBuffer->GetDeviceAddress() + (mesh.vertexOffset * sizeof(GpuVertex));
-            geo.geometry.triangles.vertexStride = sizeof(GpuVertex);
-            geo.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
-            geo.geometry.triangles.indexData.deviceAddress = m_IndexBuffer->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
-            geo.geometry.triangles.maxVertex = m_VertexCount;
-
-            VkAccelerationStructureBuildGeometryInfoKHR buildInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
-            buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-            buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-            buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-            buildInfo.geometryCount = 1;
-            buildInfo.pGeometries = &geo;
-
-            VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
-            vkGetAccelerationStructureBuildSizesKHR(VulkanContext::Get().GetDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &maxPrimitiveCount, &sizeInfo);
-
-            auto blasBuffer = std::make_unique<Buffer>(sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-
-            VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
-            createInfo.buffer = (VkBuffer)blasBuffer->GetBuffer();
-            createInfo.size = sizeInfo.accelerationStructureSize;
-            createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-
-            VkAccelerationStructureKHR handle;
-            vkCreateAccelerationStructureKHR(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &handle);
-
-            Buffer scratch(sizeInfo.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
-            buildInfo.dstAccelerationStructure = handle;
-            buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
-
-            VkAccelerationStructureBuildRangeInfoKHR rangeInfo{};
-            rangeInfo.primitiveCount = maxPrimitiveCount;
-            rangeInfo.primitiveOffset = 0;
-            rangeInfo.firstVertex = 0;
-            rangeInfo.transformOffset = 0;
-
-            const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
-
+            for (uint32_t i = 0; i < meshes.size(); ++i)
             {
-                ScopedCommandBuffer cmd;
-                vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
-            }
+                const auto& mesh = meshes[i];
+                uint32_t maxPrimitiveCount = mesh.indexCount / 3;
 
-            m_BLASBuffers.push_back(std::move(blasBuffer));
-            m_BLASHandles.push_back(handle);
+                VkAccelerationStructureGeometryKHR geo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
+                geo.flags = 0; // [FIX] Allow AnyHit/Alpha Test
+                geo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+                geo.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+                geo.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+                geo.geometry.triangles.vertexData.deviceAddress = m_VertexBuffer->GetDeviceAddress() + (mesh.vertexOffset * sizeof(GpuVertex));
+                geo.geometry.triangles.vertexStride = sizeof(GpuVertex);
+                geo.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
+                geo.geometry.triangles.indexData.deviceAddress = m_IndexBuffer->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
+                geo.geometry.triangles.maxVertex = m_VertexCount;
+
+                VkAccelerationStructureBuildGeometryInfoKHR buildInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+                buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+                buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+                buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+                buildInfo.geometryCount = 1;
+                buildInfo.pGeometries = &geo;
+
+                VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+                vkGetAccelerationStructureBuildSizesKHR(VulkanContext::Get().GetDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &maxPrimitiveCount, &sizeInfo);
+
+                auto blasBuffer = std::make_unique<Buffer>(sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+
+                VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+                createInfo.buffer = (VkBuffer)blasBuffer->GetBuffer();
+                createInfo.size = sizeInfo.accelerationStructureSize;
+                createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+
+                VkAccelerationStructureKHR handle;
+                vkCreateAccelerationStructureKHR(VulkanContext::Get().GetDevice(), &createInfo, nullptr, &handle);
+
+                Buffer scratch(sizeInfo.buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
+                buildInfo.dstAccelerationStructure = handle;
+                buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
+
+                VkAccelerationStructureBuildRangeInfoKHR rangeInfo{};
+                rangeInfo.primitiveCount = maxPrimitiveCount;
+                rangeInfo.primitiveOffset = 0;
+                rangeInfo.firstVertex = 0;
+                rangeInfo.transformOffset = 0;
+
+                const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
+
+                {
+                    ScopedCommandBuffer cmd;
+                    vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
+                }
+
+                m_BLASBuffers.push_back(std::move(blasBuffer));
+                m_BLASHandles.push_back(handle);
+            }
+        }
+        else
+        {
+            CH_CORE_WARN("Model: Ray Tracing not supported, skipping BLAS construction.");
         }
     }
 

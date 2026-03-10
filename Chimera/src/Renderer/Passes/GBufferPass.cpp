@@ -33,6 +33,7 @@ namespace Chimera::GBufferPass
                 
                 VkClearColorValue clearColor = { {frameCtx.ClearColor.r, frameCtx.ClearColor.g, frameCtx.ClearColor.b, frameCtx.ClearColor.a} };
                 VkClearColorValue clearZero = { {0.0f, 0.0f, 0.0f, 0.0f} };
+                VkClearColorValue clearNormal = { {0.0f, 0.0f, 1.0f, 0.0f} }; // Facing camera by default
 
                 data.albedo   = builder.Write(RS::Albedo)
                                      .Format(VK_FORMAT_R8G8B8A8_UNORM)
@@ -40,7 +41,7 @@ namespace Chimera::GBufferPass
 
                 data.normal   = builder.Write(RS::Normal)
                                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
-                                     .Clear(clearZero)
+                                     .Clear(clearNormal)
                                      .SaveAsHistory(RS::Normal);
 
                 data.material = builder.Write(RS::Material)
@@ -57,7 +58,7 @@ namespace Chimera::GBufferPass
 
                 data.depth    = builder.Write(RS::Depth)
                                      .Format(VK_FORMAT_D32_SFLOAT)
-                                     .ClearDepthStencil(0.0f)
+                                     .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE)
                                      .SaveAsHistory(RS::Depth);
             },
             [scene](const GBufferData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)

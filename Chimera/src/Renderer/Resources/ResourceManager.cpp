@@ -316,7 +316,7 @@ namespace Chimera
     void ResourceManager::CreateDefaultResources()
     {
         auto f = std::make_unique<Image>(1, 1, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_TILING_OPTIMAL, "Texture_Default");
-        uint8_t m[] = { 255, 0, 255, 255 };
+        uint8_t m[] = { 0, 0, 0, 255 }; // Use BLACK as safe default instead of PINK
         Buffer s(4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY, "Staging_DefaultTexture");
         s.Update(m, 4);
         {

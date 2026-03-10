@@ -21,7 +21,40 @@ namespace Chimera::StandardPasses
             [](const DepthData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
-                ctx.DrawMeshes({ "LinearizeDepth", "common/fullscreen.vert", "postprocess/linearize_depth.frag", false, false }, nullptr);
+                // ctx.DrawMeshes({ "LinearizeDepth", "common/fullscreen.vert", "postprocess/linearize_depth.frag", false, false }, nullptr);
+            }
+        );
+    }
+
+    struct SkyboxData { RGResourceHandle output; };
+    void AddSkyboxPass(RenderGraph& graph)
+    {
+        graph.AddPass<SkyboxData>("SkyboxPass",
+            [&](SkyboxData& data, RenderGraph::PassBuilder& builder)
+            {
+                data.output = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+            },
+            [](const SkyboxData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+            {
+                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
+                GraphicsPipelineDescription desc{ "Skybox", "Fullscreen_Vert", "Skybox_Frag", false, false };
+                ctx.BindPipeline(desc);
+                ctx.DrawMeshes(desc, nullptr);
+            }
+        );
+    }
+
+    struct ClearData { RGResourceHandle output; };
+    void AddClearPass(RenderGraph& graph, const std::string& name, const VkClearColorValue& clearColor)
+    {
+        graph.AddPass<ClearData>("Clear_" + name,
+            [&](ClearData& data, RenderGraph::PassBuilder& builder)
+            {
+                data.output = builder.Write(name).Format(VK_FORMAT_R16G16B16A16_SFLOAT).Clear(clearColor);
+            },
+            [](const ClearData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+            {
+                // LoadOpClear is handled by RenderGraph
             }
         );
     }

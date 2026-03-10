@@ -96,20 +96,12 @@ namespace Chimera
                         auto& rgRes = m_Graph.m_Resources[targetHandle];
                         info.imageView = (rgRes.image.debug_view != VK_NULL_HANDLE) ? rgRes.image.debug_view : rgRes.image.view;
                         
-                        // --- FIX: Respect the layout tracked by RenderGraph. Only override if UNDEFINED. ---
-                        if (res.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                        // [FIX] Use the actual layout tracked by RenderGraph
+                        info.imageLayout = rgRes.currentState.layout;
+                        
+                        if (info.imageLayout == VK_IMAGE_LAYOUT_UNDEFINED) 
                         {
-                            info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-                        }
-                        else
-                        {
-                            // --- FIX: Use the actual physical layout tracked for this specific VkImage handle ---
-                            info.imageLayout = m_Graph.m_PhysicalImageStates[rgRes.image.handle].layout;
-                            
-                            if (info.imageLayout == VK_IMAGE_LAYOUT_UNDEFINED) 
-                            {
-                                info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                            }
+                            info.imageLayout = (res.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                         }
                     }
 

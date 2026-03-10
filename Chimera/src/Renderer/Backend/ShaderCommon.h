@@ -8,7 +8,7 @@ namespace Chimera {
 using vec2 = glm::vec2;
 using vec3 = glm::vec3;
 using vec4 = glm::vec4;
-using uvec4 = glm::uvec4; // [NEW]
+using uvec4 = glm::uvec4;
 using mat4 = glm::mat4;
 using uint = uint32_t;
 using uint64 = uint64_t;
@@ -49,6 +49,7 @@ using uint64 = uint64_t;
 #define RENDER_FLAG_SHADOW_BIT      (1 << 3)
 #define RENDER_FLAG_REFLECTION_BIT  (1 << 4)
 #define RENDER_FLAG_TAA_BIT         (1 << 5)
+#define RENDER_FLAG_TAA_HISTORY_BIT (1 << 6) // [NEW] Bit to indicate if history is available
 
 // --- 2. Data Structures ---
 
@@ -99,7 +100,7 @@ struct CameraData
     mat4 prevView;
     mat4 prevProj;
     vec4 position;
-    vec4 jitterData; // xy: current jitter, zw: previous jitter
+    vec4 jitterData;
 };
 
 struct LightData 
@@ -122,7 +123,7 @@ struct UniformBufferObject
     uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w: renderFlags
 
     // Block 3: Lighting & Post Parameters
-    vec4 postData;   // x: exposure, y: ambientStrength, z: bloomStrength, w: blueNoiseTextureIndex
+    vec4 postData;   // x: exposure, y: ambientStrength, zw: blueNoiseTextureIndex and padding
 
     // Block 4: Environment & Other
     vec4 envData;    // x: skyboxTextureIndex, yzw: padding
@@ -130,6 +131,30 @@ struct UniformBufferObject
     vec4 svgfAlpha; 
     vec4 clearColor; 
 };
+
+#ifndef __cplusplus
+layout(set = 0, binding = BINDING_GLOBAL_UBO) uniform GlobalUBO 
+{
+    CameraData camera;
+    LightData  sunLight;
+
+    // Block 1: Sizes & Frame Info
+    vec4 displayData; // x: width, y: height, z: 1/width, w: 1/height
+
+    // Block 2: Indices & Flags
+    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w: renderFlags
+
+    // Block 3: Lighting & Post Parameters
+    vec4 postData;   // x: exposure, y: ambientStrength, zw: blueNoiseTextureIndex and padding
+
+    // Block 4: Environment & Other
+    vec4 envData;    // x: skyboxTextureIndex, yzw: padding
+
+    vec4 svgfAlpha; 
+    vec4 clearColor; 
+};
+#endif
+
 struct HitPayload
 {
     vec4 color_dist;   // rgb: color, a: distance

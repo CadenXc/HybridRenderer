@@ -15,15 +15,16 @@ layout(location = 1) out vec2 outMotion;
 
 void main() 
 {
-    // 1. 获取基础数据
-    GpuPrimitive prim = primBuf.primitives[inObjectId];
-    GpuMaterial mat = materialBuffer.m[prim.materialIndex];
+    // 1. 获取统一资源
+    GpuPrimitive prim = primitives[inObjectId];
+    GpuMaterial mat = materials[prim.materialIndex];
 
     // 2. 解包材质参数
-    vec4 albedo = GetAlbedo(mat, inUV);
-    vec3 N = CalculateNormal(mat, inNormal, inTangent, inUV);
-    vec3 V = normalize(global.ubo.camera.position.xyz - inWorldPos);
-    
+    vec4 albedoSample = GetAlbedo(mat, inUV);
+    vec3 baseColor = albedoSample.rgb;
+    vec3 worldNormal = CalculateNormal(mat, inNormal, inTangent, inUV);
+    vec3 viewDirection = normalize(camera.position.xyz - inWorldPos);
+
     float roughness = mat.roughness;
     float metallic = mat.metallic;
     if (mat.metalRoughTex >= 0)
@@ -40,39 +41,38 @@ void main()
     vec3 ddx = dFdx(inWorldPos);
     vec3 ddy = dFdy(inWorldPos);
     vec3 faceNormal = normalize(cross(ddx, ddy));
-    if (dot(faceNormal, V) < 0.0) 
+    if (dot(faceNormal, viewDirection) < 0.0) 
     {
         faceNormal = -faceNormal;
     }
 
     // 4. 计算阴影
-    vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
+    vec3 lightDirection = normalize(-sunLight.direction.xyz);
     vec3 shadowOrigin = OffsetRay(inWorldPos, faceNormal);
-    float shadow = CalculateRayQueryShadow(shadowOrigin, L, 10000.0);
+    float shadow = CalculateRayQueryShadow(shadowOrigin, lightDirection, 10000.0);
 
     // 5. 最终着色
-    vec3 lightColor = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
-    vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo.rgb, roughness, metallic, lightColor);
-    
+    vec3 lightIntensity = sunLight.color.rgb * sunLight.intensity.x;
+    vec3 directLighting = EvaluateDirectPBR(worldNormal, viewDirection, lightDirection, baseColor, roughness, metallic, lightIntensity);
+
     // 6. 环境光 (IBL + Ambient)
-    vec3 ambient = global.ubo.postData.y * albedo.rgb * ao; // postData.y is ambientStrength
-    int skyboxIdx = int(global.ubo.envData.x);
+    vec3 ambient = postData.y * baseColor * ao; // postData.y is ambientStrength
+    int skyboxIdx = int(envData.x);
 
     if (skyboxIdx >= 0)
     {
-        vec3 reflectDir = reflect(-V, N);
-        vec3 envSpecular = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(reflectDir)).rgb;
-        vec3 envDiffuse = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(N)).rgb;
-        
-        vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
-        vec3 F = F_SchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-        vec3 kS = F;
-        vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-        
-        ambient = (kD * envDiffuse * albedo.rgb + kS * envSpecular) * ao * global.ubo.postData.y;
-    }
+        vec3 reflectDirection = reflect(-viewDirection, worldNormal);
+        vec3 envSpecular = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(reflectDirection)).rgb;
+        vec3 envDiffuse = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(worldNormal)).rgb;
 
-    outColor = vec4(ambient + directLighting * shadow + emissive, albedo.a);
+        vec3 F0 = mix(vec3(0.04), baseColor, metallic);
+        vec3 fresnelTerm = FresnelSchlickRoughness(max(dot(worldNormal, viewDirection), 0.0), F0, roughness);
+        vec3 kS = fresnelTerm;
+        vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+
+        ambient = (kD * envDiffuse * baseColor + kS * envSpecular) * ao * postData.y;
+    }
+    outColor = vec4(ambient + directLighting * shadow + emissive, albedoSample.a);
 
     // 7. 运动矢量 (为 TAA/SVGF 准备)
     vec2 cur = (inCurPos.xy / inCurPos.w) * 0.5 + 0.5;

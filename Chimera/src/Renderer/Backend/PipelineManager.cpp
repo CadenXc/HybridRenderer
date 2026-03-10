@@ -153,9 +153,15 @@ namespace Chimera
 
         VkPipelineInputAssemblyStateCreateInfo iA{ VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, nullptr, 0, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
         VkPipelineViewportStateCreateInfo vP{ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, nullptr, 0, 1, nullptr, 1, nullptr };
-        VkPipelineRasterizationStateCreateInfo rA{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, nullptr, 0, VK_FALSE, VK_FALSE, VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE, VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_FALSE, 0, 0, 0, 1.0f };
+        VkPipelineRasterizationStateCreateInfo rA{ 
+            VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, 
+            nullptr, 0, VK_FALSE, VK_FALSE, VK_POLYGON_MODE_FILL, 
+            VK_CULL_MODE_NONE, // [SAFE] Disable culling
+            VK_FRONT_FACE_COUNTER_CLOCKWISE, 
+            VK_FALSE, 0, 0, 0, 1.0f 
+        };
         VkPipelineMultisampleStateCreateInfo mS{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, nullptr, 0, VK_SAMPLE_COUNT_1_BIT };
-        VkPipelineDepthStencilStateCreateInfo dS{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO, nullptr, 0, desc.depth_test, desc.depth_write, VK_COMPARE_OP_GREATER_OR_EQUAL };
+        VkPipelineDepthStencilStateCreateInfo dS{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO, nullptr, 0, desc.depth_test, desc.depth_write, CH_DEPTH_COMPARE_OP };
 
         std::vector<VkPipelineColorBlendAttachmentState> bA(colorFormats.size(), { VK_FALSE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD, VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT });
         VkPipelineColorBlendStateCreateInfo cB{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, nullptr, 0, VK_FALSE, VK_LOGIC_OP_COPY, (uint32_t)bA.size(), bA.data() };

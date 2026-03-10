@@ -8,7 +8,7 @@ namespace Chimera
     };
 
 #ifdef NDEBUG
-    const bool enableValidationLayers = false;
+    bool enableValidationLayers = false;
 #else
     bool enableValidationLayers = true;
 #endif

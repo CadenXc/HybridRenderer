@@ -10,8 +10,8 @@
 #include "Renderer/Passes/RTDiffuseGIPass.h"
 #include "Renderer/Passes/SVGFPass.h"
 #include "Renderer/Passes/CompositionPass.h"
-#include "Renderer/Passes/BloomPass.h"
 #include "Renderer/Passes/TAAPass.h"
+#include "Renderer/Passes/PostProcessPass.h"
 #include "Renderer/Passes/StandardPasses.h"
 #include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Renderer/Backend/Renderer.h"
@@ -30,9 +30,11 @@ namespace Chimera
         // 1. G-Buffer Pass
         GBufferPass::AddToGraph(graph, scene);
 
+        bool rtSupported = m_Context->IsRayTracingSupported();
+
         // 2. Ray Tracing Passes (Shadows, Reflections, GI)
         bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
-        if (hasTLAS) 
+        if (rtSupported && hasTLAS) 
         {
             RTShadowAOPass::AddToGraph(graph, scene);
             RTReflectionPass::AddToGraph(graph, scene);
@@ -40,7 +42,7 @@ namespace Chimera
         }
 
         // 3. SVGF Denoising Passes
-        if (scene) 
+        if (rtSupported && scene) 
         {
             SVGFPass::AddToGraph(graph, scene, {
                 .inputName = "CurColor",
@@ -60,20 +62,27 @@ namespace Chimera
                 .historyBaseName = "GIAccum"
             });
         }
+        else
+        {
+            // Fallback: Clear the resources that CompositionPass expects
+            StandardPasses::AddClearPass(graph, "Shadow_Filtered_4", { {1.0f, 1.0f, 1.0f, 1.0f} });
+            StandardPasses::AddClearPass(graph, "Refl_Filtered_4",   { {0.0f, 0.0f, 0.0f, 0.0f} });
+            StandardPasses::AddClearPass(graph, "GI_Filtered_4",     { {0.0f, 0.0f, 0.0f, 0.0f} });
+        }
 
         // 4. Composition Pass
         CompositionPass::AddToGraph(graph, {
             .shadowName = "Shadow_Filtered_4",
-            .reflectionName = "Refl_Filtered_4", // Restore SVGF for Reflection
-            .giName = "GI_Filtered_4"           // Restore SVGF for GI
+            .reflectionName = "Refl_Filtered_4", 
+            .giName = "GI_Filtered_4"           
         });
 
-        // 5. Post-processing
-        StandardPasses::AddLinearizeDepthPass(graph);
-
-        // 6. Final Polish (Bloom & TAA)
-        BloomPass::AddToGraph(graph);
+        // 5. Post Processing (Static Chain)
+        // 5.1 TAA (Always outputs TAAOutput)
         TAAPass::AddToGraph(graph);
+
+        // 5.2 Final Post & Tone Mapping (Outputs RS::RENDER_OUTPUT)
+        PostProcessPass::AddToGraph(graph, "TAAOutput");
     }
 
     void HybridRenderPath::OnImGui()

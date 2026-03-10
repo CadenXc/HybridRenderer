@@ -37,7 +37,6 @@ namespace Chimera
         uint32_t RenderFlags = 1; 
         float Exposure = 1.0f;
         float AmbientStrength = 1.0f;
-        float BloomStrength = 0.5f;
         glm::vec4 ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f }; // [NEW]
 
         float SVGFAlphaColor = 0.05f;

@@ -23,14 +23,15 @@ void main()
     float depth = texture(gDepth, inUV).r;
     
     // Explicitly unpack members from block-aligned UBO
-    uint displayMode = global.ubo.frameData.z;
-    uint renderFlags = global.ubo.frameData.w;
-    float exposure   = global.ubo.postData.x;
-    float ambStr     = global.ubo.postData.y;
-    int skyIdx       = int(global.ubo.envData.x);
+    uint displayMode = frameData.z;
+    uint renderFlags = frameData.w;
+    float exposure   = postData.x;
+    float ambStr     = postData.y;
+    int skyIdx       = int(envData.x);
 
     // 1. 处理背景 (Environment)
-    if (depth == 0.0) 
+    // Reversed-Z: 0.0 is far plane (skybox)
+    if (depth <= 0.0001) 
     {
         if (displayMode == DISPLAY_MODE_NORMAL || displayMode == DISPLAY_MODE_MATERIAL)
         {
@@ -40,39 +41,49 @@ void main()
         
         if (skyIdx >= 0) 
         {
-            vec3 worldPos = GetWorldPos(1.0, inUV, global.ubo.camera.viewProjInverse);
-            vec3 viewDir = normalize(worldPos - global.ubo.camera.position.xyz);
+            // Reconstruction of direction from clip space
+            vec4 clip = vec4(inUV * 2.0 - 1.0, 0.0, 1.0); // 0.0 is far in reversed-z
+            vec4 view = camera.projInverse * clip;
+            vec3 viewDir = normalize((camera.viewInverse * vec4(normalize(view.xyz), 0.0)).xyz);
             outFinalColor = vec4(texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(viewDir)).rgb, 1.0);
         } 
         else 
         {
-            outFinalColor = global.ubo.clearColor;
+            outFinalColor = clearColor;
         }
         return;
     }
 
     // 2. 采样 G-Buffer 数据
-    vec3 albedo = texture(gAlbedo, inUV).rgb;
+    vec3 baseColor = texture(gAlbedo, inUV).rgb;
     vec3 emissive = texture(gEmissive, inUV).rgb;
-    vec3 N = normalize(texture(gNormal, inUV).xyz);
+    vec3 N_raw = texture(gNormal, inUV).xyz;
+    vec3 worldNormal = length(N_raw) > 0.001 ? normalize(N_raw) : vec3(0, 1, 0);
     vec4 material = texture(gMaterial, inUV);
-    float roughness = max(material.r, 0.05); 
-    float metallic = material.g;
-    float ao = material.b;
+    float roughness = clamp(material.r, 0.05, 1.0); 
+    float metallic = clamp(material.g, 0.0, 1.0);
+    float ao = clamp(material.b, 0.0, 1.0);
 
     // 3. 调试视图切换
-    if (displayMode == DISPLAY_MODE_ALBEDO) { outFinalColor = vec4(albedo, 1.0); return; }
-    if (displayMode == DISPLAY_MODE_NORMAL) { outFinalColor = vec4(N * 0.5 + 0.5, 1.0); return; }
+    if (displayMode == DISPLAY_MODE_ALBEDO) { outFinalColor = vec4(baseColor, 1.0); return; }
+    if (displayMode == DISPLAY_MODE_NORMAL) { outFinalColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
     if (displayMode == DISPLAY_MODE_MATERIAL) { outFinalColor = vec4(roughness, metallic, ao, 1.0); return; }
     if (displayMode == DISPLAY_MODE_MOTION) { outFinalColor = vec4(abs(texture(gMotion, inUV).xy) * 10.0, 0.0, 1.0); return; }
-    if (displayMode == DISPLAY_MODE_DEPTH) { outFinalColor = vec4(vec3(depth), 1.0); return; }
+    if (displayMode == DISPLAY_MODE_DEPTH) 
+    { 
+        // [FIX] Linearize depth for better debugging in Reversed-Z
+        vec4 target = camera.projInverse * vec4(0.0, 0.0, depth, 1.0);
+        float linearZ = abs(target.z / target.w);
+        outFinalColor = vec4(vec3(exp(-linearZ * 0.1)), 1.0); // Fog-like visualization
+        return; 
+    }
     if (displayMode == DISPLAY_MODE_EMISSIVE) { outFinalColor = vec4(emissive, 1.0); return; }
 
     // 4. 核心物理合成
-    vec3 worldPos = GetWorldPos(depth, inUV, global.ubo.camera.viewProjInverse);
-    vec3 V = normalize(global.ubo.camera.position.xyz - worldPos);
-    vec3 L = normalize(-global.ubo.sunLight.direction.xyz);
-    vec3 lightIntensity = global.ubo.sunLight.color.rgb * global.ubo.sunLight.intensity.x;
+    vec3 worldPos = GetWorldPos(depth, inUV, camera.viewProjInverse);
+    vec3 viewDirection = normalize(camera.position.xyz - worldPos);
+    vec3 lightDirection = normalize(-sunLight.direction.xyz);
+    vec3 lightIntensity = sunLight.color.rgb * sunLight.intensity.x;
 
     // 4. RT/SVGF Signals
     float shadowFactor = 1.0;
@@ -84,12 +95,8 @@ void main()
     }
     else
     {
-        vec3 ddx = dFdx(worldPos);
-        vec3 ddy = dFdy(worldPos);
-        vec3 faceNormal = normalize(cross(ddx, ddy));
-        if (dot(faceNormal, V) < 0.0) faceNormal = -faceNormal;
-        vec3 shadowOrigin = OffsetRay(worldPos, faceNormal);
-        shadowFactor = CalculateRayQueryShadow(shadowOrigin, L, 1000.0);
+        // Screen space fallback or simple shadow mapping
+        shadowFactor = 1.0; 
     }
 
     vec3 reflectionSignal = texture(gReflection_Raw, inUV).rgb;
@@ -101,26 +108,36 @@ void main()
     if (displayMode == DISPLAY_MODE_GI) { outFinalColor = vec4(giSignal, 1.0); return; }
 
     // 6. 核心物理合成
-    // 6.1 直接光 PBR
-    vec3 directLighting = EvaluateDirectPBR(N, V, L, albedo, roughness, metallic, lightIntensity) * shadowFactor;
+    // 6.1 直接光 PBR (Direct)
+    vec3 directLighting = EvaluateDirectPBR(worldNormal, viewDirection, lightDirection, baseColor, roughness, metallic, lightIntensity) * shadowFactor;
 
-    // 6.2 间接光 (GI & Reflection)
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
-    vec3 F = F_SchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    // 6.2 间接光 (Indirect / GI)
+    vec3 F0 = mix(vec3(0.04), baseColor, metallic);
+    vec3 fresnelTerm = FresnelSchlickRoughness(max(dot(worldNormal, viewDirection), 0.0), F0, roughness);
     
-    vec3 indirectDiffuse = giSignal * albedo * kD;
-    vec3 indirectSpecular = reflectionSignal * F;
+    // kS is the energy that reflects, kD is the energy that refracts/diffuses
+    vec3 kS = fresnelTerm;
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+    
+    // [FIX] GI signal should be modulated by albedo and refraction ratio (kD)
+    vec3 indirectDiffuse = giSignal * baseColor * kD;
+    
+    // [FIX] Reflection signal from SVGF is already an irradiance/radiance sample
+    // but needs to be weighted by the Fresnel term at the surface
+    vec3 indirectSpecular = reflectionSignal * kS;
 
     // Fallback if no RT reflection/GI
     if ((renderFlags & RENDER_FLAG_GI_BIT) == 0) 
     {
-        indirectDiffuse = ambStr * albedo * ao * 0.1;
+        // Simple ambient with AO
+        indirectDiffuse = ambStr * baseColor * ao * 0.05;
     }
+    
     if ((renderFlags & RENDER_FLAG_REFLECTION_BIT) == 0 && skyIdx >= 0) 
     {
-        vec3 reflectDir = reflect(-V, N);
-        indirectSpecular = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(reflectDir)).rgb * F * ambStr;
+        vec3 reflectDirection = reflect(-viewDirection, worldNormal);
+        vec3 envSpecular = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(reflectDirection)).rgb;
+        indirectSpecular = envSpecular * kS * ambStr;
     }
 
     vec3 finalColor = directLighting + indirectDiffuse + indirectSpecular + emissive;

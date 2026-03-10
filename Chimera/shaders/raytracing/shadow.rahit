@@ -7,8 +7,8 @@ hitAttributeEXT vec2 attribs;
 void main()
 {
     uint objId = gl_InstanceCustomIndexEXT;
-    GpuPrimitive prim = primBuf.primitives[objId];
-    GpuMaterial mat = materialBuffer.m[prim.materialIndex];
+    GpuPrimitive prim = primitives[objId];
+    GpuMaterial mat = materials[prim.materialIndex];
     
     if (mat.albedoTex >= 0)
     {

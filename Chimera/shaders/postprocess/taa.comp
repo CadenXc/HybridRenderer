@@ -3,18 +3,13 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(set = 0, binding = 0) uniform GlobalUBO 
-{
-    UniformBufferObject ubo;
-} global;
-
-layout(set = 2, binding = 0) uniform sampler2D curColor;    // FinalColor (HDR)
-layout(set = 2, binding = 1) uniform sampler2D historyColor; // TAA History (HDR)
+layout(set = 2, binding = 0) uniform sampler2D curColor;
+layout(set = 2, binding = 1) uniform sampler2D historyColor;
 layout(set = 2, binding = 2) uniform sampler2D gMotion;
 layout(set = 2, binding = 3) uniform sampler2D gDepth;
-layout(set = 2, binding = 4) uniform sampler2D gBloom;      // BloomBlurV (HDR)
 
-layout(set = 2, binding = 5, rgba16f) uniform image2D outColor; // Final Output (SDR)
+layout(set = 2, binding = 4, rgba16f) uniform image2D outPingPong; 
+layout(set = 2, binding = 5, rgba16f) uniform image2D outFinal;
 
 // --- Helper Functions ---
 vec3 RGBToYCoCg(vec3 rgb) 
@@ -33,79 +28,108 @@ vec3 YCoCgToRGB(vec3 ycocg)
     return vec3(r, g, b);
 }
 
-vec3 ACESToneMapping(vec3 x) 
+vec3 CompressHDR(vec3 color) 
 {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+    return color / (1.0 + max(color.r, max(color.g, color.b)));
+}
+
+vec3 DecompressHDR(vec3 color) 
+{
+    return color / max(1.0 - max(color.r, max(color.g, color.b)), 0.0001);
 }
 
 void main() 
 {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    if (pixel.x >= global.ubo.displayData.x || pixel.y >= global.ubo.displayData.y) 
-    {
-        return;
-    }
+    if (pixel.x >= displayData.x || pixel.y >= displayData.y) return;
 
-    vec2 uv = (vec2(pixel) + 0.5) / global.ubo.displayData.xy;
-    vec3 currentRGB = texture(curColor, uv).rgb;
+    vec2 uv = (vec2(pixel) + 0.5) / displayData.xy;
     
-    // 1. TAA Disable Check
-    if ((global.ubo.frameData.w & 2) == 0) 
+    if ((frameData.w & RENDER_FLAG_TAA_BIT) == 0) 
     {
-        // Even if TAA is off, we still need to add Bloom and ToneMap
-        vec3 bloom = texture(gBloom, uv).rgb;
-        vec3 result = currentRGB + bloom * global.ubo.postData.z;
-        result *= global.ubo.postData.x;
-        result = ACESToneMapping(result);
-        imageStore(outColor, pixel, vec4(pow(result, vec3(1.0/2.2)), 1.0));
+        vec3 currentRGB = texelFetch(curColor, pixel, 0).rgb;
+        imageStore(outPingPong, pixel, vec4(currentRGB, 1.0));
+        imageStore(outFinal, pixel, vec4(currentRGB, 1.0));
         return;
     }
 
-    // 2. TAA Logic
-    vec2 motion = texture(gMotion, uv).xy;
-    vec2 prevUV = uv - motion;
+    // 1. Velocity Dilation: 使用 texelFetch 保证稳定
+    ivec2 closestOffset = ivec2(0);
+    float minDepth = 1.0; 
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            float d = texelFetch(gDepth, pixel + ivec2(x, y), 0).r;
+            if (d < minDepth)
+            {
+                minDepth = d;
+                closestOffset = ivec2(x, y);
+            }
+        }
+    }
 
-    // Variance Clamping in YCoCg space
-    vec3 currentYCoCg = RGBToYCoCg(currentRGB);
+    // 2. Reprojection (Strictly in Jittered Space for Maximum Sharpness)
+    // [FIX] Use texelFetch to get 100% sharp raw pixel, avoiding premature bilinear blur
+    vec3 currentRGB = texelFetch(curColor, pixel, 0).rgb;
+    
+    // Use Dilated Velocity for edge stability
+    vec2 motion = texelFetch(gMotion, pixel + closestOffset, 0).xy;
+    
+    // Get Jitter data for both frames
+    vec2 curJitter = camera.jitterData.xy * 0.5;
+    vec2 preJitter = camera.jitterData.zw * 0.5;
+
+    // [FIX] Reprojection formula: Match this frame's jittered sample to previous frame's jittered sample
+    // uv - curJitter (re-center) - motion (back in time) + preJitter (match old jitter)
+    vec2 prevUV = uv - motion - curJitter + preJitter;
+
+    // 3. Variance Box Construction (Stay on stable physical grid for box stats)
     vec3 m1 = vec3(0.0);
     vec3 m2 = vec3(0.0);
-    
     for (int x = -1; x <= 1; ++x) 
     {
         for (int y = -1; y <= 1; ++y) 
         {
-            vec3 c = RGBToYCoCg(texture(curColor, uv + vec2(x, y) * global.ubo.displayData.zw).rgb);
+            // We sample the actual rendered pixels to see the local color range
+            vec3 c = RGBToYCoCg(CompressHDR(texelFetch(curColor, pixel + ivec2(x, y), 0).rgb));
             m1 += c;
             m2 += c * c;
         }
     }
     
     vec3 mu = m1 / 9.0;
-    vec3 sigma = sqrt(max(vec3(0.0), m2 / 9.0 - mu * mu));
-    vec3 boxMin = mu - 1.25 * sigma;
+    vec3 sigma = sqrt(max(m2 / 9.0 - mu * mu, 0.0));
+    vec3 boxMin = mu - 1.25 * sigma; 
     vec3 boxMax = mu + 1.25 * sigma;
 
+    // 4. Sample History and AABB Clip
     vec3 historyRGB = texture(historyColor, prevUV).rgb;
-    vec3 historyYCoCg = RGBToYCoCg(historyRGB);
-    historyYCoCg = clamp(historyYCoCg, boxMin, boxMax);
+    vec3 historyYCoCg = RGBToYCoCg(CompressHDR(historyRGB));
+    
+    // [UPGRADE] AABB Clipping (射线求交法)
+    vec3 rayOrigin = historyYCoCg;
+    vec3 rayDir = mu - historyYCoCg;
+    // 使用 epsilon 避免除以零，保证每个分量都有微小位移
+    rayDir = mix(rayDir, vec3(1e-6), lessThan(abs(rayDir), vec3(1e-6)));
+    vec3 invRayDir = 1.0 / rayDir;
+    vec3 intersectMin = (boxMin - rayOrigin) * invRayDir;
+    vec3 intersectMax = (boxMax - rayOrigin) * invRayDir;
+    
+    // 获取交点的进入时间 (Clip 到 AABB 边缘)
+    float t = clamp(max(max(min(intersectMin, intersectMax).x, min(intersectMin, intersectMax).y), min(intersectMin, intersectMax).z), 0.0, 1.0);
+    historyYCoCg = mix(historyYCoCg, mu, t);
 
-    float alpha = (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) ? 1.0 : 0.05;
-    vec3 resolvedYCoCg = mix(historyYCoCg, currentYCoCg, alpha);
-    vec3 resolvedRGB = YCoCgToRGB(resolvedYCoCg);
+    // 5. Blending
+    float motionLen = length(motion * vec2(displayData.x, displayData.y));
+    float alpha = clamp(0.05 + motionLen * 0.1, 0.05, 0.5);
 
-    // 3. Add Bloom (in linear HDR space)
-    vec3 bloomVal = texture(gBloom, uv).rgb;
-    vec3 finalHDR = resolvedRGB + bloomVal * global.ubo.postData.z;
+    if ((frameData.w & RENDER_FLAG_TAA_HISTORY_BIT) == 0) alpha = 1.0;
+    
+    vec3 currentYCoCg = RGBToYCoCg(CompressHDR(currentRGB));
+    vec3 resolvedRGB = YCoCgToRGB(mix(historyYCoCg, currentYCoCg, alpha));
+    vec3 resolvedHDR = DecompressHDR(resolvedRGB);
 
-    // 4. Final Tone Mapping (Keep in linear space, FinalBlit handles SRGB)
-    finalHDR *= global.ubo.postData.x;
-    vec3 finalSDR = ACESToneMapping(finalHDR);
-    // [FIX] DO NOT pow(1/2.2) here because the Swapchain is already _SRGB!
-
-    imageStore(outColor, pixel, vec4(finalSDR, 1.0));
+    imageStore(outPingPong, pixel, vec4(resolvedHDR, 1.0));
+    imageStore(outFinal, pixel, vec4(resolvedHDR, 1.0));
 }

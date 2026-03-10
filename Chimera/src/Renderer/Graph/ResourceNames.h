@@ -24,7 +24,7 @@ namespace Chimera
 
         // --- 光追与中间件 ---
         inline static const std::string RTOutput      = "RTOutput";
-        inline static const std::string CurColor      = "CurColor"; // Changed from ShadowAO
+        inline static const std::string CurColor      = "CurColor";
         inline static const std::string Reflections   = "Reflections";
         inline static const std::string ReflectionRaw = "ReflectionRaw";
         
@@ -45,6 +45,6 @@ namespace Chimera
         inline static const std::string ShadowAO      = CurColor;
         inline static const std::string FINAL_COLOR   = FinalColor;
         inline static const std::string DEPTH         = Depth;
-        inline static const std::string FORWARD_COLOR = FinalColor; // Assuming Forward writes to FinalColor
+        inline static const std::string FORWARD_COLOR = FinalColor;
     }
 }

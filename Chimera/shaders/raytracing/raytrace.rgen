@@ -18,13 +18,19 @@ void main()
     const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
     vec2 d = inUV * 2.0 - 1.0;
 
-    vec4 origin = global.ubo.camera.viewInverse * vec4(0, 0, 0, 1);
-    vec4 target = global.ubo.camera.projInverse * vec4(d.x, d.y, 1, 1);
-    vec4 direction = global.ubo.camera.viewInverse * vec4(normalize(target.xyz), 0);
+    // 1. Ray Origin (Camera World Position)
+    vec3 origin = camera.position.xyz;
+    
+    // 2. Ray Direction Calculation (Stable Inverse Transform)
+    // Step A: Invert projection to get view space point
+    vec4 target = camera.projInverse * vec4(d.x, d.y, 1.0, 1.0);
+    // Step B: Transform View direction to World Space
+    vec3 rayDirView = normalize(target.xyz / target.w);
+    vec3 direction = normalize((camera.viewInverse * vec4(rayDirView, 0.0)).xyz);
 
     payload.color_dist = vec4(0.0);
     payload.normal_rough = vec4(0.0);
-    payload.motion_hit = vec4(0.0);
+    payload.motion_hit = vec4(0.0, 0.0, 0.0, 0.0);
 
     uint rayFlags = gl_RayFlagsNoneEXT;
     if (pc.useAlphaTest == 0)
@@ -32,27 +38,36 @@ void main()
         rayFlags |= gl_RayFlagsOpaqueEXT;
     }
 
-    // Launch Ray
-    traceRayEXT(TLAS, rayFlags, 0xFF, 0, 0, 0, origin.xyz, 0.001, direction.xyz, 10000.0, 0);
+    // Launch Ray (Primary)
+    traceRayEXT(TLAS, rayFlags, 0xFF, 0, 0, 0, origin, 0.001, direction, 10000.0, 0);
 
     vec3 finalColor = vec3(0.0);
-    if (payload.motion_hit.b < 0.5) 
+    
+    // Check if we hit anything (motion_hit.z set to 1.0 in closesthit)
+    if (payload.motion_hit.z < 0.5) 
     {
-        int skyboxIdx = int(global.ubo.envData.x);
+        // [MISS] Sample Environment Map
+        int skyboxIdx = int(envData.x);
         if (skyboxIdx >= 0)
         {
-            finalColor = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(direction.xyz)).rgb;
+            finalColor = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(direction)).rgb;
         }
         else
         {
-            finalColor = global.ubo.clearColor.rgb;
+            // Fallback Sky Gradient
+            float t = 0.5 * (direction.y + 1.0);
+            finalColor = mix(vec3(0.4, 0.5, 0.6), vec3(0.1, 0.2, 0.4), t);
         }
+        
+        // Mark background for SVGF/TAA (No motion for background)
+        imageStore(rtMotionVector, ivec2(gl_LaunchIDEXT.xy), vec4(0.0));
     } 
     else 
     {
+        // [HIT] Use path traced result
         finalColor = payload.color_dist.rgb;
+        imageStore(rtMotionVector, ivec2(gl_LaunchIDEXT.xy), vec4(payload.motion_hit.xy, 0.0, 0.0));
     }
 
     imageStore(rtFinalColor, ivec2(gl_LaunchIDEXT.xy), vec4(finalColor, 1.0));
-    imageStore(rtMotionVector, ivec2(gl_LaunchIDEXT.xy), vec4(payload.motion_hit.rg, 0.0, 0.0));
 }

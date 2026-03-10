@@ -18,19 +18,31 @@ layout(set = 2, binding = 7) uniform sampler2D gCurNormal;
 layout(set = 2, binding = 8) uniform sampler2D gPrevDepth;
 layout(set = 2, binding = 9) uniform sampler2D gPrevNormal;
 
+float LinearizeDepth(float d) 
+{
+    // Reversed-Z aware linearization
+    vec4 target = camera.projInverse * vec4(0.0, 0.0, d, 1.0);
+    return abs(target.z / target.w);
+}
+
 void main() 
 {
     ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
-    vec2 displaySize = global.ubo.displayData.xy;
+    vec2 displaySize = displayData.xy;
 
     if (ipos.x >= int(displaySize.x) || ipos.y >= int(displaySize.y)) 
     {
         return;
     }
 
-    vec2 uv = (vec2(ipos) + 0.5) / global.ubo.displayData.xy;
+    vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
+    vec2 curJitter = camera.jitterData.xy * 0.5;
+    vec2 preJitter = camera.jitterData.zw * 0.5;
+
     vec2 motion = texture(gMotion, uv).xy;
-    vec2 prevUV = uv - motion;
+    
+    // [FIX] Reprojection with TAA Jitter compensation
+    vec2 prevUV = uv - motion - curJitter + preJitter;
 
     vec3 curColor = texture(gCurColor, uv).rgb;
     float curLuma = dot(curColor, vec3(0.299, 0.587, 0.114));
@@ -43,11 +55,16 @@ void main()
         float curDepth = texture(gCurDepth, uv).r;
         float prevDepth = texture(gPrevDepth, prevUV).r;
         
-        vec3 curNormal = normalize(texture(gCurNormal, uv).rgb * 2.0 - 1.0);
-        vec3 prevNormal = normalize(texture(gPrevNormal, prevUV).rgb * 2.0 - 1.0);
+        // [FIX] Normal is already in SFLOAT [-1, 1] range, do not remap
+        vec3 curNormal = normalize(texture(gCurNormal, uv).rgb);
+        vec3 prevNormal = normalize(texture(gPrevNormal, prevUV).rgb);
 
-        // Validation A: Depth Check
-        if (abs(curDepth - prevDepth) > 0.01) 
+        // [FIX] Convert non-linear Depth to Linear Distance for relative error check
+        float curLinearZ = LinearizeDepth(curDepth);
+        float prevLinearZ = LinearizeDepth(prevDepth);
+
+        // Validation A: Relative Depth Check (more robust than absolute)
+        if (abs(curLinearZ - prevLinearZ) / max(curLinearZ, 0.001) > 0.1) 
         {
             historyValid = false;
         }
@@ -70,8 +87,8 @@ void main()
         vec4 hMoments = texture(gHistoryMoments, prevUV);
         historyLen = hMoments.a;
 
-        float alphaColor = global.ubo.svgfAlpha.x;
-        float alphaMoments = global.ubo.svgfAlpha.y;
+        float alphaColor = svgfAlpha.x;
+        float alphaMoments = svgfAlpha.y;
 
         // Dynamic alpha based on history length to speed up convergence
         // [MOD] Ensure alpha doesn't get TOO small, which causes infinite whitening

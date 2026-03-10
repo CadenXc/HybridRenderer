@@ -7,7 +7,7 @@ layout(location = 0) rayPayloadInEXT HitPayload payload;
 void main() 
 {
     vec3 skyColor = vec3(0.0);
-    int skyIdx = int(global.ubo.envData.x);
+    int skyIdx = int(envData.x);
     if (skyIdx >= 0)
     {
         skyColor = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(gl_WorldRayDirectionEXT)).rgb;
