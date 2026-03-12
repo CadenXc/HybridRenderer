@@ -28,6 +28,7 @@ void main()
     float exposure   = postData.x;
     float ambStr     = postData.y;
     int skyIdx       = int(envData.x);
+    vec4 finalClearColor = gpuClearColor;
 
     // 1. 处理背景 (Environment)
     // Reversed-Z: 0.0 is far plane (skybox)
@@ -49,7 +50,7 @@ void main()
         } 
         else 
         {
-            outFinalColor = clearColor;
+            outFinalColor = finalClearColor;
         }
         return;
     }

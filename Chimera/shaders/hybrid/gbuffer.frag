@@ -41,8 +41,12 @@ void main()
     float ao = GetAmbientOcclusion(mat, inTexCoord);
     vec3 emissive = GetEmissive(mat, inTexCoord);
 
-    vec2 curUV  = (inCurPos.xy / inCurPos.w) * 0.5 + 0.5;
-    vec2 prevUV = (inPrevPos.xy / inPrevPos.w) * 0.5 + 0.5;
+    // [FIX] Safe perspective divide to prevent NaN/Infinity near the near plane
+    float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
+    float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;
+
+    vec2 curUV  = (inCurPos.xy / safeCurW) * 0.5 + 0.5;
+    vec2 prevUV = (inPrevPos.xy / safePrevW) * 0.5 + 0.5;
     
     outMotion = curUV - prevUV;
 

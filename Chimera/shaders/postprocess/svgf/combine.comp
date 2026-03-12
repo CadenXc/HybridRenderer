@@ -1,0 +1,31 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "../../common/common.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 2, binding = 0) uniform sampler2D gCurrentFiltered;
+layout(set = 2, binding = 1) uniform sampler2D gHistory;
+layout(set = 2, binding = 2) uniform sampler2D gMoments; // To get history length
+
+layout(set = 2, binding = 3, rgba16f) uniform image2D outFinal;
+
+void main()
+{
+    ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
+
+    vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
+    
+    vec3 current = texture(gCurrentFiltered, uv).rgb;
+    vec3 history = texture(gHistory, uv).rgb;
+    float historyLen = texture(gMoments, uv).a;
+
+    // Final temporal blend to reduce residual spatial noise
+    // If history is long, we can afford to blend in more history
+    float alpha = max(1.0 / (historyLen + 1.0), 0.1); 
+    
+    vec3 result = mix(history, current, alpha);
+
+    imageStore(outFinal, ipos, vec4(result, 1.0));
+}

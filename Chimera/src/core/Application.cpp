@@ -333,7 +333,8 @@ namespace Chimera
         ubo.envData = glm::vec4((float)skyboxIdx, 0.0f, 0.0f, 0.0f);
 
         ubo.svgfAlpha = glm::vec4(m_FrameContext.SVGFAlphaColor, m_FrameContext.SVGFAlphaMoments, 0.0f, 0.0f);
-        ubo.clearColor = m_FrameContext.ClearColor;
+        ubo.svgfPhi   = glm::vec4(m_FrameContext.SVGFPhiColor, m_FrameContext.SVGFPhiNormal, m_FrameContext.SVGFPhiDepth, 0.0f);
+        ubo.gpuClearColor = m_FrameContext.ClearColor;
 
         if (m_ResourceManager->HasActiveScene())
         {

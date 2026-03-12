@@ -31,6 +31,8 @@ namespace Chimera
         GBufferPass::AddToGraph(graph, scene);
 
         bool rtSupported = m_Context->IsRayTracingSupported();
+        uint32_t renderFlags = Application::Get().GetFrameContext().RenderFlags;
+        bool useSVGF = (renderFlags & RENDER_FLAG_SVGF_BIT) != 0;
 
         // 2. Ray Tracing Passes (Shadows, Reflections, GI)
         bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
@@ -41,8 +43,8 @@ namespace Chimera
             RTDiffuseGIPass::AddToGraph(graph, scene);
         }
 
-        // 3. SVGF Denoising Passes
-        if (rtSupported && scene) 
+        // 3. SVGF Denoising Passes (Conditional)
+        if (rtSupported && scene && useSVGF) 
         {
             SVGFPass::AddToGraph(graph, scene, {
                 .inputName = "CurColor",
@@ -62,19 +64,12 @@ namespace Chimera
                 .historyBaseName = "GIAccum"
             });
         }
-        else
-        {
-            // Fallback: Clear the resources that CompositionPass expects
-            StandardPasses::AddClearPass(graph, "Shadow_Filtered_4", { {1.0f, 1.0f, 1.0f, 1.0f} });
-            StandardPasses::AddClearPass(graph, "Refl_Filtered_4",   { {0.0f, 0.0f, 0.0f, 0.0f} });
-            StandardPasses::AddClearPass(graph, "GI_Filtered_4",     { {0.0f, 0.0f, 0.0f, 0.0f} });
-        }
 
-        // 4. Composition Pass
+        // 4. Composition Pass (Connect either SVGF output or Raw RT output)
         CompositionPass::AddToGraph(graph, {
-            .shadowName = "Shadow_Filtered_4",
-            .reflectionName = "Refl_Filtered_4", 
-            .giName = "GI_Filtered_4"           
+            .shadowName     = useSVGF ? "Shadow_Filtered_Final" : "CurColor",
+            .reflectionName = useSVGF ? "Refl_Filtered_Final"   : "ReflectionRaw",
+            .giName         = useSVGF ? "GI_Filtered_Final"     : "GIRaw"
         });
 
         // 5. Post Processing (Static Chain)

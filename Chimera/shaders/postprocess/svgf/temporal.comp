@@ -91,9 +91,9 @@ void main()
         float alphaMoments = svgfAlpha.y;
 
         // Dynamic alpha based on history length to speed up convergence
-        // [MOD] Ensure alpha doesn't get TOO small, which causes infinite whitening
-        float successAlpha = max(1.0 / (historyLen + 1.0), 0.15); // Min 0.15 instead of svfAlpha.x
-        float momentsAlpha = max(1.0 / (historyLen + 1.0), 0.2); 
+        // Use UBO values as floor
+        float successAlpha = max(1.0 / (historyLen + 1.0), alphaColor); 
+        float momentsAlpha = max(1.0 / (historyLen + 1.0), alphaMoments); 
         
         accumColor = mix(hColor, curColor, successAlpha);
         moment1 = mix(hMoments.r, curLuma, momentsAlpha);

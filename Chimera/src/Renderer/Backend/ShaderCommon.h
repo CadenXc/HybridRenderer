@@ -128,8 +128,9 @@ struct UniformBufferObject
     // Block 4: Environment & Other
     vec4 envData;    // x: skyboxTextureIndex, yzw: padding
 
-    vec4 svgfAlpha; 
-    vec4 clearColor; 
+    vec4 svgfAlpha;  // x: alphaColor, y: alphaMoments, zw: padding
+    vec4 svgfPhi;    // x: phiColor, y: phiNormal, z: phiDepth, w: padding
+    vec4 gpuClearColor; 
 };
 
 #ifndef __cplusplus
@@ -150,8 +151,9 @@ layout(set = 0, binding = BINDING_GLOBAL_UBO) uniform GlobalUBO
     // Block 4: Environment & Other
     vec4 envData;    // x: skyboxTextureIndex, yzw: padding
 
-    vec4 svgfAlpha; 
-    vec4 clearColor; 
+    vec4 svgfAlpha;  // x: alphaColor, y: alphaMoments, zw: padding
+    vec4 svgfPhi;    // x: phiColor, y: phiNormal, z: phiDepth, w: padding
+    vec4 gpuClearColor; 
 };
 #endif
 

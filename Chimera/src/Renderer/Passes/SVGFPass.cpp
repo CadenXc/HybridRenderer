@@ -50,7 +50,9 @@ namespace Chimera::SVGFPass
         );
 
         // 2. A-trous Filtering
-        std::string currentInput = config.prefix + "_TemporalColor";
+        std::string currentInputColor = config.prefix + "_TemporalColor";
+        std::string currentInputMoments = temporalMomentsName;
+
         for (int i = 0; i < config.atrousIterations; ++i)
         {
             struct AtrousData 
@@ -65,10 +67,10 @@ namespace Chimera::SVGFPass
             std::string outputName = config.prefix + "_Filtered_" + std::to_string(i);
             
             graph.AddComputePass<AtrousData>(config.prefix + "_Atrous_" + std::to_string(i),
-                [&, temporalMomentsName, outputName](AtrousData& data, RenderGraph::PassBuilder& builder)
+                [&, currentInputColor, currentInputMoments, outputName](AtrousData& data, RenderGraph::PassBuilder& builder)
                 {
-                    data.input   = builder.ReadCompute(currentInput);        // Binding 0
-                    data.moments = builder.ReadCompute(temporalMomentsName); // Binding 1
+                    data.input   = builder.ReadCompute(currentInputColor);   // Binding 0
+                    data.moments = builder.ReadCompute(currentInputMoments); // Binding 1
                     data.normal  = builder.ReadCompute(RS::Normal);          // Binding 2
                     data.depth   = builder.ReadCompute(RS::Depth);           // Binding 3
                     data.output  = builder.WriteStorage(outputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT); // Binding 4
@@ -81,7 +83,36 @@ namespace Chimera::SVGFPass
                     ctx.Dispatch("SVGF_Atrous", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
                 }
             );
-            currentInput = outputName;
+
+            // [NEW] Cascading update: The next pass reads both Color and smoothed Variance from THIS pass's output
+            currentInputColor = outputName;
+            currentInputMoments = outputName; 
         }
+
+        // 3. Final Post-Temporal Combine (To reduce residual spatial noise)
+        struct CombineData 
+        { 
+            RGResourceHandle current; 
+            RGResourceHandle history; 
+            RGResourceHandle moments; 
+            RGResourceHandle output; 
+        };
+
+        std::string finalOutputName = config.prefix + "_Filtered_Final";
+
+        graph.AddComputePass<CombineData>(config.prefix + "_Combine",
+            [&](CombineData& data, RenderGraph::PassBuilder& builder)
+            {
+                data.current = builder.ReadCompute(currentInputColor); // Filtered_4
+                data.history = builder.ReadHistory(config.historyBaseName);
+                data.moments = builder.ReadCompute(temporalMomentsName);
+                data.output  = builder.WriteStorage(finalOutputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.historyBaseName);
+            },
+            [](const CombineData& data, ComputeExecutionContext& ctx)
+            {
+                ctx.BindPipeline("SVGF_Combine");
+                ctx.Dispatch("SVGF_Combine", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+            }
+        );
     }
 }

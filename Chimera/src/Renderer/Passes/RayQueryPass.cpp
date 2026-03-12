@@ -24,22 +24,9 @@ namespace Chimera::RayQueryPass
         graph.AddPass<PassData>("RayQueryPass",
             [&](PassData& data, RenderGraph::PassBuilder& builder)
             {
-                auto& frameCtx = Application::Get().GetFrameContext();
-                
-                VkClearColorValue clearColor = { {frameCtx.ClearColor.r, frameCtx.ClearColor.g, frameCtx.ClearColor.b, frameCtx.ClearColor.a} };
-                VkClearColorValue clearMotion = { {0.0f, 0.0f, 0.0f, 0.0f} };
-
-                data.output = builder.Write(RS::FinalColor)
-                                     .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
-                                     .Clear(clearColor);
-                
-                data.motion = builder.Write(RS::Motion)
-                                     .Format(VK_FORMAT_R16G16_SFLOAT)
-                                     .Clear(clearMotion);
-
-                data.depth  = builder.Write(RS::Depth)
-                                     .Format(VK_FORMAT_D32_SFLOAT)
-                                     .ClearDepthStencil(1.0f, 0);
+                data.output = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                data.motion = builder.Write(RS::Motion).Format(VK_FORMAT_R16G16_SFLOAT).Clear({ 0.0f, 0.0f, 0.0f, 0.0f });
+                data.depth  = builder.Write(RS::Depth).Format(VK_FORMAT_D32_SFLOAT).ClearDepthStencil(CH_DEPTH_CLEAR_VALUE);
             },
             [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {

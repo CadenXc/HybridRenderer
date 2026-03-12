@@ -27,16 +27,12 @@ namespace Chimera
                 state.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
                 break;
             case ResourceUsage::ComputeSampled:
-                // Use GENERAL for color images in CS to allow read/write, 
-                // but SHADER_READ_ONLY for depth as general is unsupported.
-                state.layout = isDepth ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
-                state.access = VK_ACCESS_2_SHADER_READ_BIT;
-                state.stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                break;
             case ResourceUsage::RaytraceSampled:
-                state.layout = isDepth ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
+                // Prefer SHADER_READ_ONLY for sampled resources in all stages. 
+                // GENERAL is only required for Storage (Read/Write) access.
+                state.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 state.access = VK_ACCESS_2_SHADER_READ_BIT;
-                state.stage = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+                state.stage = (usage == ResourceUsage::ComputeSampled) ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
                 break;
             case ResourceUsage::StorageWrite:
             case ResourceUsage::StorageReadWrite:
@@ -705,11 +701,11 @@ namespace Chimera
                 VkImageMemoryBarrier2 postDstBarrier = dstBarrier;
                 postDstBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
                 postDstBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                postDstBarrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                postDstBarrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
                 postDstBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
                 postDstBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                // History depth MUST be SHADER_READ_ONLY_OPTIMAL to be sampled as a texture in the next frame
-                postDstBarrier.newLayout = isDepth ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
+                // [FIX] All history resources are read via samplers in next frame, so must be SHADER_READ_ONLY_OPTIMAL
+                postDstBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
                 VkImageMemoryBarrier2 postBarriers[] = { postSrcBarrier, postDstBarrier };
                 VkDependencyInfo postDep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO, nullptr, 0, 0, nullptr, 0, nullptr, 2, postBarriers };

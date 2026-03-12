@@ -72,8 +72,12 @@ void main()
         ambient = (kD * envDiffuse * baseColor + kS * envSpecular) * ao * ambStr;
     }
     
-    vec2 curPos = (inCurPos.xy / inCurPos.w) * 0.5 + 0.5;
-    vec2 prevPos = (inPrevPos.xy / inPrevPos.w) * 0.5 + 0.5;
+    // [FIX] Safe perspective divide to prevent NaN/Infinity
+    float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
+    float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;
+
+    vec2 curPos = (inCurPos.xy / safeCurW) * 0.5 + 0.5;
+    vec2 prevPos = (inPrevPos.xy / safePrevW) * 0.5 + 0.5;
     outMotionVector = curPos - prevPos;
 
     outColor = vec4(ambient + directLighting + emissive, albedo.a);

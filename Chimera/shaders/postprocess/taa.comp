@@ -28,14 +28,29 @@ vec3 YCoCgToRGB(vec3 ycocg)
     return vec3(r, g, b);
 }
 
-vec3 CompressHDR(vec3 color) 
+// HDR Compression to suppress fireflies
+vec3 ToneMap(vec3 color) 
 {
     return color / (1.0 + max(color.r, max(color.g, color.b)));
 }
 
-vec3 DecompressHDR(vec3 color) 
+vec3 UnToneMap(vec3 color) 
 {
     return color / max(1.0 - max(color.r, max(color.g, color.b)), 0.0001);
+}
+
+// Standard AABB Clipping from reference project
+vec3 ClipHistory(vec3 history, vec3 boxMin, vec3 boxMax)
+{
+    vec3 filtered = (boxMin + boxMax) * 0.5;
+    vec3 rayOrigin = history;
+    vec3 rayDir = filtered - history;
+    rayDir = mix(rayDir, vec3(1e-6), lessThan(abs(rayDir), vec3(1e-6)));
+    vec3 invRayDir = 1.0 / rayDir;
+    vec3 intersectMin = (boxMin - rayOrigin) * invRayDir;
+    vec3 intersectMax = (boxMax - rayOrigin) * invRayDir;
+    float t = clamp(max(max(min(intersectMin, intersectMax).x, min(intersectMin, intersectMax).y), min(intersectMin, intersectMax).z), 0.0, 1.0);
+    return mix(history, filtered, t);
 }
 
 void main() 
@@ -53,7 +68,7 @@ void main()
         return;
     }
 
-    // 1. Velocity Dilation: 使用 texelFetch 保证稳定
+    // 1. Velocity Dilation (Find closest point to camera in 3x3)
     ivec2 closestOffset = ivec2(0);
     float minDepth = 1.0; 
     for (int y = -1; y <= 1; ++y)
@@ -61,75 +76,67 @@ void main()
         for (int x = -1; x <= 1; ++x)
         {
             float d = texelFetch(gDepth, pixel + ivec2(x, y), 0).r;
-            if (d < minDepth)
-            {
-                minDepth = d;
-                closestOffset = ivec2(x, y);
-            }
+            if (d < minDepth) { minDepth = d; closestOffset = ivec2(x, y); }
         }
     }
 
-    // 2. Reprojection (Strictly in Jittered Space for Maximum Sharpness)
-    // [FIX] Use texelFetch to get 100% sharp raw pixel, avoiding premature bilinear blur
-    vec3 currentRGB = texelFetch(curColor, pixel, 0).rgb;
-    
-    // Use Dilated Velocity for edge stability
-    vec2 motion = texelFetch(gMotion, pixel + closestOffset, 0).xy;
-    
-    // Get Jitter data for both frames
+    // 2. Sample Data
     vec2 curJitter = camera.jitterData.xy * 0.5;
     vec2 preJitter = camera.jitterData.zw * 0.5;
-
-    // [FIX] Reprojection formula: Match this frame's jittered sample to previous frame's jittered sample
-    // uv - curJitter (re-center) - motion (back in time) + preJitter (match old jitter)
+    vec2 motion = texelFetch(gMotion, pixel + closestOffset, 0).xy;
+    
+    // Reprojection formula (Decoupled from OIS)
     vec2 prevUV = uv - motion - curJitter + preJitter;
 
-    // 3. Variance Box Construction (Stay on stable physical grid for box stats)
+    // Sharp tap current frame
+    vec3 currentRGB = texelFetch(curColor, pixel, 0).rgb;
+    vec3 currentYCoCg = RGBToYCoCg(ToneMap(currentRGB));
+
+    // 3. Construct Stable AABB
     vec3 m1 = vec3(0.0);
     vec3 m2 = vec3(0.0);
+    vec3 bMin = currentYCoCg;
+    vec3 bMax = currentYCoCg;
+
     for (int x = -1; x <= 1; ++x) 
     {
         for (int y = -1; y <= 1; ++y) 
         {
-            // We sample the actual rendered pixels to see the local color range
-            vec3 c = RGBToYCoCg(CompressHDR(texelFetch(curColor, pixel + ivec2(x, y), 0).rgb));
+            vec3 c = RGBToYCoCg(ToneMap(texelFetch(curColor, pixel + ivec2(x, y), 0).rgb));
             m1 += c;
             m2 += c * c;
+            bMin = min(bMin, c);
+            bMax = max(bMax, c);
         }
     }
     
+    // Variance-based box expansion
     vec3 mu = m1 / 9.0;
     vec3 sigma = sqrt(max(m2 / 9.0 - mu * mu, 0.0));
     vec3 boxMin = mu - 1.25 * sigma; 
     vec3 boxMax = mu + 1.25 * sigma;
+    
+    // Tighten with Min/Max for extreme stability (Hybrid Approach)
+    boxMin = max(boxMin, bMin);
+    boxMax = min(boxMax, bMax);
 
-    // 4. Sample History and AABB Clip
+    // 4. Sample and Clip History
     vec3 historyRGB = texture(historyColor, prevUV).rgb;
-    vec3 historyYCoCg = RGBToYCoCg(CompressHDR(historyRGB));
+    vec3 historyYCoCg = RGBToYCoCg(ToneMap(historyRGB));
     
-    // [UPGRADE] AABB Clipping (射线求交法)
-    vec3 rayOrigin = historyYCoCg;
-    vec3 rayDir = mu - historyYCoCg;
-    // 使用 epsilon 避免除以零，保证每个分量都有微小位移
-    rayDir = mix(rayDir, vec3(1e-6), lessThan(abs(rayDir), vec3(1e-6)));
-    vec3 invRayDir = 1.0 / rayDir;
-    vec3 intersectMin = (boxMin - rayOrigin) * invRayDir;
-    vec3 intersectMax = (boxMax - rayOrigin) * invRayDir;
-    
-    // 获取交点的进入时间 (Clip 到 AABB 边缘)
-    float t = clamp(max(max(min(intersectMin, intersectMax).x, min(intersectMin, intersectMax).y), min(intersectMin, intersectMax).z), 0.0, 1.0);
-    historyYCoCg = mix(historyYCoCg, mu, t);
+    historyYCoCg = ClipHistory(historyYCoCg, boxMin, boxMax);
 
-    // 5. Blending
-    float motionLen = length(motion * vec2(displayData.x, displayData.y));
-    float alpha = clamp(0.05 + motionLen * 0.1, 0.05, 0.5);
+    // 5. Dynamic Alpha Blending (Reference Project Sensitivity)
+    float motionLen = length(motion * displayData.xy); // Motion in pixels
+    float alpha = clamp(0.05 + motionLen * 0.1, 0.05, 0.8);
 
+    // Discard history if out of bounds
+    if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0)))) alpha = 1.0;
     if ((frameData.w & RENDER_FLAG_TAA_HISTORY_BIT) == 0) alpha = 1.0;
     
-    vec3 currentYCoCg = RGBToYCoCg(CompressHDR(currentRGB));
-    vec3 resolvedRGB = YCoCgToRGB(mix(historyYCoCg, currentYCoCg, alpha));
-    vec3 resolvedHDR = DecompressHDR(resolvedRGB);
+    vec3 resolvedYCoCg = mix(historyYCoCg, currentYCoCg, alpha);
+    vec3 resolvedRGB = UnToneMap(YCoCgToRGB(resolvedYCoCg));
 
-    imageStore(outPingPong, pixel, vec4(resolvedHDR, 1.0));
-    imageStore(outFinal, pixel, vec4(resolvedHDR, 1.0));
+    imageStore(outPingPong, pixel, vec4(resolvedRGB, 1.0));
+    imageStore(outFinal, pixel, vec4(resolvedRGB, 1.0));
 }

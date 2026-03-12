@@ -31,6 +31,7 @@ namespace Chimera
             ShaderManager::RegisterAlias("Composition_Frag", "postprocess/composition.frag");
             ShaderManager::RegisterAlias("SVGF_Temporal",    "postprocess/svgf/temporal.comp");
             ShaderManager::RegisterAlias("SVGF_Atrous",      "postprocess/svgf/atrous.comp");
+            ShaderManager::RegisterAlias("SVGF_Combine",     "postprocess/svgf/combine.comp");
             ShaderManager::RegisterAlias("TAA_Comp",         "postprocess/taa.comp");
             ShaderManager::RegisterAlias("PostProcess_Frag", "postprocess/postprocess.frag");
             ShaderManager::RegisterAlias("Skybox_Frag",      "postprocess/skybox.frag");

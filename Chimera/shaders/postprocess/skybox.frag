@@ -21,7 +21,6 @@ void main()
     } 
     else 
     {
-        float t = 0.5 * (inUV.y + 1.0);
-        outColor = vec4(mix(vec3(0.4, 0.5, 0.6), vec3(0.1, 0.2, 0.4), t), 1.0);
+        outColor = gpuClearColor;
     }
 }

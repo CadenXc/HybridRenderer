@@ -406,9 +406,14 @@ namespace Chimera
     {
         const auto& allTypes = GetAllRenderPathTypes();
         RenderPathType currentType = activePath ? activePath->GetType() : RenderPathType::Forward;
-        ImGui::Text("Active Path:");
-        ImGui::SameLine();
-        if (ImGui::BeginCombo("##ActivePath", RenderPathTypeToString(currentType)))
+        
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.8f, 1.0f, 1.0f));
+        ImGui::Text("Core Pipeline");
+        ImGui::PopStyleColor();
+        ImGui::Separator();
+
+        // 1. Path Selection
+        if (ImGui::BeginCombo("Active Path", RenderPathTypeToString(currentType)))
         {
             for (auto type : allTypes)
             {
@@ -416,98 +421,96 @@ namespace Chimera
             }
             ImGui::EndCombo();
         }
-        ImGui::Separator();
-        ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 10.0f);
-        
-        // [PHASE 1 DEBUG] Strictly aligned with ShaderCommon.h constants
-        // Index 0: FINAL, 1: ALBEDO, 2: NORMAL, 3: MATERIAL, 4: MOTION, 5: DEPTH ... 9: EMISSIVE
-        const char* displayModes[] = { 
-            "Final Color",   // 0
-            "Albedo",        // 1
-            "Normal",        // 2
-            "Material",      // 3
-            "Motion",        // 4
-            "Depth",         // 5
-            "Shadow/AO",     // 6
-            "Reflection",    // 7
-            "Diffuse GI",    // 8
-            "Emissive"       // 9
-        };
-        
-        int currentDisplayMode = (int)m_DisplayMode;
-        if (currentDisplayMode > 9) 
-        {
-            currentDisplayMode = 0;
-        }
 
+        // 2. Display Mode Selection (THE most used tool)
+        const char* displayModes[] = { 
+            "Final Color", "Albedo", "Normal", "Material", "Motion", "Depth", 
+            "Shadow/AO", "Reflection", "Diffuse GI", "Emissive", "SVGF Variance" 
+        };
+        int currentDisplayMode = (int)m_DisplayMode;
         if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes, IM_ARRAYSIZE(displayModes))) 
         {
             m_DisplayMode = (uint32_t)currentDisplayMode;
         }
 
-        ImGui::Separator();
-
-        if (currentType == RenderPathType::Hybrid || currentType == RenderPathType::Forward)
+        ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 5.0f);
+        
+        // [MOD] Prominent TAA toggle for Forward path
+        if (currentType == RenderPathType::Forward)
         {
-            if (currentType == RenderPathType::Hybrid)
+            ImGui::Spacing();
+            bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
+            if (ImGui::Checkbox("Enable TAA (Anti-Aliasing)", &taa)) 
             {
-                if (ImGui::TreeNodeEx("Ray Tracing Features", ImGuiTreeNodeFlags_DefaultOpen))
+                if (taa) m_RenderFlags |= RENDER_FLAG_TAA_BIT;
+                else     m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
+                if (activePath) activePath->OnSceneUpdated();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Smooths geometric edges using temporal accumulation.");
+        }
+        
+        ImGui::Spacing();
+
+        // 3. Modular Feature Toggles (Hybrid Only now for better clarity)
+        if (currentType == RenderPathType::Hybrid)
+        {
+            if (ImGui::CollapsingHeader("Ray Tracing (Real-time)", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                bool shadow = (m_RenderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
+                if (ImGui::Checkbox("Hard/Soft Shadows", &shadow)) 
                 {
-                    bool shadow = (m_RenderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
-                    if (ImGui::Checkbox("RT Shadows", &shadow)) 
-                    {
-                        if (shadow) m_RenderFlags |= RENDER_FLAG_SHADOW_BIT;
-                        else        m_RenderFlags &= ~RENDER_FLAG_SHADOW_BIT;
-                    }
+                    if (shadow) m_RenderFlags |= RENDER_FLAG_SHADOW_BIT;
+                    else        m_RenderFlags &= ~RENDER_FLAG_SHADOW_BIT;
+                }
 
-                    bool refl = (m_RenderFlags & RENDER_FLAG_REFLECTION_BIT) != 0;
-                    if (ImGui::Checkbox("RT Reflections", &refl)) 
-                    {
-                        if (refl) m_RenderFlags |= RENDER_FLAG_REFLECTION_BIT;
-                        else      m_RenderFlags &= ~RENDER_FLAG_REFLECTION_BIT;
-                    }
+                bool refl = (m_RenderFlags & RENDER_FLAG_REFLECTION_BIT) != 0;
+                if (ImGui::Checkbox("Specular Reflections", &refl)) 
+                {
+                    if (refl) m_RenderFlags |= RENDER_FLAG_REFLECTION_BIT;
+                    else      m_RenderFlags &= ~RENDER_FLAG_REFLECTION_BIT;
+                }
 
-                    bool gi = (m_RenderFlags & RENDER_FLAG_GI_BIT) != 0;
-                    if (ImGui::Checkbox("RT Diffuse GI", &gi)) 
-                    {
-                        if (gi) m_RenderFlags |= RENDER_FLAG_GI_BIT;
-                        else    m_RenderFlags &= ~RENDER_FLAG_GI_BIT;
-                    }
-
-                    ImGui::TreePop();
+                bool gi = (m_RenderFlags & RENDER_FLAG_GI_BIT) != 0;
+                if (ImGui::Checkbox("Diffuse GI (1-Bounce)", &gi)) 
+                {
+                    if (gi) m_RenderFlags |= RENDER_FLAG_GI_BIT;
+                    else    m_RenderFlags &= ~RENDER_FLAG_GI_BIT;
                 }
             }
 
-            if (ImGui::TreeNodeEx("Denoising & AA", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader("Denoising & Stability", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
-                if (ImGui::Checkbox("Enable TAA (Jitter)", &taa)) 
+                if (ImGui::Checkbox("Temporal Anti-Aliasing", &taa)) 
                 {
                     if (taa) m_RenderFlags |= RENDER_FLAG_TAA_BIT;
                     else     m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
+                    if (activePath) activePath->OnSceneUpdated();
                 }
-
-                if (currentType == RenderPathType::Hybrid)
+                
+                ImGui::Spacing();
+                bool svgf = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+                if (ImGui::Checkbox("SVGF Denoising Network", &svgf))
                 {
-                    bool svgf = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-                    if (ImGui::Checkbox("Enable SVGF", &svgf))
+                    if (svgf) m_RenderFlags |= RENDER_FLAG_SVGF_BIT;
+                    else      m_RenderFlags &= ~RENDER_FLAG_SVGF_BIT;
+                    if (activePath) activePath->OnSceneUpdated();
+                }
+                
+                if (svgf)
+                {
+                    ImGui::Indent();
+                    if (ImGui::TreeNode("Fine Tuning"))
                     {
-                        if (svgf) m_RenderFlags |= RENDER_FLAG_SVGF_BIT;
-                        else      m_RenderFlags &= ~RENDER_FLAG_SVGF_BIT;
-                    }
-                    
-                    if (svgf)
-                    {
-                        ImGui::Indent();
-                        ImGui::SliderFloat("Color Alpha", &m_SVGFAlphaColor, 0.01f, 1.0f);
-                        ImGui::SliderFloat("Moments Alpha", &m_SVGFAlphaMoments, 0.01f, 1.0f);
+                        ImGui::SliderFloat("Color Alpha", &m_SVGFAlphaColor, 0.01f, 0.5f);
+                        ImGui::SliderFloat("Moments Alpha", &m_SVGFAlphaMoments, 0.01f, 0.5f);
                         ImGui::SliderFloat("Phi Color", &m_SVGFPhiColor, 0.1f, 50.0f);
                         ImGui::SliderFloat("Phi Normal", &m_SVGFPhiNormal, 1.0f, 256.0f);
-                        ImGui::SliderFloat("Phi Depth", &m_SVGFPhiDepth, 0.001f, 0.1f);
-                        ImGui::Unindent();
+                        ImGui::SliderFloat("Phi Depth", &m_SVGFPhiDepth, 0.001f, 0.5f);
+                        ImGui::TreePop();
                     }
+                    ImGui::Unindent();
                 }
-                ImGui::TreePop();
             }
         }
         if (activePath) activePath->OnImGui();
@@ -515,82 +518,68 @@ namespace Chimera
 
     void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
     {
-        if (ImGui::CollapsingHeader("1. Pipeline & Display", ImGuiTreeNodeFlags_DefaultOpen)) DrawRenderPathPanel(activePath);
-        if (ImGui::CollapsingHeader("General Settings")) DrawGeneralSettings();
-        if (ImGui::CollapsingHeader("2. Lighting & Environment", ImGuiTreeNodeFlags_DefaultOpen)) DrawLightSettings(activePath);
-        if (ImGui::CollapsingHeader("3. Scene Management", ImGuiTreeNodeFlags_DefaultOpen))
+        // Section 1: Top Level Pipeline Control
+        DrawRenderPathPanel(activePath);
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // Section 2: Environment
+        if (ImGui::CollapsingHeader("Environment & Lighting"))
         {
-            if (ImGui::TreeNodeEx("Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                DrawSceneHierarchy();
-                ImGui::TreePop();
-            }
-            ImGui::Separator();
-            if (ImGui::TreeNodeEx("Properties", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                DrawPropertiesPanel(activePath);
-                ImGui::TreePop();
-            }
+            DrawGeneralSettings();
+            ImGui::Spacing();
+            DrawLightSettings(activePath);
         }
-        if (ImGui::CollapsingHeader("4. Asset Library"))
+
+        // Section 3: Scene Data
+        if (ImGui::CollapsingHeader("Scene Hierarchy"))
         {
-            if (ImGui::Button("Refresh List")) RefreshModelList();
-            
+            DrawSceneHierarchy();
+        }
+
+        if (ImGui::CollapsingHeader("Object Properties", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            DrawPropertiesPanel(activePath);
+        }
+
+        // Section 4: Assets
+        if (ImGui::CollapsingHeader("Asset Library"))
+        {
+            if (ImGui::Button("Refresh")) RefreshModelList();
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputTextWithHint("##AssetSearch", "Search models...", m_AssetSearchFilter, sizeof(m_AssetSearchFilter));
+            ImGui::InputTextWithHint("##Search", "Search...", m_AssetSearchFilter, sizeof(m_AssetSearchFilter));
 
-            ImGui::BeginChild("ModelList", ImVec2(0, 200), true);
-            
-            std::string filterStr = m_AssetSearchFilter;
-            std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), ::tolower);
-
+            ImGui::BeginChild("AssetScroll", ImVec2(0, 150), true);
+            std::string filter = m_AssetSearchFilter;
+            std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
             for (int i = 0; i < (int)m_AvailableModels.size(); i++)
             {
-                std::string modelName = m_AvailableModels[i].Name;
-                std::string modelNameLower = modelName;
-                std::transform(modelNameLower.begin(), modelNameLower.end(), modelNameLower.begin(), ::tolower);
-
-                if (!filterStr.empty() && modelNameLower.find(filterStr) == std::string::npos)
-                {
-                    continue;
-                }
-
-                ImGui::PushID(i);
-                if (ImGui::Selectable(modelName.c_str(), m_SelectedModelIndex == i))
+                std::string name = m_AvailableModels[i].Name;
+                std::string lowName = name; std::transform(lowName.begin(), lowName.end(), lowName.begin(), ::tolower);
+                if (!filter.empty() && lowName.find(filter) == std::string::npos) continue;
+                if (ImGui::Selectable(name.c_str(), m_SelectedModelIndex == i))
                 {
                     m_SelectedModelIndex = i;
                     LoadModel(m_AvailableModels[i].Path);
                 }
-                ImGui::PopID();
             }
             ImGui::EndChild();
         }
-        if (ImGui::CollapsingHeader("5. Camera"))
+
+        // Section 5: Stats (Fixed at bottom)
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Performance Metrics", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            if (ImGui::Button("Reset Camera")) m_EditorCamera.Reset();
-            float d = m_EditorCamera.GetDistance();
-            if (ImGui::DragFloat("Distance", &d, 0.1f, 0.1f, 1000.0f)) m_EditorCamera.SetDistance(d);
-            float n = m_EditorCamera.GetNearClip();
-            if (ImGui::DragFloat("Near Clip", &n, 0.01f, 0.001f, 10.0f)) m_EditorCamera.SetNearClip(n);
-            float f = m_EditorCamera.GetFarClip();
-            if (ImGui::DragFloat("Far Clip", &f, 1.0f, 1.0f, 10000.0f)) m_EditorCamera.SetFarClip(f);
-            glm::vec3 fp = m_EditorCamera.GetFocalPoint();
-            if (ImGui::DragFloat3("Focal Point", &fp.x, 0.1f)) m_EditorCamera.SetFocalPoint(fp);
-        }
-        if (ImGui::CollapsingHeader("6. System & Statistics", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            ImGui::Columns(2, nullptr, false);
-            ImGui::Text("Frame Time:"); ImGui::NextColumn(); ImGui::TextColored(ImVec4(0, 1, 0.5f, 1), "%.3f ms", m_AverageFrameTime); ImGui::NextColumn();
-            ImGui::Text("FPS:"); ImGui::NextColumn(); ImGui::TextColored(ImVec4(0, 1, 0.5f, 1), "%.1f", m_AverageFPS); ImGui::Columns(1);
-            ImGui::Separator();
-            if (activePath)
+            ImGui::Text("GPU: %s", VulkanContext::Get().GetDeviceProperties().deviceName);
+            ImGui::TextColored(ImVec4(0, 1, 0, 1), "Frame: %.3f ms (%.1f FPS)", m_AverageFrameTime, m_AverageFPS);
+            
+            if (ImGui::TreeNode("GPU Pass Breakdown"))
             {
-                ImGui::Text("GPU Breakdown:");
-                activePath->GetRenderGraph().DrawPerformanceStatistics();
+                if (activePath) activePath->GetRenderGraph().DrawPerformanceStatistics();
+                ImGui::TreePop();
             }
-            ImGui::Separator();
-            if (ImGui::Button("Export Graph (Mermaid)", ImVec2(-1, 0)) && activePath)
+            
+            if (ImGui::Button("Copy Graph to Clipboard", ImVec2(-1, 0)) && activePath)
             {
                 ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
             }
@@ -600,7 +589,10 @@ namespace Chimera
     void EditorLayer::DrawGeneralSettings()
     {
         ImGui::Text("Global Background Color:");
-        ImGui::ColorEdit4("Clear Color", &m_ClearColor.x);
+        if (ImGui::ColorEdit4("Clear Color", &m_ClearColor.x))
+        {
+            if (GetRenderPath()) GetRenderPath()->OnSceneUpdated();
+        }
     }
 
     void EditorLayer::DrawViewportContent(RenderPath* activePath)
@@ -610,6 +602,7 @@ namespace Chimera
         ImVec2 avail = ImGui::GetContentRegionAvail();
         float targetAspect = 16.0f / 9.0f;
         ImVec2 renderSize = (avail.x / avail.y > targetAspect) ? ImVec2(avail.y * targetAspect, avail.y) : ImVec2(avail.x, avail.x / targetAspect);
+        
         if (renderSize.x > 0 && (std::abs(renderSize.x - m_ViewportSize.x) > 0.1f))
         {
             m_NextViewportSize = glm::vec2(renderSize.x, renderSize.y);
@@ -619,8 +612,40 @@ namespace Chimera
         if (activePath)
         {
             auto& graph = activePath->GetRenderGraph();
-            // ALWAYS show the final output pass results
-            std::string tex = RS::RENDER_OUTPUT;
+            
+            // [PHASE 6: Advanced Debug View Alignment]
+            // Map UI Display Mode to specific internal RenderGraph textures
+            std::string tex = RS::RENDER_OUTPUT; 
+            
+            if (m_DisplayMode == DISPLAY_MODE_ALBEDO)   tex = RS::Albedo;
+            if (m_DisplayMode == DISPLAY_MODE_NORMAL)   tex = RS::Normal;
+            if (m_DisplayMode == DISPLAY_MODE_MATERIAL) tex = RS::Material;
+            if (m_DisplayMode == DISPLAY_MODE_MOTION)   tex = RS::Motion;
+            if (m_DisplayMode == DISPLAY_MODE_DEPTH)    tex = "DepthLinear"; // From LinearizeDepth pass
+            if (m_DisplayMode == DISPLAY_MODE_EMISSIVE) tex = RS::Emissive;
+            
+            // Show SVGF intermediates if in Shadow/AO or GI modes
+            if (m_DisplayMode == DISPLAY_MODE_SHADOW_AO) 
+            {
+                bool useSVGF = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+                tex = useSVGF ? "Shadow_Filtered_4" : "CurColor";
+            }
+            if (m_DisplayMode == DISPLAY_MODE_GI)
+            {
+                bool useSVGF = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+                tex = useSVGF ? "GI_Filtered_4" : "GIRaw";
+            }
+            if (m_DisplayMode == DISPLAY_MODE_REFLECTION)
+            {
+                bool useSVGF = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+                tex = useSVGF ? "Refl_Filtered_4" : "ReflectionRaw";
+            }
+            
+            // [NEW] Display Variance for Debugging
+            if (m_DisplayMode == 10) // SVGF Variance
+            {
+                tex = "ShadowMoments"; // Inspect the shadow variance by default
+            }
 
             if (graph.ContainsImage(tex))
             {
@@ -634,6 +659,13 @@ namespace Chimera
                         ImGui::Image(id, renderSize);
                     }
                 }
+            }
+            else
+            {
+                // Fallback to Final Output if specific debug tex not found
+                auto& img = graph.GetImage(RS::RENDER_OUTPUT);
+                ImTextureID id = Application::Get().GetImGuiLayer()->GetTextureID(img.view, ResourceManager::Get().GetDefaultSampler());
+                if (id) ImGui::Image(id, renderSize);
             }
         }
     }
