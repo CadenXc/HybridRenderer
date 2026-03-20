@@ -3,6 +3,8 @@
 
 namespace Chimera
 {
+    class RenderGraph;
+
     class ComputeExecutionContext
     {
     public:

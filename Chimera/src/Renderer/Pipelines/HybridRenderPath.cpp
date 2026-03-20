@@ -5,6 +5,7 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Passes/GBufferPass.h"
+#include "Renderer/Passes/DepthPrepass.h"
 #include "Renderer/Passes/RTShadowAOPass.h"
 #include "Renderer/Passes/RTReflectionPass.h"
 #include "Renderer/Passes/RTDiffuseGIPass.h"
@@ -27,7 +28,10 @@ namespace Chimera
 
     void HybridRenderPath::BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
     {
-        // 1. G-Buffer Pass
+        // 0. Depth Prepass (Early-Z Optimization)
+        DepthPrepass::AddToGraph(graph, scene);
+
+        // 1. G-Buffer Pass (Uses EQUAL depth test)
         GBufferPass::AddToGraph(graph, scene);
 
         bool rtSupported = m_Context->IsRayTracingSupported();

@@ -73,7 +73,6 @@ namespace Chimera
             {
                 vkDestroyPipeline(device, p->handle, nullptr);
             }
-            // SBT Buffer will be destroyed by unique_ptr
         }
         m_RaytracingCache.clear();
 
@@ -105,13 +104,24 @@ namespace Chimera
 
         auto p = std::make_unique<GraphicsPipeline>();
         auto vSh = ShaderManager::GetShader(desc.vertex_shader);
-        auto fSh = ShaderManager::GetShader(desc.fragment_shader);
+        p->shaders.push_back(vSh.get());
+        
+        std::shared_ptr<Shader> fSh = nullptr;
+        bool hasFragmentShader = !desc.fragment_shader.empty();
+        if (hasFragmentShader)
+        {
+            fSh = ShaderManager::GetShader(desc.fragment_shader);
+            p->shaders.push_back(fSh.get());
+        }
 
-        p->shaders = { vSh.get(), fSh.get() };
         p->layout = GetReflectionLayout(p->shaders);
 
         VkShaderModule vMod = CreateShaderModule(VulkanContext::Get().GetDevice(), vSh->GetBytecode());
-        VkShaderModule fMod = CreateShaderModule(VulkanContext::Get().GetDevice(), fSh->GetBytecode());
+        VkShaderModule fMod = VK_NULL_HANDLE;
+        if (hasFragmentShader)
+        {
+            fMod = CreateShaderModule(VulkanContext::Get().GetDevice(), fSh->GetBytecode());
+        }
 
         std::vector<VkSpecializationMapEntry> specEntries;
         for (uint32_t i = 0; i < (uint32_t)desc.specializationConstants.size(); ++i)
@@ -128,14 +138,22 @@ namespace Chimera
             specInfo.pData = desc.specializationConstants.data();
         }
 
-        VkPipelineShaderStageCreateInfo ss[2] = {};
-        ss[0] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vMod, "main" };
-        ss[1] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fMod, "main" };
+        std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
+        VkPipelineShaderStageCreateInfo vStage{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+        vStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        vStage.module = vMod;
+        vStage.pName = "main";
+        if (!specEntries.empty()) vStage.pSpecializationInfo = &specInfo;
+        shaderStages.push_back(vStage);
 
-        if (!specEntries.empty())
+        if (hasFragmentShader)
         {
-            ss[0].pSpecializationInfo = &specInfo;
-            ss[1].pSpecializationInfo = &specInfo;
+            VkPipelineShaderStageCreateInfo fStage{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+            fStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+            fStage.module = fMod;
+            fStage.pName = "main";
+            if (!specEntries.empty()) fStage.pSpecializationInfo = &specInfo;
+            shaderStages.push_back(fStage);
         }
 
         bool isFullscreen = (desc.name == "Composition" || desc.name == "FinalBlit" || desc.name == "LinearizeDepth" ||
@@ -156,12 +174,13 @@ namespace Chimera
         VkPipelineRasterizationStateCreateInfo rA{ 
             VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO, 
             nullptr, 0, VK_FALSE, VK_FALSE, VK_POLYGON_MODE_FILL, 
-            VK_CULL_MODE_NONE, // [SAFE] Disable culling
+            desc.cull_mode, 
             VK_FRONT_FACE_COUNTER_CLOCKWISE, 
             VK_FALSE, 0, 0, 0, 1.0f 
         };
         VkPipelineMultisampleStateCreateInfo mS{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO, nullptr, 0, VK_SAMPLE_COUNT_1_BIT };
-        VkPipelineDepthStencilStateCreateInfo dS{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO, nullptr, 0, desc.depth_test, desc.depth_write, CH_DEPTH_COMPARE_OP };
+        VkCompareOp compareOp = (desc.depth_compare_op != (VkCompareOp)0) ? desc.depth_compare_op : CH_DEPTH_COMPARE_OP;
+        VkPipelineDepthStencilStateCreateInfo dS{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO, nullptr, 0, desc.depth_test, desc.depth_write, compareOp };
 
         std::vector<VkPipelineColorBlendAttachmentState> bA(colorFormats.size(), { VK_FALSE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_OP_ADD, VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT });
         VkPipelineColorBlendStateCreateInfo cB{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO, nullptr, 0, VK_FALSE, VK_LOGIC_OP_COPY, (uint32_t)bA.size(), bA.data() };
@@ -170,12 +189,12 @@ namespace Chimera
         VkPipelineDynamicStateCreateInfo dY{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO, nullptr, 0, 2, dy };
 
         VkPipelineRenderingCreateInfo rE{ VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO, nullptr, 0, (uint32_t)colorFormats.size(), colorFormats.data(), depthFormat };
-        VkGraphicsPipelineCreateInfo info{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &rE, 0, 2, ss, &vI, &iA, nullptr, &vP, &rA, &mS, &dS, &cB, &dY, p->layout };
+        VkGraphicsPipelineCreateInfo info{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &rE, 0, (uint32_t)shaderStages.size(), shaderStages.data(), &vI, &iA, nullptr, &vP, &rA, &mS, &dS, &cB, &dY, p->layout };
 
         vkCreateGraphicsPipelines(VulkanContext::Get().GetDevice(), VK_NULL_HANDLE, 1, &info, nullptr, &p->handle);
 
         vkDestroyShaderModule(VulkanContext::Get().GetDevice(), vMod, nullptr);
-        vkDestroyShaderModule(VulkanContext::Get().GetDevice(), fMod, nullptr);
+        if (fMod != VK_NULL_HANDLE) vkDestroyShaderModule(VulkanContext::Get().GetDevice(), fMod, nullptr);
 
         m_GraphicsCache[cacheKey] = std::move(p);
         return *m_GraphicsCache[cacheKey];

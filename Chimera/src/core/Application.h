@@ -28,16 +28,19 @@ namespace Chimera
         glm::vec2 ViewportSize;
         glm::mat4 View;
         glm::mat4 Projection;
-        glm::vec2 Jitter = { 0.0f, 0.0f }; // [NEW] Separated jitter
+        glm::vec2 Jitter = { 0.0f, 0.0f };
+        glm::vec2 PrevJitter = { 0.0f, 0.0f }; // [NEW]
+        glm::mat4 PrevView = glm::mat4(1.0f);   // [NEW]
+        glm::mat4 PrevProj = glm::mat4(1.0f);   // [NEW]
         glm::vec3 CameraPosition;
         float DeltaTime;
         float Time;
         uint32_t FrameIndex;
         uint32_t DisplayMode = 0;
-        uint32_t RenderFlags = 1; 
+        uint32_t RenderFlags = 1;
         float Exposure = 1.0f;
         float AmbientStrength = 1.0f;
-        glm::vec4 ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f }; // [NEW]
+        glm::vec4 ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f };
 
         float SVGFAlphaColor = 0.05f;
         float SVGFAlphaMoments = 0.2f;
@@ -50,24 +53,24 @@ namespace Chimera
     class Application
     {
     public:
-        Application(const ApplicationSpecification& spec);
+        Application(const ApplicationSpecification &spec);
         virtual ~Application();
 
-        static Application& Get()
+        static Application &Get()
         {
             return *s_Instance;
         }
 
         void Run();
-        void OnEvent(Event& e);
+        void OnEvent(Event &e);
 
         void PushLayer(std::shared_ptr<Layer> layer);
         void PushOverlay(std::shared_ptr<Layer> layer);
 
-        template<typename T>
+        template <typename T>
         std::shared_ptr<T> GetLayer()
         {
-            for (auto& layer : m_LayerStack)
+            for (auto &layer : m_LayerStack)
             {
                 std::shared_ptr<T> result = std::dynamic_pointer_cast<T>(layer);
                 if (result)
@@ -78,11 +81,9 @@ namespace Chimera
             return nullptr;
         }
 
-        // --- System Commands ---
         void Close();
 
-        // --- Getters ---
-        Window& GetWindow()
+        Window &GetWindow()
         {
             return *m_Window;
         }
@@ -90,15 +91,15 @@ namespace Chimera
         {
             return m_Context;
         }
-        Renderer* GetRenderer()
+        Renderer *GetRenderer()
         {
             return m_Renderer.get();
         }
-        RenderState* GetRenderState()
+        RenderState *GetRenderState()
         {
             return m_RenderState.get();
         }
-        ResourceManager* GetResourceManager()
+        ResourceManager *GetResourceManager()
         {
             return m_ResourceManager.get();
         }
@@ -106,27 +107,27 @@ namespace Chimera
         {
             return m_ImGuiLayer;
         }
-        class RenderPath* GetActiveRenderPath()
+        class RenderPath *GetActiveRenderPath()
         {
             return m_RenderPath.get();
         }
 
         uint32_t GetCurrentImageIndex() const;
-        uint32_t GetCurrentFrameIndex() const; // [NEW]
+        uint32_t GetCurrentFrameIndex() const;
         uint32_t GetTotalFrameCount() const
         {
             return m_TotalFrameCount;
         }
 
-        void SetFrameContext(const AppFrameContext& ctx)
+        void SetFrameContext(const AppFrameContext &ctx)
         {
             m_FrameContext = ctx;
         }
-        const AppFrameContext& GetFrameContext() const // [NEW]
+        const AppFrameContext &GetFrameContext() const // [NEW]
         {
             return m_FrameContext;
         }
-        void SetActiveScene(Scene* scene)
+        void SetActiveScene(Scene *scene)
         {
             m_ActiveScene = scene;
         }
@@ -141,7 +142,7 @@ namespace Chimera
 
         void SwitchRenderPath(std::unique_ptr<class RenderPath> path);
 
-        void QueueEvent(std::function<void()>&& func)
+        void QueueEvent(std::function<void()> &&func)
         {
             std::lock_guard<std::mutex> lock(m_EventQueueMutex);
             m_EventQueue.push_back(std::move(func));
@@ -155,15 +156,15 @@ namespace Chimera
         void ProcessEventQueue();
         void UpdateGlobalUBO(uint32_t frameIndex);
 
-        bool OnWindowClose(WindowCloseEvent& e);
-        bool OnWindowResize(WindowResizeEvent& e);
+        bool OnWindowClose(WindowCloseEvent &e);
+        bool OnWindowResize(WindowResizeEvent &e);
 
     private:
-        static Application* s_Instance;
+        static Application *s_Instance;
         ApplicationSpecification m_Specification;
 
-        std::shared_ptr<VulkanContext> m_Context; // Primary lifecycle owner
-        std::shared_ptr<VulkanContext> m_ContextAnchor; // Secondary anchor for safety
+        std::shared_ptr<VulkanContext> m_Context;
+        std::shared_ptr<VulkanContext> m_ContextAnchor;
 
         std::unique_ptr<Window> m_Window;
         std::unique_ptr<ResourceManager> m_ResourceManager;
@@ -177,7 +178,7 @@ namespace Chimera
         std::vector<std::shared_ptr<Layer>> m_LayerStack;
         unsigned int m_LayerIndex = 0;
         AppFrameContext m_FrameContext;
-        Scene* m_ActiveScene = nullptr;
+        Scene *m_ActiveScene = nullptr;
 
         std::deque<std::function<void()>> m_EventQueue;
         std::mutex m_EventQueueMutex;
@@ -188,11 +189,6 @@ namespace Chimera
         uint32_t m_TotalFrameCount = 0;
         float m_DepthScale = 1.0f;
 
-        int m_BlueNoiseTextureIndex = -1; // [NEW]
-
-        glm::mat4 m_PrevView = glm::mat4(1.0f);
-        glm::mat4 m_PrevProj = glm::mat4(1.0f);
-        glm::vec2 m_PrevJitter = glm::vec2(0.0f);
-        glm::vec2 m_CurrentJitter = glm::vec2(0.0f);
+        int m_BlueNoiseTextureIndex = -1;
     };
 }

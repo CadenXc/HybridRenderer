@@ -52,7 +52,6 @@ namespace Chimera
 		void DrawMenuBar();
 		void DrawRenderPathPanel(RenderPath* activePath);
 		void DrawModelSelectionPanel();
-		void DrawViewportContent(RenderPath* activePath);
 		void DrawControlPanelContent(RenderPath* activePath);
 		void DrawSceneHierarchy();
 		void DrawPropertiesPanel(RenderPath* activePath);
@@ -62,17 +61,11 @@ namespace Chimera
 	private:
 		EditorCamera m_EditorCamera;
 		
-		// Viewport & Debugging
-		std::string m_DebugViewTexture = RS::FINAL_COLOR;
-		VkImageView m_CurrentDebugViewHandle = VK_NULL_HANDLE;
-		ImTextureID m_CurrentDebugTexID = 0;
+		// Interaction & Debugging
 		glm::vec2 m_ViewportSize = { 0, 0 };
-		bool m_ViewportHovered = false;
-		bool m_ViewportFocused = false;
         
 		// UI Visibility
 		bool m_ShowControlPanel = true;
-		bool m_ShowViewport = true;
 		uint32_t m_DisplayMode = 0; // 0: Final Output
 		uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
 				

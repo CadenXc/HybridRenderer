@@ -191,20 +191,35 @@ namespace Chimera
         VK_CHECK(vkResetCommandBuffer(frameResource.commandBuffer, 0));
         VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr };
         VK_CHECK(vkBeginCommandBuffer(frameResource.commandBuffer, &beginInfo));
-        
         VkImage image = VulkanContext::Get().GetSwapChainImages()[m_CurrentImageIndex];
-        
-        // [FIX] Robust Initial Barrier: Use UNDEFINED as oldLayout to be safe across all frames/resizes.
+
+        // 1. Transition to TRANSFER_DST for clearing
         VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
         barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED; 
-        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.image = image;
         barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-        
+
         vkCmdPipelineBarrier(frameResource.commandBuffer, 
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 
+            0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        // 2. [DEBUG] Manually clear the swapchain to YELLOW
+        VkClearColorValue yellow = { {1.0f, 1.0f, 0.0f, 1.0f} };
+        VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        vkCmdClearColorImage(frameResource.commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &yellow, 1, &range);
+
+        // 3. Transition to COLOR_ATTACHMENT_OPTIMAL for RenderGraph/ImGui
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+
+        vkCmdPipelineBarrier(frameResource.commandBuffer, 
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 
             0, 0, nullptr, 0, nullptr, 1, &barrier);
 

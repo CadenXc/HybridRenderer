@@ -32,7 +32,9 @@ namespace Chimera::PostProcessPass
                     "common/fullscreen.vert", 
                     "postprocess/postprocess.frag", 
                     false, 
-                    false 
+                    false,
+                    (VkCompareOp)0,
+                    VK_CULL_MODE_NONE
                 };
 
                 ctx.BindPipeline(desc);

@@ -1,0 +1,68 @@
+#include "pch.h"
+#include "DepthPrepass.h"
+#include "Renderer/ChimeraCommon.h"
+#include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Graph/GraphicsExecutionContext.h"
+#include "Renderer/Backend/ShaderCommon.h"
+#include "Scene/Scene.h"
+#include "Scene/Model.h"
+
+namespace Chimera::DepthPrepass
+{
+    struct PassData
+    {
+        RGResourceHandle depth;
+    };
+
+    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    {
+        if (!scene) return;
+
+        graph.AddPass<PassData>("DepthPrepass",
+            [](PassData& data, RenderGraph::PassBuilder& builder)
+            {
+                data.depth = builder.Write(RS::Depth)
+                                   .Format(VK_FORMAT_D32_SFLOAT)
+                                   .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE);
+            },
+            [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+            {
+                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
+                
+                GraphicsPipelineDescription desc;
+                desc.name = "DepthPrepass";
+                desc.vertex_shader = "GBuffer_Vert";
+                desc.fragment_shader = ""; // No fragment shader for depth-only
+                desc.depth_test = true;
+                desc.depth_write = true;
+                desc.depth_compare_op = CH_DEPTH_COMPARE_OP;
+                desc.cull_mode = VK_CULL_MODE_NONE;
+                ctx.BindPipeline(desc);
+
+const auto& entities = scene->GetEntities();
+uint32_t globalObjectId = 0;
+
+for (const auto& entity : entities)
+{
+    if (entity.mesh.model)
+    {
+        const auto& meshes = entity.mesh.model->GetMeshes();
+
+        VkBuffer vBuffer = (VkBuffer)entity.mesh.model->GetVertexBuffer()->GetBuffer();
+        VkDeviceSize offset = 0;
+        ctx.BindVertexBuffers(0, 1, &vBuffer, &offset);
+        ctx.BindIndexBuffer((VkBuffer)entity.mesh.model->GetIndexBuffer()->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+        for (const auto& mesh : meshes)
+        {
+            ScenePushConstants pc{ globalObjectId++ };
+            ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
+            ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
+        }
+    }
+}
+            }
+        );
+    }
+}

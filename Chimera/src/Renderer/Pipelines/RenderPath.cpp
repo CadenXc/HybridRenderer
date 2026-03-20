@@ -2,6 +2,7 @@
 #include "RenderPath.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Graph/ResourceNames.h"
 
 namespace Chimera
 {
@@ -63,7 +64,22 @@ namespace Chimera
             BuildGraph(*m_RenderGraph, scene);
         }
 
-        // 5. Compile and execute
+        // 5. Set Swapchain as RENDER_OUTPUT
+        uint32_t imageIndex = frameInfo.imageIndex;
+        auto swapchain = m_Context->GetSwapchain();
+        VkImage scImage = swapchain->GetImages()[imageIndex];
+        VkImageView scView = swapchain->GetImageViews()[imageIndex];
+        
+        ImageDescription scDesc{};
+        scDesc.width = m_Width;
+        scDesc.height = m_Height;
+        scDesc.format = m_Context->GetSwapChainImageFormat();
+        scDesc.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        scDesc.flags = (RGResourceFlags)RGResourceFlagBits::External;
+
+        m_RenderGraph->SetExternalResource(RS::RENDER_OUTPUT, scImage, scView, VK_IMAGE_LAYOUT_UNDEFINED, scDesc);
+
+        // 6. Compile and execute
         m_RenderGraph->Compile();
         return m_RenderGraph->Execute(frameInfo.commandBuffer);
     }

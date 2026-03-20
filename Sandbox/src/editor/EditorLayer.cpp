@@ -27,7 +27,6 @@ namespace Chimera
         m_EditorCamera(45.0f, 1.778f, 0.1f, 1000.0f)
     {
         m_ShowControlPanel = true;
-        m_ShowViewport = true;
 
         auto& app = Application::Get();
         m_ViewportSize = { (float)app.GetWindow().GetWidth(), (float)app.GetWindow().GetHeight() };
@@ -59,36 +58,37 @@ namespace Chimera
 
     void EditorLayer::OnUpdate(Timestep ts)
     {
+        // [DEBUG] Monitor viewport and projection matrix
+        static uint32_t debugFrame = 0;
+        if (debugFrame < 5) {
+            auto& proj = m_EditorCamera.GetProjection();
+            CH_CORE_INFO("EditorLayer: Frame {}, Viewport ({}, {}), Proj[0][0]={:.2f}", 
+                debugFrame, m_ViewportSize.x, m_ViewportSize.y, proj[0][0]);
+            debugFrame++;
+        }
+
         m_AverageFrameTime = ts.GetMilliseconds();
         m_AverageFPS = 1.0f / ts.GetSeconds();
 
-        if (m_ResizeTimer > 0.0f)
-        {
-            m_ResizeTimer -= ts.GetSeconds();
-            if (m_ResizeTimer <= 0.0f && !m_ResizePending)
-            {
-                uint32_t w = (uint32_t)m_NextViewportSize.x;
-                uint32_t h = (uint32_t)m_NextViewportSize.y;
-                m_ResizePending = true;
+        // [MOD] Ensure 3D background rendering always matches full window extent
+        auto& window = Application::Get().GetWindow();
+        float winW = (float)window.GetWidth();
+        float winH = (float)window.GetHeight();
 
-                Application::Get().QueueEvent([this, w, h]()
-                {
-                    vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-                    Renderer::Get().OnResize(w, h);
-                    if (GetRenderPath())
-                    {
-                        GetRenderPath()->SetViewportSize(w, h);
-                    }
-                    m_EditorCamera.SetViewportSize((float)w, (float)h);
-                    m_ViewportSize = { (float)w, (float)h };
-                    m_ResizePending = false;
-                });
-            }
+        if (winW > 0 && (std::abs(winW - m_ViewportSize.x) > 0.1f || std::abs(winH - m_ViewportSize.y) > 0.1f))
+        {
+            // Immediate resize for background rendering to stay sharp
+            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+            Renderer::Get().OnResize((uint32_t)winW, (uint32_t)winH);
+            if (GetRenderPath()) GetRenderPath()->SetViewportSize((uint32_t)winW, (uint32_t)winH);
+            m_EditorCamera.SetViewportSize(winW, winH);
+            m_ViewportSize = { winW, winH };
         }
 
-        if (m_ResizePending) return;
-
-        m_EditorCamera.OnUpdate(ts, m_ViewportHovered, m_ViewportFocused);
+        // [MOD] Camera interaction now works when not hovering over UI panels
+        bool uiHovered = ImGui::GetIO().WantCaptureMouse;
+        m_EditorCamera.OnUpdate(ts, !uiHovered, !uiHovered);
+        m_EditorCamera.UpdateTAAState(Application::Get().GetTotalFrameCount(), (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0);
 
         // [FIX] Update scene to sync prevTransforms for motion vectors
         if (auto scene = GetActiveSceneRaw())
@@ -99,6 +99,10 @@ namespace Chimera
         AppFrameContext context;
         context.View = m_EditorCamera.GetViewMatrix();
         context.Projection = m_EditorCamera.GetProjection();
+        context.PrevView = m_EditorCamera.GetPrevView();
+        context.PrevProj = m_EditorCamera.GetPrevProj();
+        context.Jitter = m_EditorCamera.GetJitter();
+        context.PrevJitter = m_EditorCamera.GetPrevJitter();
         context.CameraPosition = m_EditorCamera.GetPosition();
         context.ViewportSize = m_ViewportSize;
         context.DeltaTime = ts.GetSeconds();
@@ -117,8 +121,6 @@ namespace Chimera
         context.SVGFPhiDepth = m_SVGFPhiDepth;
         context.LightRadius = m_LightRadius;
 
-        context.Jitter = glm::vec2(0.0f); // Reset jitter, Application will compute it based on flags
-
         Application::Get().SetFrameContext(context);
         Application::Get().SetActiveScene(GetActiveSceneRaw());
 
@@ -136,7 +138,7 @@ namespace Chimera
 
     void EditorLayer::OnEvent(Event& e)
     {
-        if (m_ViewportHovered) m_EditorCamera.OnEvent(e);
+        if (!ImGui::GetIO().WantCaptureMouse) m_EditorCamera.OnEvent(e);
     }
 
     void EditorLayer::SwitchRenderPath(RenderPathType type)
@@ -199,21 +201,19 @@ namespace Chimera
             ImGui::DockBuilderRemoveNode(dockspace_id);
             ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->Size);
+            
             ImGuiID dock_main_id = dockspace_id;
-            ImGuiID dock_right_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Right, 0.25f, nullptr, &dock_main_id);
-            ImGui::DockBuilderDockWindow("Viewport", dock_main_id);
+            ImGuiID dock_right_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Right, 0.20f, nullptr, &dock_main_id);
+            
+            // The central node will be empty (passthru) to show the background
             ImGui::DockBuilderDockWindow("Control Panel", dock_right_id);
             ImGui::DockBuilderFinish(dockspace_id);
         }
-        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 
         DrawMenuBar();
 
         RenderPath* activePath = GetRenderPath();
-
-        ImGui::Begin("Viewport", &m_ShowViewport);
-        DrawViewportContent(activePath);
-        ImGui::End();
 
         ImGui::Begin("Control Panel", &m_ShowControlPanel);
         DrawControlPanelContent(activePath);
@@ -332,7 +332,6 @@ namespace Chimera
             if (ImGui::BeginMenu("View"))
             {
                 ImGui::MenuItem("Control Panel", nullptr, &m_ShowControlPanel);
-                ImGui::MenuItem("Viewport", nullptr, &m_ShowViewport);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Reset Layout")) ImGui::GetIO().IniFilename = nullptr;
                 ImGui::EndMenu();
@@ -592,81 +591,6 @@ namespace Chimera
         if (ImGui::ColorEdit4("Clear Color", &m_ClearColor.x))
         {
             if (GetRenderPath()) GetRenderPath()->OnSceneUpdated();
-        }
-    }
-
-    void EditorLayer::DrawViewportContent(RenderPath* activePath)
-    {
-        m_ViewportHovered = ImGui::IsWindowHovered();
-        m_ViewportFocused = ImGui::IsWindowFocused();
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        float targetAspect = 16.0f / 9.0f;
-        ImVec2 renderSize = (avail.x / avail.y > targetAspect) ? ImVec2(avail.y * targetAspect, avail.y) : ImVec2(avail.x, avail.x / targetAspect);
-        
-        if (renderSize.x > 0 && (std::abs(renderSize.x - m_ViewportSize.x) > 0.1f))
-        {
-            m_NextViewportSize = glm::vec2(renderSize.x, renderSize.y);
-            m_ResizeTimer = 0.05f;
-        }
-
-        if (activePath)
-        {
-            auto& graph = activePath->GetRenderGraph();
-            
-            // [PHASE 6: Advanced Debug View Alignment]
-            // Map UI Display Mode to specific internal RenderGraph textures
-            std::string tex = RS::RENDER_OUTPUT; 
-            
-            if (m_DisplayMode == DISPLAY_MODE_ALBEDO)   tex = RS::Albedo;
-            if (m_DisplayMode == DISPLAY_MODE_NORMAL)   tex = RS::Normal;
-            if (m_DisplayMode == DISPLAY_MODE_MATERIAL) tex = RS::Material;
-            if (m_DisplayMode == DISPLAY_MODE_MOTION)   tex = RS::Motion;
-            if (m_DisplayMode == DISPLAY_MODE_DEPTH)    tex = "DepthLinear"; // From LinearizeDepth pass
-            if (m_DisplayMode == DISPLAY_MODE_EMISSIVE) tex = RS::Emissive;
-            
-            // Show SVGF intermediates if in Shadow/AO or GI modes
-            if (m_DisplayMode == DISPLAY_MODE_SHADOW_AO) 
-            {
-                bool useSVGF = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-                tex = useSVGF ? "Shadow_Filtered_4" : "CurColor";
-            }
-            if (m_DisplayMode == DISPLAY_MODE_GI)
-            {
-                bool useSVGF = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-                tex = useSVGF ? "GI_Filtered_4" : "GIRaw";
-            }
-            if (m_DisplayMode == DISPLAY_MODE_REFLECTION)
-            {
-                bool useSVGF = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-                tex = useSVGF ? "Refl_Filtered_4" : "ReflectionRaw";
-            }
-            
-            // [NEW] Display Variance for Debugging
-            if (m_DisplayMode == 10) // SVGF Variance
-            {
-                tex = "ShadowMoments"; // Inspect the shadow variance by default
-            }
-
-            if (graph.ContainsImage(tex))
-            {
-                auto& img = graph.GetImage(tex);
-                if (img.handle != VK_NULL_HANDLE)
-                {
-                    ImTextureID id = Application::Get().GetImGuiLayer()->GetTextureID(img.debug_view ? img.debug_view : img.view, ResourceManager::Get().GetDefaultSampler());
-                    if (id)
-                    {
-                        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + (avail.x - renderSize.x) * 0.5f, ImGui::GetCursorPos().y + (avail.y - renderSize.y) * 0.5f));
-                        ImGui::Image(id, renderSize);
-                    }
-                }
-            }
-            else
-            {
-                // Fallback to Final Output if specific debug tex not found
-                auto& img = graph.GetImage(RS::RENDER_OUTPUT);
-                ImTextureID id = Application::Get().GetImGuiLayer()->GetTextureID(img.view, ResourceManager::Get().GetDefaultSampler());
-                if (id) ImGui::Image(id, renderSize);
-            }
         }
     }
 }

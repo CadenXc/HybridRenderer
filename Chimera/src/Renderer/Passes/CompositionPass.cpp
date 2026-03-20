@@ -52,6 +52,7 @@ namespace Chimera::CompositionPass
                 desc.fragment_shader = "Composition_Frag";
                 desc.depth_test = false;
                 desc.depth_write = false;
+                desc.cull_mode = VK_CULL_MODE_NONE;
 
                 ctx.BindPipeline(desc);
 

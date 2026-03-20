@@ -93,8 +93,12 @@ namespace Chimera
 
     void RenderGraph::Compile()
     {
+        // 1. Initialize or Re-initialize Physical Resources
         for (auto& res : m_Resources)
         {
+            res.firstPass = 0xFFFFFFFF;
+            res.lastPass = 0;
+
             if (res.image.handle == VK_NULL_HANDLE)
             {
                 bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
@@ -119,19 +123,35 @@ namespace Chimera
             }
         }
 
-        for (auto& pass : m_PassStack)
+        // 2. Map Passes to Resource Lifetimes and Attachment Formats
+        for (uint32_t i = 0; i < (uint32_t)m_PassStack.size(); ++i)
         {
+            auto& pass = m_PassStack[i];
             pass.colorFormats.clear();
             pass.depthFormat = VK_FORMAT_UNDEFINED;
+            
             for (auto& out : pass.outputs)
             {
+                PhysicalResource& res = m_Resources[out.handle];
+                if (res.firstPass == 0xFFFFFFFF) res.firstPass = i;
+                res.lastPass = i;
+
                 if (out.usage == ResourceUsage::ColorAttachment) 
                 {
-                    pass.colorFormats.push_back(m_Resources[out.handle].desc.format);
+                    pass.colorFormats.push_back(res.desc.format);
                 }
                 else if (out.usage == ResourceUsage::DepthStencilWrite) 
                 {
-                    pass.depthFormat = m_Resources[out.handle].desc.format;
+                    pass.depthFormat = res.desc.format;
+                }
+            }
+
+            for (auto& in : pass.inputs)
+            {
+                if (in.handle != INVALID_RESOURCE)
+                {
+                    PhysicalResource& res = m_Resources[in.handle];
+                    res.lastPass = i;
                 }
             }
         }
@@ -193,9 +213,9 @@ namespace Chimera
             }
             else
             {
-                // [FIX] Ensure viewport/scissor are set PER PASS to match RenderGraph dimensions
-                VkViewport vp{ 0.0f, 0.0f, (float)m_Width, (float)m_Height, 0.0f, 1.0f };
-                VkRect2D sc{ {0, 0}, {m_Width, m_Height} };
+                // [FIX] Ensure viewport/scissor are set PER PASS to match pass dimensions
+                VkViewport vp{ 0.0f, 0.0f, (float)pass.width, (float)pass.height, 0.0f, 1.0f };
+                VkRect2D sc{ {0, 0}, {pass.width, pass.height} };
                 vkCmdSetViewport(cmd, 0, 1, &vp);
                 vkCmdSetScissor(cmd, 0, 1, &sc);
 
@@ -407,6 +427,41 @@ namespace Chimera
         return *this; 
     }
 
+    void RenderGraph::SetExternalResource(const std::string& name, VkImage image, VkImageView view, VkImageLayout layout, const ImageDescription& desc)
+    {
+        RGResourceHandle handle = GetResourceHandle(name);
+        if (handle == INVALID_RESOURCE)
+        {
+            handle = (uint32_t)m_Resources.size();
+            m_Resources.emplace_back();
+            m_ResourceMap[name] = handle;
+        }
+
+        auto& res = m_Resources[handle];
+        res.name = name;
+        res.desc = desc;
+        res.desc.flags |= (RGResourceFlags)RGResourceFlagBits::External;
+        
+        res.image.handle = image;
+        res.image.view = view;
+        res.image.is_external = true;
+        res.image.width = desc.width;
+        res.image.height = desc.height;
+        res.image.format = desc.format;
+
+        // Track external state
+        if (m_ExternalImageStates.count(image))
+        {
+            res.currentState = m_ExternalImageStates[image];
+        }
+        else
+        {
+            res.currentState.layout = layout;
+            res.currentState.access = VK_ACCESS_2_NONE;
+            res.currentState.stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        }
+    }
+
     RGResourceHandle RenderGraph::GetResourceHandle(const std::string& name) 
     { 
         return m_ResourceMap.count(name) ? m_ResourceMap[name] : INVALID_RESOURCE; 
@@ -421,15 +476,20 @@ namespace Chimera
         std::stringstream ss;
         ss << "graph LR\n";
         
-        ss << "    classDef graphics fill:#2d5a27,stroke:#afff9e,stroke-width:2px,color:#fff\n";
-        ss << "    classDef compute fill:#2d3e5a,stroke:#9ecaff,stroke-width:2px,color:#fff\n";
-        ss << "    classDef raytrace fill:#5a2d2d,stroke:#ff9e9e,stroke-width:2px,color:#fff\n";
-        ss << "    classDef resource fill:#333,stroke:#ccc,stroke-width:1px,color:#fff,stroke-dasharray: 5 5\n";
+        // Style definitions: Muted Pass nodes (Orange), Resource nodes (Blue)
+        ss << "    classDef graphics fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
+        ss << "    classDef compute fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
+        ss << "    classDef raytrace fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
+        ss << "    classDef resource fill:#90CAF9,stroke:#1565C0,stroke-width:1px,color:#333\n";
 
         std::vector<std::string> graphicsPasses;
         std::vector<std::string> computePasses;
         std::vector<std::string> raytracePasses;
         std::unordered_set<std::string> handledResources;
+
+        int linkIndex = 0;
+        std::vector<int> readLinks;
+        std::vector<int> writeLinks;
 
         for (const auto& pass : m_PassStack)
         {
@@ -472,8 +532,11 @@ namespace Chimera
 
             ss << "    " << passNode << shape << "\"" << pass.name << shaderLabel << "\"" << endShape << "\n";
 
+            // Inputs: Resource -> Pass (Read) - Green Arrow
             for (const auto& in : pass.inputs)
             {
+                if (in.handle == INVALID_RESOURCE || in.handle >= m_Resources.size()) continue;
+
                 std::string resName = m_Resources[in.handle].name;
                 std::string resID = "Res_" + resName;
                 std::replace(resID.begin(), resID.end(), ' ', '_');
@@ -485,10 +548,14 @@ namespace Chimera
                     handledResources.insert(resID);
                 }
                 ss << "    " << resID << " --> " << passNode << "\n";
+                readLinks.push_back(linkIndex++);
             }
 
+            // Outputs: Pass -> Resource (Write) - Red Arrow
             for (const auto& out : pass.outputs)
             {
+                if (out.handle == INVALID_RESOURCE || out.handle >= m_Resources.size()) continue;
+
                 std::string resName = m_Resources[out.handle].name;
                 std::string resID = "Res_" + resName;
                 std::replace(resID.begin(), resID.end(), ' ', '_');
@@ -500,6 +567,7 @@ namespace Chimera
                     handledResources.insert(resID);
                 }
                 ss << "    " << passNode << " --> " << resID << "\n";
+                writeLinks.push_back(linkIndex++);
             }
         }
 
@@ -519,6 +587,10 @@ namespace Chimera
         addClass(graphicsPasses, "graphics");
         addClass(computePasses, "compute");
         addClass(raytracePasses, "raytrace");
+
+        // Apply link styles for colors
+        for (int idx : readLinks) ss << "    linkStyle " << idx << " stroke:#00FF00,stroke-width:2px\n";
+        for (int idx : writeLinks) ss << "    linkStyle " << idx << " stroke:#FF0000,stroke-width:2px\n";
 
         return ss.str();
     }
@@ -562,15 +634,34 @@ namespace Chimera
         {
             return false;
         }
+
+        // Find current pass index in the stack
+        uint32_t passIdx = 0xFFFFFFFF;
+        for (uint32_t i = 0; i < (uint32_t)m_PassStack.size(); ++i) {
+            if (&m_PassStack[i] == &pass) {
+                passIdx = i;
+                break;
+            }
+        }
+
         std::vector<VkRenderingAttachmentInfo> colorAtts;
         for (auto& req : pass.outputs)
         {
             if (req.usage == ResourceUsage::ColorAttachment)
             {
-                VkRenderingAttachmentInfo a{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO, nullptr, m_Resources[req.handle].image.view, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, req.clearValue };
+                PhysicalResource& res = m_Resources[req.handle];
+                VkAttachmentLoadOp loadOp = (res.firstPass == passIdx) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+
+                VkRenderingAttachmentInfo a{ 
+                    VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO, nullptr, 
+                    res.image.view, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 
+                    VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, 
+                    loadOp, VK_ATTACHMENT_STORE_OP_STORE, req.clearValue 
+                };
                 colorAtts.push_back(a);
             }
         }
+
         VkRenderingAttachmentInfo depthAtt{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
         bool hasDepth = false;
         if (pass.depthFormat != VK_FORMAT_UNDEFINED)
@@ -579,13 +670,21 @@ namespace Chimera
             {
                 if (req.usage == ResourceUsage::DepthStencilWrite)
                 {
-                    depthAtt = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO, nullptr, m_Resources[req.handle].image.view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE, req.clearValue };
+                    PhysicalResource& res = m_Resources[req.handle];
+                    VkAttachmentLoadOp loadOp = (res.firstPass == passIdx) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+
+                    depthAtt = { 
+                        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO, nullptr, 
+                        res.image.view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 
+                        VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED, 
+                        loadOp, VK_ATTACHMENT_STORE_OP_STORE, req.clearValue 
+                    };
                     hasDepth = true; 
                     break;
                 }
             }
         }
-        VkRenderingInfo info{ VK_STRUCTURE_TYPE_RENDERING_INFO, nullptr, 0, {{0,0}, {m_Width, m_Height}}, 1, 0, (uint32_t)colorAtts.size(), colorAtts.data(), hasDepth ? &depthAtt : nullptr, nullptr };
+        VkRenderingInfo info{ VK_STRUCTURE_TYPE_RENDERING_INFO, nullptr, 0, {{0,0}, {pass.width, pass.height}}, 1, 0, (uint32_t)colorAtts.size(), colorAtts.data(), hasDepth ? &depthAtt : nullptr, nullptr };
         vkCmdBeginRendering(cmd, &info);
         return true;
     }
@@ -719,9 +818,9 @@ namespace Chimera
                 histRecord.state.access = VK_ACCESS_2_SHADER_READ_BIT;
                 histRecord.state.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
             }
-            else if (!isDepth && res.currentState.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+            else if (!res.image.is_external && !isDepth && res.currentState.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
             {
-                // Normal transition for non-history resources
+                // Normal transition for non-history, non-external resources
                 VkImageMemoryBarrier2 b{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
                 b.srcStageMask = res.currentState.stage;
                 b.srcAccessMask = res.currentState.access;

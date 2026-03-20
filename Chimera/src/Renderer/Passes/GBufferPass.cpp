@@ -56,11 +56,11 @@ namespace Chimera::GBufferPass
                                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
                                      .Clear(clearZero);
 
+                // Write to Depth, establishing dependency on Prepass which already wrote to it.
                 data.depth    = builder.Write(RS::Depth)
                                      .Format(VK_FORMAT_D32_SFLOAT)
-                                     .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE)
-                                     .SaveAsHistory(RS::Depth);
-            },
+                                     .SaveAsHistory(RS::Depth); // Reuse from Prepass
+                },
             [scene](const GBufferData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
             {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
@@ -71,11 +71,14 @@ namespace Chimera::GBufferPass
                 desc.fragment_shader = "GBuffer_Frag";
                 desc.depth_test = true;
                 desc.depth_write = true;
+                desc.depth_compare_op = CH_DEPTH_COMPARE_OP;
+                desc.cull_mode = VK_CULL_MODE_NONE;
 
                 ctx.BindPipeline(desc);
 
                 const auto& entities = scene->GetEntities();
                 uint32_t globalObjectId = 0;
+                uint32_t drawCount = 0;
 
                 for (const auto& entity : entities)
                 {
@@ -93,8 +96,16 @@ namespace Chimera::GBufferPass
                             ScenePushConstants pc{ globalObjectId++ };
                             ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
                             ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
+                            drawCount++;
                         }
                     }
+                }
+
+                static uint32_t lastDrawCount = 0xFFFFFFFF;
+                if (drawCount != lastDrawCount)
+                {
+                    CH_CORE_INFO("GBufferPass: Drawing {0} meshes from {1} entities.", drawCount, entities.size());
+                    lastDrawCount = drawCount;
                 }
             }
         );

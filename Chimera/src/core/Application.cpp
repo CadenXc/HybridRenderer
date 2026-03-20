@@ -16,65 +16,29 @@
 
 namespace Chimera
 {
-    // --- TAA Jitter Utilities ---
-    static float GetHaltonSequence(int index, int base)
-    {
-        float f = 1.0f;
-        float r = 0.0f;
-        int current = index;
-        while (current > 0)
-        {
-            f = f / (float)base;
-            r = r + f * (float)(current % base);
-            current = current / base;
-        }
-        return r;
-    }
+    Application *Application::s_Instance = nullptr;
 
-    static glm::vec2 CalculateTAAJitter(uint32_t frameIndex, uint32_t renderWidth, uint32_t renderHeight)
-    {
-        if (renderWidth == 0 || renderHeight == 0) return glm::vec2(0.0f);
-
-        // Use 16-frame cycle for TAA (index must be > 0)
-        int phase = (frameIndex % 16) + 1;
-
-        // Base 2 for X, Base 3 for Y
-        float haltonX = GetHaltonSequence(phase, 2);
-        float haltonY = GetHaltonSequence(phase, 3);
-
-        // Map to [-0.5, 0.5] pixel range and convert to NDC space
-        // NDC is [-1, 1], so total width is 2.0.
-        float ndcOffsetX = (haltonX - 0.5f) * (2.0f / (float)renderWidth);
-        float ndcOffsetY = (haltonY - 0.5f) * (2.0f / (float)renderHeight);
-
-        return glm::vec2(ndcOffsetX, ndcOffsetY);
-    }
-
-    Application* Application::s_Instance = nullptr;
-
-    Application::Application(const ApplicationSpecification& spec)
+    Application::Application(const ApplicationSpecification &spec)
         : m_Specification(spec)
     {
         s_Instance = this;
         CH_CORE_INFO("Application: Booting engine...");
 
         m_Window = Window::Create(WindowProps(spec.Name, spec.Width, spec.Height));
-        m_Window->SetEventCallback([this](Event& e)
-        {
-            OnEvent(e);
-        });
+        m_Window->SetEventCallback([this](Event &e)
+                                   { OnEvent(e); });
 
         m_Context = std::make_shared<VulkanContext>(m_Window->GetNativeWindow());
-        m_ContextAnchor = m_Context; // Anchor it
-        
+        m_ContextAnchor = m_Context;
+
         m_Renderer = std::make_unique<Renderer>();
         m_ResourceManager = std::make_unique<ResourceManager>();
         m_ResourceManager->InitGlobalResources();
-        
+
         ShaderRegistry::RegisterAll();
         m_PipelineManager = std::make_unique<PipelineManager>();
         m_RenderState = std::make_unique<RenderState>();
-        
+
         m_ImGuiLayer = std::make_shared<ImGuiLayer>(m_Context);
         PushLayer(m_ImGuiLayer);
 
@@ -86,13 +50,12 @@ namespace Chimera
     Application::~Application()
     {
         CH_CORE_INFO("Application: Destructor started. Starting surgical teardown...");
-        
-        // 1. [CRITICAL] Hold the context alive until the very last line of this destructor
+
         std::shared_ptr<VulkanContext> contextKeepAlive = m_Context;
-        
+
         if (m_Context)
         {
-            try 
+            try
             {
                 VkDevice device = m_Context->GetDevice();
                 vkDeviceWaitIdle(device);
@@ -100,7 +63,7 @@ namespace Chimera
                 // 2. Kill the window callback immediately to stop any incoming events
                 if (m_Window)
                 {
-                    m_Window->SetEventCallback([](Event&) {});
+                    m_Window->SetEventCallback([](Event &) {});
                 }
 
                 // 3. Clear Event Queue to release any captures
@@ -116,7 +79,7 @@ namespace Chimera
 
                 // 5. [STEP 2] DESTROY BUSINESS LAYERS (ImGui context must still be alive)
                 CH_CORE_INFO("Application: [Step 2/5] Purging LayerStack...");
-                while (m_LayerStack.size() > 1) 
+                while (m_LayerStack.size() > 1)
                 {
                     auto layer = m_LayerStack.back();
                     if (layer != m_ImGuiLayer)
@@ -124,7 +87,7 @@ namespace Chimera
                         CH_CORE_INFO("Application: Releasing layer: {}", layer->GetName());
                         layer->OnDetach();
                         m_LayerStack.pop_back();
-                        layer.reset(); 
+                        layer.reset();
                     }
                     else
                     {
@@ -135,13 +98,13 @@ namespace Chimera
                 // 6. [STEP 3] DESTROY CORE RENDER SUBSYSTEMS (This releases the 6 leaking buffers)
                 CH_CORE_INFO("Application: [Step 3/5] Destroying core rendering subsystems...");
                 m_RenderState.reset(); // This destroys per-frame camera/material UBOs
-                
+
                 if (m_PipelineManager)
                 {
                     m_PipelineManager->ClearCache();
                     m_PipelineManager.reset();
                 }
-                
+
                 ShaderManager::ClearCache();
                 m_Renderer.reset(); // This destroys frame-sync objects
 
@@ -152,11 +115,11 @@ namespace Chimera
                     CH_CORE_INFO("Application: Calling SetActiveScene(nullptr)...");
                     m_ResourceManager->SetActiveScene(nullptr);
                     CH_CORE_INFO("Application: SetActiveScene(nullptr) completed.");
-                    
+
                     CH_CORE_INFO("Application: Calling m_ResourceManager->Clear()...");
-                    m_ResourceManager->Clear(); 
+                    m_ResourceManager->Clear();
                     CH_CORE_INFO("Application: m_ResourceManager->Clear() completed.");
-                    
+
                     CH_CORE_INFO("Application: Calling m_ResourceManager.reset()...");
                     m_ResourceManager.reset();
                     CH_CORE_INFO("Application: m_ResourceManager.reset() completed.");
@@ -167,18 +130,19 @@ namespace Chimera
                 {
                     CH_CORE_INFO("Application: [Step 5/5] Final ImGui shutdown...");
                     m_ImGuiLayer->OnDetach();
-                    
+
                     auto it = std::find(m_LayerStack.begin(), m_LayerStack.end(), m_ImGuiLayer);
-                    if (it != m_LayerStack.end()) m_LayerStack.erase(it);
+                    if (it != m_LayerStack.end())
+                        m_LayerStack.erase(it);
                     m_ImGuiLayer.reset();
                 }
-                
+
                 CH_CORE_INFO("Application: ImGui shutdown completed.");
 
                 // 9. FINAL HARDWARE FLUSH
                 CH_CORE_INFO("Application: Final hardware DeletionQueue flush...");
                 m_Context->GetDeletionQueue().FlushAll();
-                
+
                 vkDeviceWaitIdle(device);
                 CH_CORE_INFO("Application: Device idle, resetting m_Window...");
                 m_Window.reset();
@@ -189,13 +153,13 @@ namespace Chimera
                 CH_CORE_ERROR("Application: CRITICAL CRASH during destruction sequence! Potential resource leak.");
             }
         }
-        
+
         CH_CORE_INFO("Application: Resetting m_ContextAnchor...");
         m_ContextAnchor.reset();
         CH_CORE_INFO("Application: Resetting m_Context...");
-        m_Context.reset(); 
+        m_Context.reset();
         CH_CORE_INFO("Application: m_Context reset completed.");
-        
+
         CH_CORE_INFO("Application: Teardown finished successfully. Context count: {}", contextKeepAlive.use_count());
         s_Instance = nullptr;
     }
@@ -208,7 +172,7 @@ namespace Chimera
                 std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
                 while (!m_EventQueue.empty())
                 {
-                    auto& func = m_EventQueue.front();
+                    auto &func = m_EventQueue.front();
                     if (func)
                     {
                         func();
@@ -224,16 +188,29 @@ namespace Chimera
             if (!m_Minimized)
             {
                 VkCommandBuffer cmd = m_Renderer->BeginFrame();
+                
                 if (cmd != VK_NULL_HANDLE)
                 {
                     uint32_t frameIndex = m_Renderer->GetCurrentFrameIndex();
-                    for (auto& layer : m_LayerStack)
+                    for (auto &layer : m_LayerStack)
                     {
                         layer->OnUpdate(deltaTime);
                     }
                     UpdateGlobalUBO(frameIndex);
+                    
+                    // [CRITICAL FIX] Execute the actual Rendering Pipeline
+                    if (m_RenderPath)
+                    {
+                        RenderFrameInfo frameInfo{};
+                        frameInfo.commandBuffer = cmd;
+                        frameInfo.frameIndex = frameIndex;
+                        frameInfo.imageIndex = m_Renderer->GetCurrentImageIndex();
+                        
+                        m_RenderPath->Render(frameInfo);
+                    }
+
                     m_ImGuiLayer->Begin();
-                    for (auto& layer : m_LayerStack)
+                    for (auto &layer : m_LayerStack)
                     {
                         layer->OnImGuiRender();
                     }
@@ -246,17 +223,13 @@ namespace Chimera
         }
     }
 
-    void Application::OnEvent(Event& e)
+    void Application::OnEvent(Event &e)
     {
         EventDispatcher dispatcher(e);
-        dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent& ev)
-        {
-            return OnWindowClose(ev);
-        });
-        dispatcher.Dispatch<WindowResizeEvent>([this](WindowResizeEvent& ev)
-        {
-            return OnWindowResize(ev);
-        });
+        dispatcher.Dispatch<WindowCloseEvent>([this](WindowCloseEvent &ev)
+                                              { return OnWindowClose(ev); });
+        dispatcher.Dispatch<WindowResizeEvent>([this](WindowResizeEvent &ev)
+                                               { return OnWindowResize(ev); });
 
         for (auto it = m_LayerStack.rbegin(); it != m_LayerStack.rend(); ++it)
         {
@@ -271,42 +244,40 @@ namespace Chimera
     void Application::UpdateGlobalUBO(uint32_t frameIndex)
     {
         UniformBufferObject ubo{};
-        
+
         ubo.camera.view = m_FrameContext.View;
-        ubo.camera.proj = m_FrameContext.Projection; 
-        
+        ubo.camera.proj = m_FrameContext.Projection;
+
+        // [DEBUG] Log matrix validity for first few frames
+        if (m_TotalFrameCount < 10)
+        {
+            CH_CORE_INFO("UBO Update [Frame {}]: View[0][0]={:.2f}, Proj[0][0]={:.2f}, Pos=({:.2f}, {:.2f}, {:.2f})", 
+                m_TotalFrameCount, ubo.camera.view[0][0], ubo.camera.proj[0][0], 
+                m_FrameContext.CameraPosition.x, m_FrameContext.CameraPosition.y, m_FrameContext.CameraPosition.z);
+        }
+
         ubo.camera.viewInverse = glm::inverse(ubo.camera.view);
         ubo.camera.projInverse = glm::inverse(ubo.camera.proj);
         ubo.camera.viewProjInverse = glm::inverse(ubo.camera.proj * ubo.camera.view);
-        ubo.camera.prevView = m_PrevView;
-        ubo.camera.prevProj = m_PrevProj;
+        ubo.camera.prevView = m_FrameContext.PrevView;
+        ubo.camera.prevProj = m_FrameContext.PrevProj;
         ubo.camera.position = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
-        
-        // [TAA] Handle Jitter
-        if (m_FrameContext.RenderFlags & RENDER_FLAG_TAA_BIT) 
-        {
-            m_CurrentJitter = CalculateTAAJitter(
-                m_TotalFrameCount, 
-                (uint32_t)m_FrameContext.ViewportSize.x, 
-                (uint32_t)m_FrameContext.ViewportSize.y
-            );
 
+        // [TAA] Handle Jitter
+        if (m_FrameContext.RenderFlags & RENDER_FLAG_TAA_BIT)
+        {
             // [NEW] Check if history is available to prevent first-frame ghosting/jitters
             if (m_RenderPath && m_RenderPath->GetRenderGraph().HasHistory("TAA_Ping"))
             {
                 ubo.frameData.w |= RENDER_FLAG_TAA_HISTORY_BIT;
             }
         }
-        else
-        {
-            m_CurrentJitter = glm::vec2(0.0f);
-        }
 
-        ubo.camera.jitterData = glm::vec4(m_CurrentJitter.x, m_CurrentJitter.y, m_PrevJitter.x, m_PrevJitter.y);
+        ubo.camera.jitterData = glm::vec4(m_FrameContext.Jitter.x, m_FrameContext.Jitter.y, m_FrameContext.PrevJitter.x, m_FrameContext.PrevJitter.y);
 
         if (m_ResourceManager->HasActiveScene())
         {
-            auto& sceneLight = m_ResourceManager->GetActiveScene()->GetLight();
+            auto &sceneLight = m_ResourceManager->GetActiveScene()->GetLight();
             ubo.sunLight.direction = sceneLight.direction;
             ubo.sunLight.color = sceneLight.color;
             ubo.sunLight.intensity = sceneLight.intensity;
@@ -319,21 +290,21 @@ namespace Chimera
         }
 
         // Block 1: displayData
-        ubo.displayData = glm::vec4(m_FrameContext.ViewportSize.x, m_FrameContext.ViewportSize.y, 
+        ubo.displayData = glm::vec4(m_FrameContext.ViewportSize.x, m_FrameContext.ViewportSize.y,
                                     1.0f / m_FrameContext.ViewportSize.x, 1.0f / m_FrameContext.ViewportSize.y);
-        
+
         // Block 2: frameData
         ubo.frameData = glm::uvec4(frameIndex, m_TotalFrameCount, m_FrameContext.DisplayMode, m_FrameContext.RenderFlags);
-        
+
         // Block 3: postData
         ubo.postData = glm::vec4(m_FrameContext.Exposure, m_FrameContext.AmbientStrength, 0.0f, (float)m_BlueNoiseTextureIndex);
-        
+
         // Block 4: envData
         int skyboxIdx = (m_ResourceManager->HasActiveScene()) ? (int)m_ResourceManager->GetActiveScene()->GetSkyboxTextureIndex() : -1;
         ubo.envData = glm::vec4((float)skyboxIdx, 0.0f, 0.0f, 0.0f);
 
         ubo.svgfAlpha = glm::vec4(m_FrameContext.SVGFAlphaColor, m_FrameContext.SVGFAlphaMoments, 0.0f, 0.0f);
-        ubo.svgfPhi   = glm::vec4(m_FrameContext.SVGFPhiColor, m_FrameContext.SVGFPhiNormal, m_FrameContext.SVGFPhiDepth, 0.0f);
+        ubo.svgfPhi = glm::vec4(m_FrameContext.SVGFPhiColor, m_FrameContext.SVGFPhiNormal, m_FrameContext.SVGFPhiDepth, 0.0f);
         ubo.gpuClearColor = m_FrameContext.ClearColor;
 
         if (m_ResourceManager->HasActiveScene())
@@ -344,24 +315,20 @@ namespace Chimera
 
         m_ResourceManager->UpdateFrameIndex(frameIndex);
         m_RenderState->Update(frameIndex, ubo);
-        
-        m_PrevView = ubo.camera.view;
-        m_PrevProj = ubo.camera.proj;
-        m_PrevJitter = m_CurrentJitter;
     }
 
-    bool Application::OnWindowClose(WindowCloseEvent& e) 
-    { 
-        m_Running = false; 
-        return true; 
-    }
-
-    bool Application::OnWindowResize(WindowResizeEvent& e)
+    bool Application::OnWindowClose(WindowCloseEvent &e)
     {
-        if (e.GetWidth() == 0 || e.GetHeight() == 0) 
-        { 
-            m_Minimized = true; 
-            return false; 
+        m_Running = false;
+        return true;
+    }
+
+    bool Application::OnWindowResize(WindowResizeEvent &e)
+    {
+        if (e.GetWidth() == 0 || e.GetHeight() == 0)
+        {
+            m_Minimized = true;
+            return false;
         }
         m_Minimized = false;
         m_Specification.Width = e.GetWidth();
@@ -370,10 +337,10 @@ namespace Chimera
         return false;
     }
 
-    void Application::PushLayer(std::shared_ptr<Layer> layer) 
-    { 
-        m_LayerStack.emplace_back(layer); 
-        layer->OnAttach(); 
+    void Application::PushLayer(std::shared_ptr<Layer> layer)
+    {
+        m_LayerStack.emplace_back(layer);
+        layer->OnAttach();
     }
 
     void Application::SwitchRenderPath(std::unique_ptr<RenderPath> path)
@@ -387,7 +354,7 @@ namespace Chimera
                 m_Renderer->ResetFrameState();
             }
         }
-        
+
         m_RenderPath = std::move(path);
         if (m_RenderPath)
         {
@@ -395,18 +362,18 @@ namespace Chimera
         }
     }
 
-    void Application::Close() 
-    { 
-        m_Running = false; 
+    void Application::Close()
+    {
+        m_Running = false;
     }
 
-    uint32_t Application::GetCurrentImageIndex() const 
-    { 
-        return m_Renderer->GetCurrentImageIndex(); 
+    uint32_t Application::GetCurrentImageIndex() const
+    {
+        return m_Renderer->GetCurrentImageIndex();
     }
 
-    uint32_t Application::GetCurrentFrameIndex() const 
-    { 
-        return m_Renderer->GetCurrentFrameIndex(); 
+    uint32_t Application::GetCurrentFrameIndex() const
+    {
+        return m_Renderer->GetCurrentFrameIndex();
     }
 }

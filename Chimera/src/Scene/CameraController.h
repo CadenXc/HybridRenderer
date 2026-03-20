@@ -14,7 +14,7 @@ namespace Chimera
 		CameraController();
 
 		void OnUpdate(float ts);
-		void SetCamera(Camera* camera)
+		void SetCamera(GpuCamera* camera)
 		{
 			m_Camera = camera;
 		}
@@ -29,7 +29,7 @@ namespace Chimera
 		void UpdateView();
 
 	private:
-		Camera* m_Camera = nullptr;
+		GpuCamera* m_Camera = nullptr;
 
 		// Camera State
 		glm::vec3 m_Position{ 2.0f, 2.0f, 2.0f };

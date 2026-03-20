@@ -75,7 +75,7 @@ namespace Chimera
         std::vector<int> children;
     };
 
-    struct Camera
+    struct GpuCamera
     {
         glm::mat4 view{ 1.0f };
         glm::mat4 proj{ 1.0f };
