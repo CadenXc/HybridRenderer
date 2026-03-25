@@ -3,12 +3,11 @@
 #include "Renderer/Resources/ResourceManager.h"
 #include <glm/gtc/type_ptr.hpp>
 
-#define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
 
 namespace Chimera
 {
-    std::shared_ptr<ImportedScene> AssetImporter::ImportScene(const std::string& path, ResourceManager* resourceManager)
+    std::shared_ptr<ImportedScene> AssetImporter::ImportScene(const std::string& path)
     {
         cgltf_options options{};
         cgltf_data* data = nullptr;
@@ -45,7 +44,7 @@ namespace Chimera
             std::replace(relativeUri.begin(), relativeUri.end(), '\\', '/');
             
             std::string texPath = baseDir + relativeUri;
-            TextureHandle h = resourceManager->LoadTexture(texPath, srgb);
+            TextureHandle h = ResourceManager::Get().LoadTexture(texPath, srgb);
             textureCache[tex->image] = h;
             return h;
         };
@@ -195,6 +194,20 @@ for (size_t k = 0; k < posAcc->count; ++k)
                 }
 
                 mesh.indexCount = indexCount;
+                
+                // [NEW] Compute AABB
+                if (posAcc->has_min && posAcc->has_max)
+                {
+                    mesh.localBounds.min = glm::make_vec3(posAcc->min);
+                    mesh.localBounds.max = glm::make_vec3(posAcc->max);
+                }
+                else
+                {
+                    // Fallback to manual computation if min/max not present in glTF
+                    for (size_t k = mesh.vertexOffset; k < outScene->Vertices.size(); ++k)
+                        mesh.localBounds.Merge(outScene->Vertices[k].pos);
+                }
+
                 outScene->Meshes.push_back(mesh);
             }
         }

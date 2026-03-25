@@ -44,7 +44,7 @@ void main()
 
     if ((frameData.w & RENDER_FLAG_GI_BIT) != 0)
     {
-        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, rayDirection, 10000.0, 0);
+        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, rayDirection, 1e10, 0);
     }
 
     // [OUTPUT] Real color retrieved from Hit or Miss shaders

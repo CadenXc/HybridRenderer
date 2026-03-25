@@ -25,71 +25,64 @@ namespace Chimera
 		virtual void OnDetach() override;
 		virtual void OnUpdate(Timestep ts) override;
 		virtual void OnImGuiRender() override;
-		virtual void OnEvent(Event& e) override;
+		virtual void OnEvent(Event &e) override;
 
 		void SwitchRenderPath(RenderPathType type);
-		void LoadScene(const std::string& path);
+		void LoadScene(const std::string &path);
 		void ClearScene();
 
 		std::shared_ptr<Scene> GetActiveScene()
 		{
 			return ResourceManager::Get().GetActiveSceneShared();
 		}
-		Scene* GetActiveSceneRaw()
+		Scene *GetActiveSceneRaw()
 		{
 			return ResourceManager::Get().GetActiveScene();
 		}
-		RenderPath* GetRenderPath()
+		RenderPath *GetRenderPath()
 		{
 			return Application::Get().GetActiveRenderPath();
 		}
 
 	private:
 		void RefreshModelList();
-		void LoadModel(const std::string& relativePath);
+		void LoadModel(const std::string &relativePath);
 
 		// UI Panels (Accept active path as parameter)
 		void DrawMenuBar();
-		void DrawRenderPathPanel(RenderPath* activePath);
-		void DrawModelSelectionPanel();
-		void DrawControlPanelContent(RenderPath* activePath);
+		void DrawRenderPathPanel(RenderPath *activePath);
+		void DrawControlPanelContent(RenderPath *activePath);
 		void DrawSceneHierarchy();
-		void DrawPropertiesPanel(RenderPath* activePath);
-		void DrawLightSettings(RenderPath* activePath);
-		void DrawGeneralSettings(); // [NEW]
+		void DrawPropertiesPanel(RenderPath *activePath);
+		void DrawLightSettings(RenderPath *activePath);
+		void DrawGeneralSettings();
 
 	private:
 		EditorCamera m_EditorCamera;
-		
+
 		// Interaction & Debugging
-		glm::vec2 m_ViewportSize = { 0, 0 };
-        
+		glm::vec2 m_ViewportSize = {0, 0};
+
 		// UI Visibility
 		bool m_ShowControlPanel = true;
 		uint32_t m_DisplayMode = 0; // 0: Final Output
 		uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
-				
+
 		float m_Exposure = 1.0f;
 		float m_AmbientStrength = 1.0f;
-		glm::vec4 m_ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f }; // [NEW] Global Background Color
-        // --- SVGF Parameters ---
-        float m_SVGFAlphaColor = 0.05f;
-        float m_SVGFAlphaMoments = 0.2f;
-        float m_SVGFPhiColor = 10.0f;
-        float m_SVGFPhiNormal = 128.0f;
-        float m_SVGFPhiDepth = 0.1f;
+		glm::vec4 m_ClearColor = {0.1f, 0.1f, 0.1f, 1.0f}; // [NEW] Global Background Color
 
-        // --- Light Parameters ---
-        float m_LightRadius = 0.05f;
+		// --- Light Parameters ---
+		float m_LightRadius = 0.05f;
 
-        // Model/Scene Management
-		struct ModelAsset 
+		// Model/Scene Management
+		struct ModelAsset
 		{
 			std::string Name;
 			std::string Path;
 		};
 		std::vector<ModelAsset> m_AvailableModels;
-		char m_AssetSearchFilter[256] = { 0 }; // [NEW] Search filter for models
+		char m_AssetSearchFilter[256] = {0}; // [NEW] Search filter for models
 		std::string m_ActiveModelPath = "";
 		int m_SelectedModelIndex = -1;
 
@@ -103,7 +96,7 @@ namespace Chimera
 		float m_ResizeTimer = 0.0f;
 		bool m_ViewportResizing = false;
 		bool m_ResizePending = false;
-		glm::vec2 m_NextViewportSize{ 0.0f };
+		glm::vec2 m_NextViewportSize{0.0f};
 	};
 
 }

@@ -8,7 +8,7 @@
 
 namespace Chimera
 {
-    Model::Model(std::shared_ptr<VulkanContext> context, const ImportedScene& importedScene)
+    Model::Model(std::shared_ptr<VulkanContext> context, const ImportedScene &importedScene)
         : m_Context(context)
     {
         m_VertexCount = (uint32_t)importedScene.Vertices.size();
@@ -19,41 +19,35 @@ namespace Chimera
         VkDeviceSize vertexBufferSize = sizeof(GpuVertex) * m_VertexCount;
         VkDeviceSize indexBufferSize = sizeof(uint32_t) * m_IndexCount;
 
-        // [OPTIMIZATION] 1. Create Staging Buffers (CPU Visible)
         Buffer stagingVBO(vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
         stagingVBO.Update(importedScene.Vertices.data(), vertexBufferSize);
 
         Buffer stagingIBO(indexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
         stagingIBO.Update(importedScene.Indices.data(), indexBufferSize);
 
-        // [OPTIMIZATION] 2. Create GPU-Only High Performance Final Buffers
         m_VertexBuffer = std::make_unique<Buffer>(
             vertexBufferSize,
-            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
-            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-            VMA_MEMORY_USAGE_GPU_ONLY
-        );
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+            VMA_MEMORY_USAGE_GPU_ONLY);
 
         m_IndexBuffer = std::make_unique<Buffer>(
             indexBufferSize,
-            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | 
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | 
-            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-            VMA_MEMORY_USAGE_GPU_ONLY
-        );
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+            VMA_MEMORY_USAGE_GPU_ONLY);
 
-        // [OPTIMIZATION] 3. Perform the copy on GPU
         {
             ScopedCommandBuffer cmd;
-            VkBufferCopy vCopy{ 0, 0, vertexBufferSize };
-            VkBufferCopy iCopy{ 0, 0, indexBufferSize };
+            VkBufferCopy vCopy{0, 0, vertexBufferSize};
+            VkBufferCopy iCopy{0, 0, indexBufferSize};
             vkCmdCopyBuffer(cmd, (VkBuffer)stagingVBO.GetBuffer(), (VkBuffer)m_VertexBuffer->GetBuffer(), 1, &vCopy);
             vkCmdCopyBuffer(cmd, (VkBuffer)stagingIBO.GetBuffer(), (VkBuffer)m_IndexBuffer->GetBuffer(), 1, &iCopy);
         }
 
-        // --- Build BLAS for each mesh ---
-        const auto& meshes = importedScene.Meshes;
+        const auto &meshes = importedScene.Meshes;
         m_Meshes = meshes;
         m_BLASBuffers.clear();
         m_BLASHandles.clear();
@@ -62,11 +56,11 @@ namespace Chimera
         {
             for (uint32_t i = 0; i < meshes.size(); ++i)
             {
-                const auto& mesh = meshes[i];
+                const auto &mesh = meshes[i];
                 uint32_t maxPrimitiveCount = mesh.indexCount / 3;
 
-                VkAccelerationStructureGeometryKHR geo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR };
-                geo.flags = 0; // [FIX] Allow AnyHit/Alpha Test
+                VkAccelerationStructureGeometryKHR geo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
+                geo.flags = 0;
                 geo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
                 geo.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
                 geo.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
@@ -76,19 +70,19 @@ namespace Chimera
                 geo.geometry.triangles.indexData.deviceAddress = m_IndexBuffer->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
                 geo.geometry.triangles.maxVertex = m_VertexCount;
 
-                VkAccelerationStructureBuildGeometryInfoKHR buildInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+                VkAccelerationStructureBuildGeometryInfoKHR buildInfo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
                 buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
                 buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
                 buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
                 buildInfo.geometryCount = 1;
                 buildInfo.pGeometries = &geo;
 
-                VkAccelerationStructureBuildSizesInfoKHR sizeInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+                VkAccelerationStructureBuildSizesInfoKHR sizeInfo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
                 vkGetAccelerationStructureBuildSizesKHR(VulkanContext::Get().GetDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &maxPrimitiveCount, &sizeInfo);
 
                 auto blasBuffer = std::make_unique<Buffer>(sizeInfo.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT, VMA_MEMORY_USAGE_GPU_ONLY);
 
-                VkAccelerationStructureCreateInfoKHR createInfo{ VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+                VkAccelerationStructureCreateInfoKHR createInfo{VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR};
                 createInfo.buffer = (VkBuffer)blasBuffer->GetBuffer();
                 createInfo.size = sizeInfo.accelerationStructureSize;
                 createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
@@ -106,7 +100,7 @@ namespace Chimera
                 rangeInfo.firstVertex = 0;
                 rangeInfo.transformOffset = 0;
 
-                const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
+                const VkAccelerationStructureBuildRangeInfoKHR *pRange = &rangeInfo;
 
                 {
                     ScopedCommandBuffer cmd;

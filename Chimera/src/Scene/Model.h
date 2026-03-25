@@ -11,24 +11,24 @@ namespace Chimera
     class Model
     {
     public:
-        Model(std::shared_ptr<VulkanContext> context, const ImportedScene& importedScene);
+        Model(std::shared_ptr<VulkanContext> context, const ImportedScene &importedScene);
         ~Model();
 
-        const std::vector<Mesh>& GetMeshes() const
+        const std::vector<Mesh> &GetMeshes() const
         {
             return m_Meshes;
         }
 
-        Buffer* GetVertexBuffer() const
+        Buffer *GetVertexBuffer() const
         {
             return m_VertexBuffer.get();
         }
 
-        Buffer* GetIndexBuffer() const
+        Buffer *GetIndexBuffer() const
         {
             return m_IndexBuffer.get();
         }
-        
+
         VkDeviceAddress GetVertexBufferAddress() const
         {
             return m_VertexBuffer->GetDeviceAddress();
@@ -39,7 +39,7 @@ namespace Chimera
             return m_IndexBuffer->GetDeviceAddress();
         }
 
-        const std::vector<VkAccelerationStructureKHR>& GetBLASHandles() const
+        const std::vector<VkAccelerationStructureKHR> &GetBLASHandles() const
         {
             return m_BLASHandles;
         }
@@ -54,7 +54,7 @@ namespace Chimera
             return m_IndexCount;
         }
 
-        void Draw(class GraphicsExecutionContext& ctx); // [NEW] Data-driven draw call
+        void Draw(class GraphicsExecutionContext &ctx);
 
     private:
         void BuildBLAS();
@@ -64,7 +64,7 @@ namespace Chimera
         std::unique_ptr<Buffer> m_VertexBuffer;
         std::unique_ptr<Buffer> m_IndexBuffer;
         std::vector<Mesh> m_Meshes;
-        
+
         std::vector<std::unique_ptr<Buffer>> m_BLASBuffers;
         std::vector<VkAccelerationStructureKHR> m_BLASHandles;
 

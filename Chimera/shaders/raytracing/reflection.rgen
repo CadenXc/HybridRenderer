@@ -50,7 +50,7 @@ void main()
     if ((frameData.w & RENDER_FLAG_REFLECTION_BIT) != 0)
     {
         // Using Tmin=0.01 to avoid precision issues
-        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, reflectDirection, 10000.0, 0);
+        traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, reflectDirection, 1e10, 0);
     }
 
     imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(payload.color_dist.rgb, 1.0));

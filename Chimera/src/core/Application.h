@@ -2,6 +2,7 @@
 
 #include "pch.h"
 #include "Renderer/ChimeraCommon.h"
+#include "Scene/SceneCommon.h"
 #include "Core/Events/Event.h"
 #include "Core/Events/ApplicationEvent.h"
 #include "Core/Window.h"
@@ -13,9 +14,7 @@
 
 namespace Chimera
 {
-    // Forward declarations
     class Window;
-    class Layer;
     class ImGuiLayer;
     class VulkanContext;
     class Renderer;
@@ -28,10 +27,11 @@ namespace Chimera
         glm::vec2 ViewportSize;
         glm::mat4 View;
         glm::mat4 Projection;
-        glm::vec2 Jitter = { 0.0f, 0.0f };
-        glm::vec2 PrevJitter = { 0.0f, 0.0f }; // [NEW]
-        glm::mat4 PrevView = glm::mat4(1.0f);   // [NEW]
-        glm::mat4 PrevProj = glm::mat4(1.0f);   // [NEW]
+        Frustum CamFrustum;
+        glm::vec2 Jitter = {0.0f, 0.0f};
+        glm::vec2 PrevJitter = {0.0f, 0.0f};
+        glm::mat4 PrevView = glm::mat4(1.0f);
+        glm::mat4 PrevProj = glm::mat4(1.0f);
         glm::vec3 CameraPosition;
         float DeltaTime;
         float Time;
@@ -40,14 +40,16 @@ namespace Chimera
         uint32_t RenderFlags = 1;
         float Exposure = 1.0f;
         float AmbientStrength = 1.0f;
-        glm::vec4 ClearColor = { 0.1f, 0.1f, 0.1f, 1.0f };
+        glm::vec4 ClearColor = {0.1f, 0.1f, 0.1f, 1.0f};
 
-        float SVGFAlphaColor = 0.05f;
-        float SVGFAlphaMoments = 0.2f;
-        float SVGFPhiColor = 10.0f;
-        float SVGFPhiNormal = 128.0f;
-        float SVGFPhiDepth = 0.1f;
         float LightRadius = 0.05f;
+    };
+
+    struct FrameStats
+    {
+        uint32_t DrawCalls = 0;
+        uint32_t TotalMeshes = 0;
+        uint32_t CulledMeshes = 0;
     };
 
     class Application
@@ -82,6 +84,16 @@ namespace Chimera
         }
 
         void Close();
+
+        ApplicationSpecification &GetSpecification()
+        {
+            return m_Specification;
+        }
+
+        const ApplicationSpecification &GetSpecification() const
+        {
+            return m_Specification;
+        }
 
         Window &GetWindow()
         {
@@ -127,6 +139,10 @@ namespace Chimera
         {
             return m_FrameContext;
         }
+        
+        void SetFrameStats(const FrameStats& stats) { m_FrameStats = stats; }
+        const FrameStats& GetFrameStats() const { return m_FrameStats; }
+
         void SetActiveScene(Scene *scene)
         {
             m_ActiveScene = scene;
@@ -178,6 +194,7 @@ namespace Chimera
         std::vector<std::shared_ptr<Layer>> m_LayerStack;
         unsigned int m_LayerIndex = 0;
         AppFrameContext m_FrameContext;
+        FrameStats m_FrameStats;
         Scene *m_ActiveScene = nullptr;
 
         std::deque<std::function<void()>> m_EventQueue;

@@ -1,7 +1,7 @@
 #include "pch.h"
 #include "ShaderManager.h"
 #include "Core/Log.h"
-#include "Core/EngineConfig.h"
+#include "Core/Application.h"
 #include <fstream>
 #include <filesystem>
 
@@ -33,7 +33,7 @@ namespace Chimera
         }
 
         // --- ULTRA ROBUST PATH RESOLUTION ---
-        std::filesystem::path baseDir = Config::SHADER_DIR;
+        std::filesystem::path baseDir = Application::Get().GetSpecification().ShaderDir;
         std::filesystem::path shaderFile = actualPath + ".spv";
         
         // Use operator / for proper path joining

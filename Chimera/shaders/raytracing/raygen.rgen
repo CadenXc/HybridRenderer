@@ -56,7 +56,7 @@ void main()
         payload.motion_hit = vec4(0.0, 0.0, 1.0, 0.0); // b=1.0: Assume shadowed
         
         traceRayEXT(TLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
-                    0xFF, 0, 0, 1, origin, 0.001, lightDirection, 10000.0, 0);
+                    0xFF, 0, 0, 1, origin, 0.001, lightDirection, 1e10, 0);
                     
         shadow = (payload.motion_hit.b > 0.5) ? 0.0 : 1.0;
     }

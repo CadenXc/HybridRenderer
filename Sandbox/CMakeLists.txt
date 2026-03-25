@@ -2,12 +2,22 @@ cmake_minimum_required(VERSION 3.20)
 project(Sandbox)
 
 # Source Files
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+file(GLOB_RECURSE SOURCES 
+    "src/*.cpp" 
+    "src/*.h"
+    "src/*.hpp"
+)
+
+# Organize files into folders in Visual Studio
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "Source Files" FILES ${SOURCES})
 
 add_executable(Sandbox ${SOURCES})
 
 # Link Engine
 target_link_libraries(Sandbox PRIVATE Chimera)
+
+# Use the same PCH as Chimera for fast builds
+target_precompile_headers(Sandbox PRIVATE ${CMAKE_SOURCE_DIR}/Chimera/src/pch.h)
 
 if(TARGET ChimeraShaders)
     # Create a target that ALWAYS runs (ALL) to copy shaders

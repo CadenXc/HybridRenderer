@@ -1,6 +1,5 @@
 #include "Chimera.h"
 #include "Core/EntryPoint.h"
-#include "Core/EngineConfig.h"
 #include "editor/EditorLayer.h"
 
 class ChimeraApp : public Chimera::Application

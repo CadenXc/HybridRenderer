@@ -5,7 +5,31 @@ project(Chimera)
 add_subdirectory(third_party)
 
 # 2. Source Files
-file(GLOB_RECURSE SOURCES "src/*.cpp")
+file(GLOB_RECURSE SRC_FILES 
+    "src/*.cpp" 
+    "src/*.h" 
+    "src/*.hpp"
+)
+
+file(GLOB_RECURSE SHADER_FILES
+    "shaders/*.vert"
+    "shaders/*.frag"
+    "shaders/*.comp"
+    "shaders/*.rgen"
+    "shaders/*.rchit"
+    "shaders/*.rmiss"
+    "shaders/*.rahit"
+    "shaders/*.rcall"
+    "shaders/*.rint"
+    "shaders/*.glsl"
+)
+
+set(SOURCES ${SRC_FILES} ${SHADER_FILES})
+
+# Organize files into folders in Visual Studio
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "Source Files" FILES ${SRC_FILES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/shaders" PREFIX "Shaders" FILES ${SHADER_FILES})
+
 add_library(Chimera STATIC ${SOURCES})
 
 # 3. Include Directories

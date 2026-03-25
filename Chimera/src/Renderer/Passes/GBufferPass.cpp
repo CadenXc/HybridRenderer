@@ -15,54 +15,53 @@ namespace Chimera::GBufferPass
         RGResourceHandle normal;
         RGResourceHandle material;
         RGResourceHandle motion;
-        RGResourceHandle emissive; // [NEW] HDR Emissive storage
+        RGResourceHandle emissive;
         RGResourceHandle depth;
     };
 
-    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    void AddToGraph(RenderGraph &graph, std::shared_ptr<Scene> scene)
     {
         if (!scene)
         {
             return;
         }
 
-        graph.AddPass<GBufferData>("GBufferPass",
-            [](GBufferData& data, RenderGraph::PassBuilder& builder)
-            {
-                auto& frameCtx = Application::Get().GetFrameContext();
-                
-                VkClearColorValue clearColor = { {frameCtx.ClearColor.r, frameCtx.ClearColor.g, frameCtx.ClearColor.b, frameCtx.ClearColor.a} };
-                VkClearColorValue clearZero = { {0.0f, 0.0f, 0.0f, 0.0f} };
-                VkClearColorValue clearNormal = { {0.0f, 0.0f, 1.0f, 0.0f} }; // Facing camera by default
+        graph.AddPass<GBufferData>("GBufferPass", [](GBufferData &data, RenderGraph::PassBuilder &builder)
+                                   {
+                                       auto &frameCtx = Application::Get().GetFrameContext();
 
-                data.albedo   = builder.Write(RS::Albedo)
-                                     .Format(VK_FORMAT_R8G8B8A8_UNORM)
-                                     .Clear(clearColor);
+                                       VkClearColorValue clearColor = {{frameCtx.ClearColor.r, frameCtx.ClearColor.g, frameCtx.ClearColor.b, frameCtx.ClearColor.a}};
+                                       VkClearColorValue clearZero = {{0.0f, 0.0f, 0.0f, 0.0f}};
+                                       VkClearColorValue clearNormal = {{0.0f, 0.0f, 1.0f, 0.0f}};
 
-                data.normal   = builder.Write(RS::Normal)
-                                     .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
-                                     .Clear(clearNormal)
-                                     .SaveAsHistory(RS::Normal);
+                                       data.albedo = builder.Write(RS::Albedo)
+                                                         .Format(VK_FORMAT_R8G8B8A8_UNORM)
+                                                         .Clear(clearColor);
 
-                data.material = builder.Write(RS::Material)
-                                     .Format(VK_FORMAT_R8G8B8A8_UNORM)
-                                     .Clear(clearZero);
+                                       data.normal = builder.Write(RS::Normal)
+                                                         .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                                                         .Clear(clearNormal)
+                                                         .SaveAsHistory(RS::Normal);
 
-                data.motion   = builder.Write(RS::Motion)
-                                     .Format(VK_FORMAT_R16G16_SFLOAT)
-                                     .Clear(clearZero);
-                
-                data.emissive = builder.Write(RS::Emissive)
-                                     .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
-                                     .Clear(clearZero);
+                                       data.material = builder.Write(RS::Material)
+                                                           .Format(VK_FORMAT_R8G8B8A8_UNORM)
+                                                           .Clear(clearZero);
 
-                // Write to Depth, establishing dependency on Prepass which already wrote to it.
-                data.depth    = builder.Write(RS::Depth)
-                                     .Format(VK_FORMAT_D32_SFLOAT)
-                                     .SaveAsHistory(RS::Depth); // Reuse from Prepass
-                },
-            [scene](const GBufferData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
-            {
+                                       data.motion = builder.Write(RS::Motion)
+                                                         .Format(VK_FORMAT_R16G16_SFLOAT)
+                                                         .Clear(clearZero);
+
+                                       data.emissive = builder.Write(RS::Emissive)
+                                                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                                                           .Clear(clearZero);
+
+                                       // Write to Depth, establishing dependency on Prepass which already wrote to it.
+                                       data.depth = builder.Write(RS::Depth)
+                                                        .Format(VK_FORMAT_D32_SFLOAT)
+                                                        .SaveAsHistory(RS::Depth); // Reuse from Prepass
+                                   },
+                                   [scene](const GBufferData &data, RenderGraphRegistry &reg, VkCommandBuffer cmd)
+                                   {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
                 GraphicsPipelineDescription desc;
@@ -76,12 +75,21 @@ namespace Chimera::GBufferPass
 
                 ctx.BindPipeline(desc);
 
-                const auto& entities = scene->GetEntities();
-                uint32_t globalObjectId = 0;
+                const auto& frustum = Application::Get().GetFrameContext().CamFrustum;
+                
+                // [NEW] Use Octree to get visible entities
+                std::vector<uint32_t> visibleEntityIndices;
+                scene->GetVisibleEntities(frustum, visibleEntityIndices);
+
+                const auto& allEntities = scene->GetEntities();
+                uint32_t totalMeshes = 0;
+                for (const auto& e : allEntities) if (e.mesh.model) totalMeshes += (uint32_t)e.mesh.model->GetMeshes().size();
+
                 uint32_t drawCount = 0;
 
-                for (const auto& entity : entities)
+                for (uint32_t entityIdx : visibleEntityIndices)
                 {
+                    const auto& entity = allEntities[entityIdx];
                     if (entity.mesh.model)
                     {
                         const auto& meshes = entity.mesh.model->GetMeshes();
@@ -91,23 +99,43 @@ namespace Chimera::GBufferPass
                         ctx.BindVertexBuffers(0, 1, &vBuffer, &offset);
                         ctx.BindIndexBuffer((VkBuffer)entity.mesh.model->GetIndexBuffer()->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
+                        glm::mat4 entityTransform = entity.transform.GetTransform();
+
+                        uint32_t meshOffset = 0;
                         for (const auto& mesh : meshes)
                         {
-                            ScenePushConstants pc{ globalObjectId++ };
+                            // Secondary culling at mesh level
+                            AABB worldBounds = mesh.localBounds.Transform(entityTransform * mesh.transform);
+                            if (!frustum.Intersects(worldBounds))
+                            {
+                                meshOffset++;
+                                continue;
+                            }
+
+                            ScenePushConstants pc{ entity.primitiveOffset + meshOffset }; 
                             ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
                             ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
                             drawCount++;
+                            meshOffset++;
                         }
                     }
                 }
 
+                uint32_t culledCount = totalMeshes - drawCount;
+
                 static uint32_t lastDrawCount = 0xFFFFFFFF;
                 if (drawCount != lastDrawCount)
                 {
-                    CH_CORE_INFO("GBufferPass: Drawing {0} meshes from {1} entities.", drawCount, entities.size());
+                    CH_CORE_INFO("GBufferPass: Drawing {0} meshes, Culled {1} meshes.", drawCount, culledCount);
                     lastDrawCount = drawCount;
                 }
-            }
-        );
+                
+                // [NEW] Update Application Stats for UI
+                FrameStats stats;
+                stats.DrawCalls = drawCount;
+                stats.TotalMeshes = totalMeshes;
+                stats.CulledMeshes = culledCount;
+                Application::Get().SetFrameStats(stats);
+                });
     }
 }

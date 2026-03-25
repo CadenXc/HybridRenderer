@@ -605,10 +605,18 @@ namespace Chimera
         return m_HistoryResources.count(name);
     }
 
-    const GraphImage& RenderGraph::GetImage(const std::string& name) const 
-    { 
-        static GraphImage empty{}; 
-        return m_ResourceMap.count(name) ? m_Resources[m_ResourceMap.at(name)].image : empty; 
+    std::vector<std::string> RenderGraph::GetDebuggableResources() const
+    {
+        std::vector<std::string> names;
+        // Always include "Final Color" or similar if needed, but here we just return graph resources
+        for (const auto& res : m_Resources)
+        {
+            if (res.image.handle != VK_NULL_HANDLE)
+            {
+                names.push_back(res.name);
+            }
+        }
+        return names;
     }
 
     void RenderGraph::BeginPassDebugLabel(VkCommandBuffer cmd, const RenderPass& pass)

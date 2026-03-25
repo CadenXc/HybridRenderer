@@ -7,14 +7,14 @@
 namespace Chimera::VulkanUtils
 {
 
-    VkShaderModule LoadShaderModule(const std::string& filename, VkDevice device)
+    VkShaderModule LoadShaderModule(const std::string &filename, VkDevice device)
     {
         auto code = FileIO::ReadFile(filename);
-        
+
         VkShaderModuleCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         createInfo.codeSize = code.size();
-        createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+        createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
 
         VkShaderModule shaderModule;
         if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS)
@@ -24,11 +24,7 @@ namespace Chimera::VulkanUtils
         return shaderModule;
     }
 
-    void CopyBuffer(
-        VkBuffer srcBuffer,
-        VkBuffer dstBuffer,
-        VkDeviceSize size
-    )
+    void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
     {
         ScopedCommandBuffer cmd;
         VkBufferCopy copyRegion{};
@@ -36,11 +32,11 @@ namespace Chimera::VulkanUtils
         vkCmdCopyBuffer(cmd, srcBuffer, dstBuffer, 1, &copyRegion);
     }
 
-    void SetDebugUtilsObjectName(VkDevice device, VkObjectType type, uint64_t handle, const char* name)
+    void SetDebugUtilsObjectName(VkDevice device, VkObjectType type, uint64_t handle, const char *name)
     {
         if (vkSetDebugUtilsObjectNameEXT && name)
         {
-            VkDebugUtilsObjectNameInfoEXT info{ VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT };
+            VkDebugUtilsObjectNameInfoEXT info{VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT};
             info.objectType = type;
             info.objectHandle = handle;
             info.pObjectName = name;

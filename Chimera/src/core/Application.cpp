@@ -24,6 +24,36 @@ namespace Chimera
         s_Instance = this;
         CH_CORE_INFO("Application: Booting engine...");
 
+        // --- PATH RESOLUTION ---
+        std::filesystem::path currentPath = std::filesystem::current_path();
+        std::filesystem::path root = currentPath;
+        bool foundRoot = false;
+        for (int i = 0; i < 5; ++i)
+        {
+            if (std::filesystem::exists(root / "Chimera") && std::filesystem::exists(root / "scripts"))
+            {
+                foundRoot = true;
+                break;
+            }
+            if (!root.has_parent_path())
+                break;
+            root = root.parent_path();
+        }
+
+        if (foundRoot)
+        {
+            if (m_Specification.ShaderSourceDir.empty())
+            {
+                m_Specification.ShaderSourceDir = (root / "Chimera" / "shaders").string();
+                CH_CORE_INFO("Application: Detected Shader Source Dir: {0}", m_Specification.ShaderSourceDir);
+            }
+        }
+
+        // Initialize Frame Context from Spec
+        m_FrameContext.ClearColor = m_Specification.ClearColor;
+        m_FrameContext.DisplayMode = m_Specification.DisplayMode;
+        m_FrameContext.RenderFlags = m_Specification.RenderFlags;
+
         m_Window = Window::Create(WindowProps(spec.Name, spec.Width, spec.Height));
         m_Window->SetEventCallback([this](Event &e)
                                    { OnEvent(e); });
@@ -277,10 +307,10 @@ namespace Chimera
 
         if (m_ResourceManager->HasActiveScene())
         {
-            auto &sceneLight = m_ResourceManager->GetActiveScene()->GetLight();
+            auto &sceneLight = m_ResourceManager->GetActiveScene()->GetMainLight();
             ubo.sunLight.direction = sceneLight.direction;
             ubo.sunLight.color = sceneLight.color;
-            ubo.sunLight.intensity = sceneLight.intensity;
+            ubo.sunLight.intensity = glm::vec4(sceneLight.color.a, sceneLight.direction.w, 0.0f, 0.0f);
         }
         else
         {
@@ -303,8 +333,8 @@ namespace Chimera
         int skyboxIdx = (m_ResourceManager->HasActiveScene()) ? (int)m_ResourceManager->GetActiveScene()->GetSkyboxTextureIndex() : -1;
         ubo.envData = glm::vec4((float)skyboxIdx, 0.0f, 0.0f, 0.0f);
 
-        ubo.svgfAlpha = glm::vec4(m_FrameContext.SVGFAlphaColor, m_FrameContext.SVGFAlphaMoments, 0.0f, 0.0f);
-        ubo.svgfPhi = glm::vec4(m_FrameContext.SVGFPhiColor, m_FrameContext.SVGFPhiNormal, m_FrameContext.SVGFPhiDepth, 0.0f);
+        ubo.svgfAlpha = glm::vec4(0.05f, 0.2f, 0.0f, 0.0f); // Default: ColorAlpha=0.05, MomentsAlpha=0.2
+        ubo.svgfPhi = glm::vec4(10.0f, 128.0f, 0.1f, 0.0f); // Default: PhiColor=10.0, PhiNormal=128.0, PhiDepth=0.1
         ubo.gpuClearColor = m_FrameContext.ClearColor;
 
         if (m_ResourceManager->HasActiveScene())

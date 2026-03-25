@@ -14,6 +14,161 @@
 namespace Chimera
 {
 
+    struct AABB
+    {
+        glm::vec3 min{ std::numeric_limits<float>::max() };
+        glm::vec3 max{ -std::numeric_limits<float>::max() };
+
+        AABB() = default;
+        AABB(const glm::vec3& min, const glm::vec3& max) : min(min), max(max) {}
+
+        void Merge(const glm::vec3& point)
+        {
+            min = glm::min(min, point);
+            max = glm::max(max, point);
+        }
+
+        void Merge(const AABB& other)
+        {
+            min = glm::min(min, other.min);
+            max = glm::max(max, other.max);
+        }
+
+        bool IsValid() const { return min.x <= max.x && min.y <= max.y && min.z <= max.z; }
+
+        glm::vec3 GetCenter() const { return (min + max) * 0.5f; }
+        glm::vec3 GetExtent() const { return (max - min) * 0.5f; }
+
+        AABB Transform(const glm::mat4& transform) const
+        {
+            if (!IsValid()) return *this;
+
+            glm::vec3 corners[8] = {
+                {min.x, min.y, min.z}, {max.x, min.y, min.z},
+                {min.x, max.y, min.z}, {max.x, max.y, min.z},
+                {min.x, min.y, max.z}, {max.x, min.y, max.z},
+                {min.x, max.y, max.z}, {max.x, max.y, max.z}
+            };
+
+            AABB result;
+            for (int i = 0; i < 8; ++i)
+                result.Merge(glm::vec3(transform * glm::vec4(corners[i], 1.0f)));
+            return result;
+        }
+    };
+
+    struct Plane
+    {
+        glm::vec3 normal{ 0.0f, 1.0f, 0.0f };
+        float distance{ 0.0f };
+
+        Plane() = default;
+        Plane(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3)
+        {
+            auto edge1 = p2 - p1;
+            auto edge2 = p3 - p1;
+            normal = glm::normalize(glm::cross(edge1, edge2));
+            distance = glm::dot(normal, p1);
+        }
+
+        float GetSignedDistance(const glm::vec3& point) const
+        {
+            return glm::dot(normal, point) - distance;
+        }
+    };
+
+    struct Frustum
+    {
+        std::array<Plane, 6> planes;
+
+        bool Intersects(const AABB& aabb) const
+        {
+            if (!aabb.IsValid()) return false;
+
+            for (const auto& plane : planes)
+            {
+                glm::vec3 p = aabb.min;
+                if (plane.normal.x >= 0) p.x = aabb.max.x;
+                if (plane.normal.y >= 0) p.y = aabb.max.y;
+                if (plane.normal.z >= 0) p.z = aabb.max.z;
+
+                if (plane.GetSignedDistance(p) < 0)
+                    return false;
+            }
+            return true;
+        }
+
+        static Frustum FromViewProj(const glm::mat4& vp)
+        {
+            Frustum frustum;
+            // Extraction from VP matrix (Gribb-Hartmann)
+            // Left
+            frustum.planes[0].normal.x = vp[0][3] + vp[0][0];
+            frustum.planes[0].normal.y = vp[1][3] + vp[1][0];
+            frustum.planes[0].normal.z = vp[2][3] + vp[2][0];
+            frustum.planes[0].distance = -(vp[3][3] + vp[3][0]);
+
+            // Right
+            frustum.planes[1].normal.x = vp[0][3] - vp[0][0];
+            frustum.planes[1].normal.y = vp[1][3] - vp[1][0];
+            frustum.planes[1].normal.z = vp[2][3] - vp[2][0];
+            frustum.planes[1].distance = -(vp[3][3] - vp[3][0]);
+
+            // Bottom
+            frustum.planes[2].normal.x = vp[0][3] + vp[0][1];
+            frustum.planes[2].normal.y = vp[1][3] + vp[1][1];
+            frustum.planes[2].normal.z = vp[2][3] + vp[2][1];
+            frustum.planes[2].distance = -(vp[3][3] + vp[3][1]);
+
+            // Top
+            frustum.planes[3].normal.x = vp[0][3] - vp[0][1];
+            frustum.planes[3].normal.y = vp[1][3] - vp[1][1];
+            frustum.planes[3].normal.z = vp[2][3] - vp[2][1];
+            frustum.planes[3].distance = -(vp[3][3] - vp[3][1]);
+
+            // Near
+            frustum.planes[4].normal.x = vp[0][2];
+            frustum.planes[4].normal.y = vp[1][2];
+            frustum.planes[4].normal.z = vp[2][2];
+            frustum.planes[4].distance = -vp[3][2];
+
+            // Far
+            frustum.planes[5].normal.x = vp[0][3] - vp[0][2];
+            frustum.planes[5].normal.y = vp[1][3] - vp[1][2];
+            frustum.planes[5].normal.z = vp[2][3] - vp[2][2];
+            frustum.planes[5].distance = -(vp[3][3] - vp[3][2]);
+
+            for (auto& plane : frustum.planes)
+            {
+                float length = glm::length(plane.normal);
+                plane.normal /= length;
+                plane.distance /= length;
+            }
+
+            return frustum;
+        }
+    };
+
+    enum class LightType { Directional = 0, Point = 1, Spot = 2 };
+
+    // [NEW] Octree Node for spatial partitioning
+    struct OctreeNode
+    {
+        AABB bounds;
+        std::vector<uint32_t> entityIndices;
+        std::unique_ptr<OctreeNode> children[8];
+        bool isLeaf = true;
+
+        OctreeNode(const AABB& b) : bounds(b) {}
+    };
+
+    struct Light
+    {
+        glm::vec4 position;  // xyz: pos, w: type (0:Dir, 1:Point, 2:Spot)
+        glm::vec4 color;     // rgb: color, a: intensity
+        glm::vec4 direction; // xyz: dir, w: radius (for point) or spot angle
+    };
+
     struct VertexInfo : public GpuVertex
     {
         bool operator==(const VertexInfo& other) const
@@ -65,6 +220,7 @@ namespace Chimera
         uint32_t vertexOffset = 0;
         int materialIndex = 0;
         glm::mat4 transform{ 1.0f };
+        AABB localBounds;
     };
 
     struct Node
@@ -111,8 +267,10 @@ namespace Chimera
     {
         std::string name;
         TransformComponent transform;
-        glm::mat4 prevTransform{ 1.0f }; // [NEW]
+        glm::mat4 prevTransform{ 1.0f };
         MeshComponent mesh;
+        uint32_t rootNodeIndex = 0; // [NEW] Link to hierarchy
+        uint32_t primitiveOffset = 0; // [NEW] Index into global primitive buffer
     };
 
     // 存储 Importer 产出的结果

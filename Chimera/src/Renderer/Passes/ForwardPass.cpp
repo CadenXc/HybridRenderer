@@ -35,6 +35,7 @@ namespace Chimera::ForwardPass
                 if (scene)
                 {
                     const auto& entities = scene->GetEntities();
+                    const auto& frustum = Application::Get().GetFrameContext().CamFrustum;
                     uint32_t globalObjectId = 0;
 
                     for (const auto& entity : entities)
@@ -48,8 +49,18 @@ namespace Chimera::ForwardPass
                             ctx.BindVertexBuffers(0, 1, &vBuffer, &offset);
                             ctx.BindIndexBuffer((VkBuffer)entity.mesh.model->GetIndexBuffer()->GetBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
+                            glm::mat4 entityTransform = entity.transform.GetTransform();
+
                             for (const auto& mesh : meshes)
                             {
+                                // [NEW] Frustum Culling
+                                AABB worldBounds = mesh.localBounds.Transform(entityTransform * mesh.transform);
+                                if (!frustum.Intersects(worldBounds))
+                                {
+                                    globalObjectId++;
+                                    continue;
+                                }
+
                                 ScenePushConstants pc{ globalObjectId++ };
                                 ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
                                 ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);

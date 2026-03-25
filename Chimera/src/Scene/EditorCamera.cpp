@@ -38,6 +38,7 @@ namespace Chimera
 			m_Projection[2][2] = f / (n - f);
 			m_Projection[3][2] = (n * f) / (n - f);
 		}
+        UpdateFrustum();
 	}
 
 	void EditorCamera::UpdateView()
@@ -46,7 +47,13 @@ namespace Chimera
 		glm::quat orientation = GetOrientation();
 		m_ViewMatrix = glm::translate(glm::mat4(1.0f), m_Position) * glm::toMat4(orientation);
 		m_ViewMatrix = glm::inverse(m_ViewMatrix);
+        UpdateFrustum();
 	}
+
+    void EditorCamera::UpdateFrustum()
+    {
+        m_Frustum = Frustum::FromViewProj(m_Projection * m_ViewMatrix);
+    }
 
 	void EditorCamera::OnUpdate(Timestep ts, bool isHovered, bool isFocused)
 	{

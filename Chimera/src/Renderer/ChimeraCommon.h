@@ -23,12 +23,23 @@ namespace Chimera
     static constexpr float CH_DEPTH_CLEAR_VALUE = USE_REVERSED_Z ? 0.0f : 1.0f;
     static constexpr VkCompareOp CH_DEPTH_COMPARE_OP = USE_REVERSED_Z ? VK_COMPARE_OP_GREATER_OR_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    struct ApplicationSpecification {
+    struct ApplicationSpecification
+    {
         std::string Name = "Chimera App";
         uint32_t Width = 1280;
         uint32_t Height = 720;
         bool Fullscreen = false;
         bool VSync = true;
+
+        // Paths
+        std::string AssetDir = "assets/";
+        std::string ShaderDir = "shaders/";
+        std::string ShaderSourceDir = ""; // Will be auto-detected if empty
+
+        // Initial Settings
+        glm::vec4 ClearColor = {0.1f, 0.1f, 0.1f, 1.0f};
+        uint32_t DisplayMode = 0;
+        uint32_t RenderFlags = 1; // Default bit flags
     };
 
     // --- PURE FORWARD DECLARATIONS ONLY ---
@@ -37,25 +48,35 @@ namespace Chimera
     class RenderGraph; // MUST BE PURE FORWARD DECLARATION
     struct RenderFrameInfo;
 
-    struct RenderFrameInfo {
+    struct RenderFrameInfo
+    {
         VkCommandBuffer commandBuffer;
         uint32_t frameIndex;
         uint32_t imageIndex;
         VkDescriptorSet globalSet;
     };
 
-    enum class RenderPathType { Forward = 0, Hybrid, RayTracing, RayQuery };
+    enum class RenderPathType
+    {
+        Forward = 0,
+        Hybrid,
+        RayTracing
+    };
 
-    inline const char* RenderPathTypeToString(RenderPathType type) {
-        switch (type) {
-            case RenderPathType::Forward: return "Forward";
-            case RenderPathType::Hybrid: return "Hybrid";
-            case RenderPathType::RayTracing: return "RayTracing";
-            case RenderPathType::RayQuery: return "RayQuery";
-            default: return "Unknown";
+    inline const char *RenderPathTypeToString(RenderPathType type)
+    {
+        switch (type)
+        {
+        case RenderPathType::Forward:
+            return "Forward";
+        case RenderPathType::Hybrid:
+            return "Hybrid";
+        case RenderPathType::RayTracing:
+            return "RayTracing";
+        default:
+            return "Unknown";
         }
     }
 
-            inline std::vector<RenderPathType> GetAllRenderPathTypes() { return { RenderPathType::Forward, RenderPathType::Hybrid, RenderPathType::RayTracing, RenderPathType::RayQuery }; }
-        }
-        
+    inline std::vector<RenderPathType> GetAllRenderPathTypes() { return {RenderPathType::Forward, RenderPathType::Hybrid, RenderPathType::RayTracing}; }
+}
