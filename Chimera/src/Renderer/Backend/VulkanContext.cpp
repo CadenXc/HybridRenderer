@@ -1,13 +1,31 @@
 #include "pch.h"
 #include "VulkanContext.h"
+#include "Core/Application.h"
 
 namespace Chimera
 {
     VulkanContext* VulkanContext::s_Instance = nullptr;
+    static std::shared_ptr<VulkanContext> s_SharedInstance = nullptr;
 
-    VulkanContext::VulkanContext(GLFWwindow* window)
-        : m_Window(window)
+    VulkanContext& VulkanContext::Get()
     {
+        if (!s_SharedInstance)
+        {
+            s_SharedInstance = std::shared_ptr<VulkanContext>(new VulkanContext());
+            s_Instance = s_SharedInstance.get();
+        }
+        return *s_SharedInstance;
+    }
+
+    void VulkanContext::Destroy()
+    {
+        s_SharedInstance.reset();
+        s_Instance = nullptr;
+    }
+
+    VulkanContext::VulkanContext()
+    {
+        m_Window = Application::Get().GetWindow().GetNativeWindow();
         s_Instance = this;
         CH_CORE_INFO("VulkanContext: Creating core Vulkan link...");
 

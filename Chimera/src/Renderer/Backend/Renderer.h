@@ -23,11 +23,11 @@ namespace Chimera
 
         static Renderer& Get()
         {
+            if (!s_Instance)
+            {
+                s_Instance = new Renderer();
+            }
             return *s_Instance;
-        }
-        static bool HasInstance()
-        {
-            return s_Instance != nullptr;
         }
 
         // Core rendering loop: begin frame

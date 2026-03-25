@@ -16,19 +16,19 @@ namespace Chimera
 
     struct AABB
     {
-        glm::vec3 min{ std::numeric_limits<float>::max() };
-        glm::vec3 max{ -std::numeric_limits<float>::max() };
+        glm::vec3 min{std::numeric_limits<float>::max()};
+        glm::vec3 max{std::numeric_limits<float>::lowest()};
 
         AABB() = default;
-        AABB(const glm::vec3& min, const glm::vec3& max) : min(min), max(max) {}
+        AABB(const glm::vec3 &min, const glm::vec3 &max) : min(min), max(max) {}
 
-        void Merge(const glm::vec3& point)
+        void Merge(const glm::vec3 &point)
         {
             min = glm::min(min, point);
             max = glm::max(max, point);
         }
 
-        void Merge(const AABB& other)
+        void Merge(const AABB &other)
         {
             min = glm::min(min, other.min);
             max = glm::max(max, other.max);
@@ -39,16 +39,13 @@ namespace Chimera
         glm::vec3 GetCenter() const { return (min + max) * 0.5f; }
         glm::vec3 GetExtent() const { return (max - min) * 0.5f; }
 
-        AABB Transform(const glm::mat4& transform) const
+        AABB Transform(const glm::mat4 &transform) const
         {
-            if (!IsValid()) return *this;
+            if (!IsValid())
+                return *this;
 
             glm::vec3 corners[8] = {
-                {min.x, min.y, min.z}, {max.x, min.y, min.z},
-                {min.x, max.y, min.z}, {max.x, max.y, min.z},
-                {min.x, min.y, max.z}, {max.x, min.y, max.z},
-                {min.x, max.y, max.z}, {max.x, max.y, max.z}
-            };
+                {min.x, min.y, min.z}, {max.x, min.y, min.z}, {min.x, max.y, min.z}, {max.x, max.y, min.z}, {min.x, min.y, max.z}, {max.x, min.y, max.z}, {min.x, max.y, max.z}, {max.x, max.y, max.z}};
 
             AABB result;
             for (int i = 0; i < 8; ++i)
@@ -59,11 +56,11 @@ namespace Chimera
 
     struct Plane
     {
-        glm::vec3 normal{ 0.0f, 1.0f, 0.0f };
-        float distance{ 0.0f };
+        glm::vec3 normal{0.0f, 1.0f, 0.0f};
+        float distance{0.0f};
 
         Plane() = default;
-        Plane(const glm::vec3& p1, const glm::vec3& p2, const glm::vec3& p3)
+        Plane(const glm::vec3 &p1, const glm::vec3 &p2, const glm::vec3 &p3)
         {
             auto edge1 = p2 - p1;
             auto edge2 = p3 - p1;
@@ -71,7 +68,7 @@ namespace Chimera
             distance = glm::dot(normal, p1);
         }
 
-        float GetSignedDistance(const glm::vec3& point) const
+        float GetSignedDistance(const glm::vec3 &point) const
         {
             return glm::dot(normal, point) - distance;
         }
@@ -81,16 +78,20 @@ namespace Chimera
     {
         std::array<Plane, 6> planes;
 
-        bool Intersects(const AABB& aabb) const
+        bool Intersects(const AABB &aabb) const
         {
-            if (!aabb.IsValid()) return false;
+            if (!aabb.IsValid())
+                return false;
 
-            for (const auto& plane : planes)
+            for (const auto &plane : planes)
             {
                 glm::vec3 p = aabb.min;
-                if (plane.normal.x >= 0) p.x = aabb.max.x;
-                if (plane.normal.y >= 0) p.y = aabb.max.y;
-                if (plane.normal.z >= 0) p.z = aabb.max.z;
+                if (plane.normal.x >= 0)
+                    p.x = aabb.max.x;
+                if (plane.normal.y >= 0)
+                    p.y = aabb.max.y;
+                if (plane.normal.z >= 0)
+                    p.z = aabb.max.z;
 
                 if (plane.GetSignedDistance(p) < 0)
                     return false;
@@ -98,7 +99,7 @@ namespace Chimera
             return true;
         }
 
-        static Frustum FromViewProj(const glm::mat4& vp)
+        static Frustum FromViewProj(const glm::mat4 &vp)
         {
             Frustum frustum;
             // Extraction from VP matrix (Gribb-Hartmann)
@@ -138,7 +139,7 @@ namespace Chimera
             frustum.planes[5].normal.z = vp[2][3] - vp[2][2];
             frustum.planes[5].distance = -(vp[3][3] - vp[3][2]);
 
-            for (auto& plane : frustum.planes)
+            for (auto &plane : frustum.planes)
             {
                 float length = glm::length(plane.normal);
                 plane.normal /= length;
@@ -149,7 +150,12 @@ namespace Chimera
         }
     };
 
-    enum class LightType { Directional = 0, Point = 1, Spot = 2 };
+    enum class LightType
+    {
+        Directional = 0,
+        Point = 1,
+        Spot = 2
+    };
 
     // [NEW] Octree Node for spatial partitioning
     struct OctreeNode
@@ -159,7 +165,7 @@ namespace Chimera
         std::unique_ptr<OctreeNode> children[8];
         bool isLeaf = true;
 
-        OctreeNode(const AABB& b) : bounds(b) {}
+        OctreeNode(const AABB &b) : bounds(b) {}
     };
 
     struct Light
@@ -171,7 +177,7 @@ namespace Chimera
 
     struct VertexInfo : public GpuVertex
     {
-        bool operator==(const VertexInfo& other) const
+        bool operator==(const VertexInfo &other) const
         {
             return pos == other.pos && normal == other.normal && texCoord == other.texCoord;
         }
@@ -219,40 +225,40 @@ namespace Chimera
         uint32_t indexOffset = 0;
         uint32_t vertexOffset = 0;
         int materialIndex = 0;
-        glm::mat4 transform{ 1.0f };
+        glm::mat4 transform{1.0f};
         AABB localBounds;
     };
 
     struct Node
     {
         std::string name;
-        glm::mat4 transform{ 1.0f };
+        glm::mat4 transform{1.0f};
         int meshIndex = -1;
         std::vector<int> children;
     };
 
     struct GpuCamera
     {
-        glm::mat4 view{ 1.0f };
-        glm::mat4 proj{ 1.0f };
-        glm::mat4 viewInverse{ 1.0f };
-        glm::mat4 projInverse{ 1.0f };
+        glm::mat4 view{1.0f};
+        glm::mat4 proj{1.0f};
+        glm::mat4 viewInverse{1.0f};
+        glm::mat4 projInverse{1.0f};
     };
 
     class Model;
 
     struct TransformComponent
     {
-        glm::vec3 position{ 0.0f };
-        glm::vec3 rotation{ 0.0f }; // Euler angles in degrees
-        glm::vec3 scale{ 1.0f };
-        
+        glm::vec3 position{0.0f};
+        glm::vec3 rotation{0.0f}; // Euler angles in degrees
+        glm::vec3 scale{1.0f};
+
         glm::mat4 GetTransform() const
         {
             glm::mat4 trs = glm::translate(glm::mat4(1.0f), position);
-            trs = glm::rotate(trs, glm::radians(rotation.x), { 1, 0, 0 });
-            trs = glm::rotate(trs, glm::radians(rotation.y), { 0, 1, 0 });
-            trs = glm::rotate(trs, glm::radians(rotation.z), { 0, 0, 1 });
+            trs = glm::rotate(trs, glm::radians(rotation.x), {1, 0, 0});
+            trs = glm::rotate(trs, glm::radians(rotation.y), {0, 1, 0});
+            trs = glm::rotate(trs, glm::radians(rotation.z), {0, 0, 1});
             return glm::scale(trs, scale);
         }
     };
@@ -267,10 +273,10 @@ namespace Chimera
     {
         std::string name;
         TransformComponent transform;
-        glm::mat4 prevTransform{ 1.0f };
+        glm::mat4 prevTransform{1.0f};
         MeshComponent mesh;
-        uint32_t rootNodeIndex = 0; // [NEW] Link to hierarchy
-        uint32_t primitiveOffset = 0; // [NEW] Index into global primitive buffer
+        uint32_t rootNodeIndex = 0;
+        uint32_t primitiveOffset = 0;
     };
 
     // 存储 Importer 产出的结果
@@ -286,9 +292,10 @@ namespace Chimera
 
 namespace std
 {
-    template<> struct hash<Chimera::VertexInfo>
+    template <>
+    struct hash<Chimera::VertexInfo>
     {
-        size_t operator()(const Chimera::VertexInfo& vertex) const
+        size_t operator()(const Chimera::VertexInfo &vertex) const
         {
             return ((hash<glm::vec3>()(vertex.pos) ^ (hash<glm::vec3>()(vertex.normal) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.texCoord) << 1);
         }

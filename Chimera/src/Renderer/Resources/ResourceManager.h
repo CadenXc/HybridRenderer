@@ -74,13 +74,13 @@ namespace Chimera
         GraphImage CreateGraphImage(uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, VkImageLayout initialLayout, VkSampleCountFlagBits samples, const std::string& name = "");
         void DestroyGraphImage(GraphImage& image);
 
-        static bool HasInstance() 
-        { 
-            return s_Instance != nullptr; 
-        }
-        
         static ResourceManager& Get() 
         { 
+            if (!s_Instance)
+            {
+                s_Instance = new ResourceManager();
+                s_Instance->InitGlobalResources();
+            }
             return *s_Instance; 
         }
 

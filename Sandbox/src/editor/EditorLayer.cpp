@@ -16,7 +16,6 @@
 #include <filesystem>
 #include "Renderer/Pipelines/RenderPathFactory.h"
 #include "Renderer/RenderState.h"
-#include "Utils/VulkanScreenshot.h"
 
 namespace Chimera
 {
@@ -54,19 +53,10 @@ namespace Chimera
 
     void EditorLayer::OnUpdate(Timestep ts)
     {
-        static uint32_t debugFrame = 0;
-        if (debugFrame < 5)
-        {
-            auto &proj = m_EditorCamera.GetProjection();
-            CH_CORE_INFO("EditorLayer: Frame {}, Viewport ({}, {}), Proj[0][0]={:.2f}",
-                         debugFrame, m_ViewportSize.x, m_ViewportSize.y, proj[0][0]);
-            debugFrame++;
-        }
-
         m_AverageFrameTime = ts.GetMilliseconds();
         m_AverageFPS = 1.0f / ts.GetSeconds();
 
-        auto &window = Application::Get().GetWindow();
+        auto& window = Application::Get().GetWindow();
         float winW = (float)window.GetWidth();
         float winH = (float)window.GetHeight();
 
@@ -76,7 +66,9 @@ namespace Chimera
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
             Renderer::Get().OnResize((uint32_t)winW, (uint32_t)winH);
             if (GetRenderPath())
+            {
                 GetRenderPath()->SetViewportSize((uint32_t)winW, (uint32_t)winH);
+            }
             m_EditorCamera.SetViewportSize(winW, winH);
             m_ViewportSize = {winW, winH};
         }
@@ -109,14 +101,13 @@ namespace Chimera
         context.DisplayMode = m_DisplayMode;
         context.AmbientStrength = m_AmbientStrength;
         context.ClearColor = m_ClearColor;
-
         context.LightRadius = m_LightRadius;
 
         Application::Get().SetFrameContext(context);
         Application::Get().SetActiveScene(GetActiveSceneRaw());
 
         RenderPath *activePath = GetRenderPath();
-        if (activePath && Renderer::HasInstance() && Renderer::Get().IsFrameInProgress())
+        if (activePath && Renderer::Get().IsFrameInProgress())
         {
             RenderFrameInfo frameInfo{};
             frameInfo.commandBuffer = Renderer::Get().GetActiveCommandBuffer();
@@ -399,7 +390,7 @@ namespace Chimera
             }
             if (ImGui::ColorEdit3("Color", &light.color.x))
                 changed = true;
-            
+
             float intensity = light.color.a;
             if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 100.0f))
             {
@@ -606,13 +597,13 @@ namespace Chimera
             ImGui::TextColored(ImVec4(0, 1, 0, 1), "Frame: %.3f ms (%.1f FPS)", m_AverageFrameTime, m_AverageFPS);
 
             // [NEW] Scene Culling Stats
-            const auto& stats = Application::Get().GetFrameStats();
+            const auto &stats = Application::Get().GetFrameStats();
             ImGui::Separator();
             ImGui::Text("Scene Stats:");
             ImGui::Text("  Total Meshes: %u", stats.TotalMeshes);
             ImGui::Text("  Visible Meshes: %u", stats.DrawCalls);
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "  Culled Meshes: %u", stats.CulledMeshes);
-            
+
             if (stats.TotalMeshes > 0)
             {
                 float culledRatio = (float)stats.CulledMeshes / (float)stats.TotalMeshes;

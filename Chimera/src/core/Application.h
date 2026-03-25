@@ -131,7 +131,7 @@ namespace Chimera
             return m_TotalFrameCount;
         }
 
-        void SetFrameContext(const AppFrameContext &ctx)
+        void SetFrameContext(const AppFrameContext& ctx)
         {
             m_FrameContext = ctx;
         }

@@ -58,12 +58,12 @@ namespace Chimera
         m_Window->SetEventCallback([this](Event &e)
                                    { OnEvent(e); });
 
-        m_Context = std::make_shared<VulkanContext>(m_Window->GetNativeWindow());
+        // Trigger lazy initialization of core systems
+        m_Context = VulkanContext::Get().GetShared();
         m_ContextAnchor = m_Context;
 
-        m_Renderer = std::make_unique<Renderer>();
-        m_ResourceManager = std::make_unique<ResourceManager>();
-        m_ResourceManager->InitGlobalResources();
+        m_Renderer.reset(&Renderer::Get());
+        m_ResourceManager.reset(&ResourceManager::Get());
 
         ShaderRegistry::RegisterAll();
         m_PipelineManager = std::make_unique<PipelineManager>();
@@ -228,7 +228,6 @@ namespace Chimera
                     }
                     UpdateGlobalUBO(frameIndex);
                     
-                    // [CRITICAL FIX] Execute the actual Rendering Pipeline
                     if (m_RenderPath)
                     {
                         RenderFrameInfo frameInfo{};
@@ -277,14 +276,6 @@ namespace Chimera
 
         ubo.camera.view = m_FrameContext.View;
         ubo.camera.proj = m_FrameContext.Projection;
-
-        // [DEBUG] Log matrix validity for first few frames
-        if (m_TotalFrameCount < 10)
-        {
-            CH_CORE_INFO("UBO Update [Frame {}]: View[0][0]={:.2f}, Proj[0][0]={:.2f}, Pos=({:.2f}, {:.2f}, {:.2f})", 
-                m_TotalFrameCount, ubo.camera.view[0][0], ubo.camera.proj[0][0], 
-                m_FrameContext.CameraPosition.x, m_FrameContext.CameraPosition.y, m_FrameContext.CameraPosition.z);
-        }
 
         ubo.camera.viewInverse = glm::inverse(ubo.camera.view);
         ubo.camera.projInverse = glm::inverse(ubo.camera.proj);

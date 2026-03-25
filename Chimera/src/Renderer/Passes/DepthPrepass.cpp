@@ -16,19 +16,16 @@ namespace Chimera::DepthPrepass
         RGResourceHandle depth;
     };
 
-    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    void AddToGraph(RenderGraph &graph, std::shared_ptr<Scene> scene)
     {
-        if (!scene) return;
+        if (!scene)
+            return;
 
-        graph.AddPass<PassData>("DepthPrepass",
-            [](PassData& data, RenderGraph::PassBuilder& builder)
-            {
-                data.depth = builder.Write(RS::Depth)
-                                   .Format(VK_FORMAT_D32_SFLOAT)
-                                   .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE);
-            },
-            [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
-            {
+        graph.AddPass<PassData>("DepthPrepass", [](PassData &data, RenderGraph::PassBuilder &builder)
+                                { data.depth = builder.Write(RS::Depth)
+                                                   .Format(VK_FORMAT_D32_SFLOAT)
+                                                   .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE); }, [scene](const PassData &data, RenderGraphRegistry &reg, VkCommandBuffer cmd)
+                                {
                 GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
                 
                 GraphicsPipelineDescription desc;
@@ -60,7 +57,6 @@ namespace Chimera::DepthPrepass
 
                         for (const auto& mesh : meshes)
                         {
-                            // [NEW] Frustum Culling
                             AABB worldBounds = mesh.localBounds.Transform(entityTransform * mesh.transform);
                             if (!frustum.Intersects(worldBounds))
                             {
@@ -73,8 +69,6 @@ namespace Chimera::DepthPrepass
                             ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
                         }
                     }
-                }
-            }
-        );
+                } });
     }
 }

@@ -732,10 +732,10 @@ namespace Chimera
         return m_TextureMap.count(n) ? m_TextureMap[n] : TextureHandle();
     }
 
-    void AddRefInternal(Handle<Image> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().AddRef(h); }
-    void ReleaseInternal(Handle<Image> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().Release(h); }
-    void AddRefInternal(Handle<Buffer> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().AddRef(h); }
-    void ReleaseInternal(Handle<Buffer> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().Release(h); }
-    void AddRefInternal(Handle<Material> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().AddRef(h); }
-    void ReleaseInternal(Handle<Material> h) { if (ResourceManager::HasInstance()) ResourceManager::Get().Release(h); }
+    void AddRefInternal(Handle<Image> h) { ResourceManager::Get().AddRef(h); }
+    void ReleaseInternal(Handle<Image> h) { ResourceManager::Get().Release(h); }
+    void AddRefInternal(Handle<Buffer> h) { ResourceManager::Get().AddRef(h); }
+    void ReleaseInternal(Handle<Buffer> h) { ResourceManager::Get().Release(h); }
+    void AddRefInternal(Handle<Material> h) { ResourceManager::Get().AddRef(h); }
+    void ReleaseInternal(Handle<Material> h) { ResourceManager::Get().Release(h); }
 }

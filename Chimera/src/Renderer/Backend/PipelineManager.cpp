@@ -21,24 +21,21 @@ namespace Chimera
         CH_CORE_INFO("PipelineManager: Destructor CALLED.");
         ClearCache();
         
-        if (VulkanContext::HasInstance())
+        VkDevice device = VulkanContext::Get().GetDevice();
+        
+        CH_CORE_INFO("PipelineManager: Destroying Layout Cache ({} layouts)...", m_LayoutCache.size());
+        for (auto& [hash, layout] : m_LayoutCache)
         {
-            VkDevice device = VulkanContext::Get().GetDevice();
-            
-            CH_CORE_INFO("PipelineManager: Destroying Layout Cache ({} layouts)...", m_LayoutCache.size());
-            for (auto& [hash, layout] : m_LayoutCache)
-            {
-                vkDestroyPipelineLayout(device, layout, nullptr);
-            }
-            m_LayoutCache.clear();
-
-            CH_CORE_INFO("PipelineManager: Destroying Set2Layout Cache ({} layouts)...", m_Set2LayoutCache.size());
-            for (auto& [hash, layout] : m_Set2LayoutCache)
-            {
-                vkDestroyDescriptorSetLayout(device, layout, nullptr);
-            }
-            m_Set2LayoutCache.clear();
+            vkDestroyPipelineLayout(device, layout, nullptr);
         }
+        m_LayoutCache.clear();
+
+        CH_CORE_INFO("PipelineManager: Destroying Set2Layout Cache ({} layouts)...", m_Set2LayoutCache.size());
+        for (auto& [hash, layout] : m_Set2LayoutCache)
+        {
+            vkDestroyDescriptorSetLayout(device, layout, nullptr);
+        }
+        m_Set2LayoutCache.clear();
         
         s_Instance = nullptr;
         CH_CORE_INFO("PipelineManager: Destructor FINISHED.");
@@ -46,11 +43,6 @@ namespace Chimera
 
     void PipelineManager::ClearCache()
     {
-        if (!VulkanContext::HasInstance())
-        {
-            return;
-        }
-
         VkDevice device = VulkanContext::Get().GetDevice();
         vkDeviceWaitIdle(device);
 

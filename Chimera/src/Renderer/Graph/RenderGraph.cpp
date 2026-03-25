@@ -244,11 +244,6 @@ namespace Chimera
 
     void RenderGraph::DestroyResources(bool all)
     {
-        if (!ResourceManager::HasInstance())
-        {
-            return;
-        }
-
         std::set<VkImage> destroyedImages;
 
         auto FreeGraphImageLocal = [&](GraphImage& img) 
@@ -703,10 +698,7 @@ namespace Chimera
         {
             if (img.handle != VK_NULL_HANDLE && !img.is_external) 
             {
-                if (ResourceManager::HasInstance())
-                {
-                    ResourceManager::Get().DestroyGraphImage(img);
-                }
+                ResourceManager::Get().DestroyGraphImage(img);
             }
             img.handle = VK_NULL_HANDLE;
             img.view = VK_NULL_HANDLE;

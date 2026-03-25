@@ -15,24 +15,14 @@ namespace Chimera
     class VulkanContext : public std::enable_shared_from_this<VulkanContext>
     {
     public:
-        VulkanContext(GLFWwindow* window);
         ~VulkanContext();
 
-        static VulkanContext& Get()
-        {
-            return *s_Instance;
-        }
+        static VulkanContext& Get();
+        static void Destroy();
         
         std::shared_ptr<VulkanContext> GetShared()
         {
-            auto ptr = shared_from_this();
-            CH_CORE_TRACE("VulkanContext: GetShared called. count: {}", ptr.use_count());
-            return ptr;
-        }
-        
-        static bool HasInstance()
-        {
-            return s_Instance != nullptr;
+            return shared_from_this();
         }
 
         // ---------------------------------------------------------------------------------------------------------------------
@@ -167,6 +157,7 @@ namespace Chimera
         }
 
     private:
+        VulkanContext();
         void CreateSurface();
         void CreateCommandPool();
         void CreateEmptyLayout();

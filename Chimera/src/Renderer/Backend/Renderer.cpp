@@ -23,10 +23,7 @@ namespace Chimera
 
     Renderer::~Renderer()
     {
-        if (VulkanContext::HasInstance())
-        {
-            vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-        }
+        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
         FreeFrameResources();
         s_Instance = nullptr;
     }
@@ -64,10 +61,6 @@ namespace Chimera
 
     void Renderer::FreeFrameResources()
     {
-        if (!VulkanContext::HasInstance())
-        {
-            return;
-        }
         VkDevice device = VulkanContext::Get().GetDevice();
 
         for (auto& frameResource : m_FrameResources)
@@ -119,11 +112,6 @@ namespace Chimera
 
     void Renderer::ResetSwapchainLayouts()
     {
-        if (!VulkanContext::HasInstance())
-        {
-            return;
-        }
-        
         auto images = VulkanContext::Get().GetSwapChainImages();
         
         ScopedCommandBuffer cmd;
