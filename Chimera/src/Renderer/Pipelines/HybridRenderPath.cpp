@@ -29,10 +29,10 @@ namespace Chimera
     void HybridRenderPath::BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
     {
         // 0. Depth Prepass (Early-Z Optimization)
-        DepthPrepass::AddToGraph(graph, scene);
+        graph.AddPass<DepthPrepass>(scene);
 
         // 1. G-Buffer Pass (Uses EQUAL depth test)
-        GBufferPass::AddToGraph(graph, scene);
+        graph.AddPass<GBufferPass>(scene);
 
         bool rtSupported = m_Context->IsRayTracingSupported();
         uint32_t renderFlags = Application::Get().GetFrameContext().RenderFlags;
@@ -42,27 +42,27 @@ namespace Chimera
         bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
         if (rtSupported && hasTLAS) 
         {
-            RTShadowAOPass::AddToGraph(graph, scene);
-            RTReflectionPass::AddToGraph(graph, scene);
-            RTDiffuseGIPass::AddToGraph(graph, scene);
+            graph.AddPass<RTShadowAOPass>(scene);
+            graph.AddPass<RTReflectionPass>(scene);
+            graph.AddPass<RTDiffuseGIPass>(scene);
         }
 
         // 3. SVGF Denoising Passes (Conditional)
         if (rtSupported && scene && useSVGF) 
         {
-            SVGFPass::AddToGraph(graph, scene, {
+            graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
                 .inputName = "CurColor",
                 .prefix = "Shadow",
                 .historyBaseName = "ShadowAccum"
             });
 
-            SVGFPass::AddToGraph(graph, scene, {
+            graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
                 .inputName = "ReflectionRaw",
                 .prefix = "Refl",
                 .historyBaseName = "ReflAccum"
             });
 
-            SVGFPass::AddToGraph(graph, scene, {
+            graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
                 .inputName = "GIRaw",
                 .prefix = "GI",
                 .historyBaseName = "GIAccum"
@@ -70,18 +70,19 @@ namespace Chimera
         }
 
         // 4. Composition Pass (Connect either SVGF output or Raw RT output)
-        CompositionPass::AddToGraph(graph, {
-            .shadowName     = useSVGF ? "Shadow_Filtered_Final" : "CurColor",
-            .reflectionName = useSVGF ? "Refl_Filtered_Final"   : "ReflectionRaw",
-            .giName         = useSVGF ? "GI_Filtered_Final"     : "GIRaw"
-        });
+        CompositionPass::Config compConfig;
+        compConfig.shadowName     = useSVGF ? "Shadow_Filtered_Final" : "CurColor";
+        compConfig.reflectionName = useSVGF ? "Refl_Filtered_Final"   : "ReflectionRaw";
+        compConfig.giName         = useSVGF ? "GI_Filtered_Final"     : "GIRaw";
+        
+        graph.AddPass<CompositionPass>(compConfig);
 
         // 5. Post Processing (Static Chain)
         // 5.1 TAA (Always outputs TAAOutput)
-        TAAPass::AddToGraph(graph);
+        graph.AddPass<TAAPass>();
 
         // 5.2 Final Post & Tone Mapping (Outputs RS::RENDER_OUTPUT)
-        PostProcessPass::AddToGraph(graph, "TAAOutput");
+        graph.AddPass<PostProcessPass>("TAAOutput");
     }
 
     void HybridRenderPath::OnImGui()

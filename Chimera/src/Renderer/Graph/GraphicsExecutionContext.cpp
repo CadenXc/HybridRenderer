@@ -14,7 +14,7 @@
 
 namespace Chimera
 {
-    GraphicsExecutionContext::GraphicsExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd)
+    GraphicsExecutionContext::GraphicsExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd)
         : m_Graph(graph), m_Pass(pass), m_Cmd(cmd) 
     {
     }

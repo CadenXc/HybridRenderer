@@ -8,7 +8,7 @@ namespace Chimera
     class GraphicsExecutionContext
     {
     public:
-        GraphicsExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd);
+        GraphicsExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd);
 
         void BindPipeline(const struct GraphicsPipelineDescription& desc);
         void BindPipelineAndDescriptorSets(VkPipelineBindPoint bindPoint, VkPipeline handle, VkPipelineLayout layout, const std::vector<const Shader*>& shaders);
@@ -63,7 +63,7 @@ namespace Chimera
 
     private:
         RenderGraph& m_Graph;
-        struct RenderPass& m_Pass;
+        RenderGraphPass& m_Pass;
         VkCommandBuffer m_Cmd;
         VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE;
     };

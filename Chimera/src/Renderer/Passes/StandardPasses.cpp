@@ -12,7 +12,8 @@ namespace Chimera::StandardPasses
     {
         if (!graph.ContainsImage(RS::Depth)) return;
 
-        graph.AddPass<DepthData>("LinearizeDepth",
+        graph.AddPassRaw<
+DepthData>("LinearizeDepth",
             [&](DepthData& data, RenderGraph::PassBuilder& builder)
             {
                 data.depth = builder.Read(RS::Depth);
@@ -29,7 +30,8 @@ namespace Chimera::StandardPasses
     struct SkyboxData { RGResourceHandle output; };
     void AddSkyboxPass(RenderGraph& graph)
     {
-        graph.AddPass<SkyboxData>("SkyboxPass",
+        graph.AddPassRaw<
+SkyboxData>("SkyboxPass",
             [&](SkyboxData& data, RenderGraph::PassBuilder& builder)
             {
                 data.output = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -47,7 +49,8 @@ namespace Chimera::StandardPasses
     struct ClearData { RGResourceHandle output; };
     void AddClearPass(RenderGraph& graph, const std::string& name, const VkClearColorValue& clearColor)
     {
-        graph.AddPass<ClearData>("Clear_" + name,
+        graph.AddPassRaw<
+ClearData>("Clear_" + name,
             [&](ClearData& data, RenderGraph::PassBuilder& builder)
             {
                 data.output = builder.Write(name).Format(VK_FORMAT_R16G16B16A16_SFLOAT).Clear(clearColor);

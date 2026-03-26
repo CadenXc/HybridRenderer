@@ -122,7 +122,7 @@ namespace Chimera
     struct RenderGraphRegistry
     {
         RenderGraph& graph;
-        struct RenderPass& pass;
+        struct RenderGraphPass& pass;
         VkImageView GetImageView(RGResourceHandle h);
         VkImage GetImage(RGResourceHandle h);
     };
@@ -131,7 +131,7 @@ namespace Chimera
     class ResourceHandleProxy
     {
     public:
-        ResourceHandleProxy(RenderGraph& g, RenderPass& p, RGResourceHandle h) 
+        ResourceHandleProxy(RenderGraph& g, RenderGraphPass& p, RGResourceHandle h) 
             : graph(g), pass(p), handle(h) {}
         
         // Implicit conversion to handle
@@ -145,11 +145,11 @@ namespace Chimera
 
     private:
         RenderGraph& graph;
-        RenderPass& pass;
+        RenderGraphPass& pass;
         RGResourceHandle handle;
     };
 
-    struct RenderPass
+    struct RenderGraphPass
     {
         std::string name;
         bool isCompute = false;

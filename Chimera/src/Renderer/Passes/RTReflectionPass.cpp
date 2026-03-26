@@ -5,45 +5,37 @@
 #include "Renderer/Graph/RaytracingExecutionContext.h"
 #include "Scene/Scene.h"
 
-namespace Chimera::RTReflectionPass
+namespace Chimera
 {
-    struct PassData
+    RTReflectionPass::RTReflectionPass(std::shared_ptr<Scene> scene)
+        : m_Scene(scene)
     {
-        RGResourceHandle normal;
-        RGResourceHandle depth;
-        RGResourceHandle material;
-        RGResourceHandle albedo;
-        RGResourceHandle output;
-    };
+    }
 
-    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    void RTReflectionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
     {
-        if (!scene) return;
+        data.output   = builder.WriteStorage("ReflectionRaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+        data.normal   = builder.Read(RS::Normal);
+        data.depth    = builder.Read(RS::Depth);
+        data.material = builder.Read(RS::Material);
+        data.albedo   = builder.Read(RS::Albedo);
+    }
 
-        graph.AddPass<PassData>("RTReflectionPass",
-            [](PassData& data, RenderGraph::PassBuilder& builder)
-            {
-                data.output   = builder.WriteStorage("ReflectionRaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-                data.normal   = builder.Read(RS::Normal);
-                data.depth    = builder.Read(RS::Depth);
-                data.material = builder.Read(RS::Material);
-                data.albedo   = builder.Read(RS::Albedo);
-            },
-            [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
-            {
-                RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
+    void RTReflectionPass::Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    {
+        if (!m_Scene) return;
 
-                RaytracingPipelineDescription desc;
-                desc.raygen_shader = "Reflection_Gen";
-                desc.miss_shaders = { "Raytrace_Miss" };
-                desc.hit_shaders = { { "Raytrace_Hit", "", "" } };
+        RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
 
-                int skyboxIndex = scene->GetSkyboxTextureIndex();
+        RaytracingPipelineDescription desc;
+        desc.raygen_shader = "Reflection_Gen";
+        desc.miss_shaders = { "Raytrace_Miss" };
+        desc.hit_shaders = { { "Raytrace_Hit", "", "" } };
 
-                ctx.BindPipeline(desc);
-                ctx.PushConstants(VK_SHADER_STAGE_ALL, skyboxIndex);
-                ctx.TraceRays(reg.graph.GetWidth(), reg.graph.GetHeight());
-            }
-        );
+        int skyboxIndex = m_Scene->GetSkyboxTextureIndex();
+
+        ctx.BindPipeline(desc);
+        ctx.PushConstants(VK_SHADER_STAGE_ALL, skyboxIndex);
+        ctx.TraceRays(reg.graph.GetWidth(), reg.graph.GetHeight());
     }
 }

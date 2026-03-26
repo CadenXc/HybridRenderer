@@ -9,7 +9,7 @@
 
 namespace Chimera
 {
-    ComputeExecutionContext::ComputeExecutionContext(RenderGraph& graph, RenderPass& pass, VkCommandBuffer cmd)
+    ComputeExecutionContext::ComputeExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd)
         : m_Graph(graph), m_Pass(pass), m_Cmd(cmd) 
     {
     }

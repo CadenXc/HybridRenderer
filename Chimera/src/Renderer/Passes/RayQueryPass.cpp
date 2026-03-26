@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "RayQueryPass.h"
+#include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Scene/Scene.h"
@@ -21,7 +22,7 @@ namespace Chimera::RayQueryPass
             return;
         }
 
-        graph.AddPass<PassData>("RayQueryPass",
+        graph.AddPassRaw<PassData>("RayQueryPass",
             [&](PassData& data, RenderGraph::PassBuilder& builder)
             {
                 data.output = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);

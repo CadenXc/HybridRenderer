@@ -5,43 +5,36 @@
 #include "Renderer/Graph/RaytracingExecutionContext.h"
 #include "Scene/Scene.h"
 
-namespace Chimera::RTDiffuseGIPass
+namespace Chimera
 {
-    struct PassData
+    RTDiffuseGIPass::RTDiffuseGIPass(std::shared_ptr<Scene> scene)
+        : m_Scene(scene)
     {
-        RGResourceHandle normal;
-        RGResourceHandle depth;
-        RGResourceHandle material;
-        RGResourceHandle output;
-    };
+    }
 
-    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    void RTDiffuseGIPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
     {
-        if (!scene) return;
+        data.output   = builder.WriteStorage("GIRaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+        data.normal   = builder.Read(RS::Normal);
+        data.depth    = builder.Read(RS::Depth);
+        data.material = builder.Read(RS::Material);
+    }
 
-        graph.AddPass<PassData>("RTDiffuseGIPass",
-            [](PassData& data, RenderGraph::PassBuilder& builder) 
-            {
-                data.output   = builder.WriteStorage("GIRaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-                data.normal   = builder.Read(RS::Normal);
-                data.depth    = builder.Read(RS::Depth);
-                data.material = builder.Read(RS::Material);
-            },
-            [scene](const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) 
-            {
-                RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
-                
-                RaytracingPipelineDescription desc;
-                desc.raygen_shader = "DiffuseGI_Gen";
-                desc.miss_shaders = { "Raytrace_Miss" };
-                desc.hit_shaders = { { "Raytrace_Hit", "", "" } };
+    void RTDiffuseGIPass::Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    {
+        if (!m_Scene) return;
 
-                int skyboxIndex = scene->GetSkyboxTextureIndex();
-                
-                ctx.BindPipeline(desc);
-                ctx.PushConstants(VK_SHADER_STAGE_ALL, skyboxIndex);
-                ctx.TraceRays(reg.graph.GetWidth(), reg.graph.GetHeight());
-            }
-        );
+        RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
+        
+        RaytracingPipelineDescription desc;
+        desc.raygen_shader = "DiffuseGI_Gen";
+        desc.miss_shaders = { "Raytrace_Miss" };
+        desc.hit_shaders = { { "Raytrace_Hit", "", "" } };
+
+        int skyboxIndex = m_Scene->GetSkyboxTextureIndex();
+        
+        ctx.BindPipeline(desc);
+        ctx.PushConstants(VK_SHADER_STAGE_ALL, skyboxIndex);
+        ctx.TraceRays(reg.graph.GetWidth(), reg.graph.GetHeight());
     }
 }

@@ -6,15 +6,23 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Core/Application.h"
 #include "Renderer/RenderState.h"
+#include <map>
 
 namespace Chimera
 {
-    RaytracingExecutionContext::RaytracingExecutionContext(RenderGraph& graph, RenderPass& pass, VkCommandBuffer cmd)
+    RaytracingExecutionContext::RaytracingExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd)
         : m_Graph(graph), m_Pass(pass), m_Cmd(cmd) 
     {
     }
 
     static RaytracingPipeline* s_ActiveRTPipe = nullptr;
+
+    void RaytracingExecutionContext::BindPipeline(const std::string& name)
+    {
+        RaytracingPipelineDescription desc;
+        desc.raygen_shader = name;
+        BindPipeline(desc);
+    }
 
     void RaytracingExecutionContext::BindPipeline(const RaytracingPipelineDescription& desc)
     {
@@ -46,15 +54,9 @@ namespace Chimera
             std::map<uint32_t, ShaderResource> reflection;
             for (auto* s : pipe.shaders)
             {
-                if (!s)
-                {
-                    continue;
-                }
+                if (!s) continue;
                 auto bindings = s->GetSetBindings(2);
-                for (auto& b : bindings)
-                {
-                    reflection[b.binding] = b;
-                }
+                for (auto& b : bindings) reflection[b.binding] = b;
             }
 
             if (!reflection.empty()) 
@@ -76,28 +78,23 @@ namespace Chimera
                     RGResourceHandle targetHandle = INVALID_RESOURCE;
                     if (res.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) 
                     {
-                        if (inputIdx < m_Pass.inputs.size()) 
-                        {
-                            targetHandle = m_Pass.inputs[inputIdx++].handle;
-                        }
+                        if (inputIdx < m_Pass.inputs.size()) targetHandle = m_Pass.inputs[inputIdx++].handle;
                     } 
                     else if (res.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) 
                     {
-                        if (outputIdx < m_Pass.outputs.size()) 
-                        {
-                            targetHandle = m_Pass.outputs[outputIdx++].handle;
-                        }
+                        if (outputIdx < m_Pass.outputs.size()) targetHandle = m_Pass.outputs[outputIdx++].handle;
                     }
 
                     VkDescriptorImageInfo info{};
                     info.sampler = ResourceManager::Get().GetDefaultSampler();
                     if (targetHandle != INVALID_RESOURCE) 
                     {
-                        auto& rgRes = m_Graph.m_Resources[targetHandle];
-                        info.imageView = (rgRes.image.debug_view != VK_NULL_HANDLE) ? rgRes.image.debug_view : rgRes.image.view;
+                        // Access via public API of RenderGraph since m_Resources is private (or uses friend)
+                        auto& rgRes = m_Graph.GetImage(m_Graph.m_Resources[targetHandle].name);
+                        info.imageView = (rgRes.debug_view != VK_NULL_HANDLE) ? rgRes.debug_view : rgRes.view;
                         
-                        // [FIX] Use the actual layout tracked by RenderGraph
-                        info.imageLayout = rgRes.currentState.layout;
+                        // [FIX] Correctly access state via RenderGraph's friend or public mapping
+                        info.imageLayout = m_Graph.m_Resources[targetHandle].currentState.layout;
                         
                         if (info.imageLayout == VK_IMAGE_LAYOUT_UNDEFINED) 
                         {
@@ -117,10 +114,7 @@ namespace Chimera
                     w.pImageInfo = &imageInfos.back();
                     writes.push_back(w);
                 }
-                if (!writes.empty()) 
-                {
-                    vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
-                }
+                if (!writes.empty()) vkUpdateDescriptorSets(VulkanContext::Get().GetDevice(), (uint32_t)writes.size(), writes.data(), 0, nullptr);
             }
         }
 
@@ -129,6 +123,14 @@ namespace Chimera
             vkCmdBindDescriptorSets(m_Cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipe.layout, 2, 1, &m_Pass.descriptorSet, 0, nullptr);
         }
         s_ActiveRTPipe = &pipe;
+    }
+
+    void RaytracingExecutionContext::PushConstants(VkShaderStageFlags stages, const void* data, uint32_t size)
+    {
+        if (m_ActiveLayout != VK_NULL_HANDLE)
+        {
+            vkCmdPushConstants(m_Cmd, m_ActiveLayout, stages, 0, size, data);
+        }
     }
 
     void RaytracingExecutionContext::TraceRays(uint32_t width, uint32_t height, uint32_t depth)

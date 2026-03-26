@@ -4,115 +4,87 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ComputeExecutionContext.h"
 
-namespace Chimera::SVGFPass
+namespace Chimera
 {
-    void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene, const Config& config)
+    // --- Temporal Pass ---
+    SVGFTemporalPass::SVGFTemporalPass(const SVGFPass::Config& config) : m_Config(config) {}
+    void SVGFTemporalPass::Setup(SVGFTemporalData& data, RenderGraph::PassBuilder& builder)
     {
-        // 1. Temporal Accumulation Pass
-        struct TemporalData 
-        { 
-            RGResourceHandle cur; 
-            RGResourceHandle motion; 
-            RGResourceHandle history; 
-            RGResourceHandle historyMoments; 
-            RGResourceHandle output; 
-            RGResourceHandle outMoments; 
-            RGResourceHandle depth;
-            RGResourceHandle normal;
-            RGResourceHandle prevDepth;
-            RGResourceHandle prevNormal;
-        };
+        data.cur            = builder.ReadCompute(m_Config.inputName);        
+        data.motion         = builder.ReadCompute(RS::Motion);             
+        data.history        = builder.ReadHistory(m_Config.historyBaseName); 
+        data.historyMoments = builder.ReadHistory(m_Config.prefix + "Moments"); 
+        
+        data.output         = builder.WriteStorage(m_Config.prefix + "_TemporalColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(m_Config.historyBaseName); 
+        data.outMoments     = builder.WriteStorage(m_Config.prefix + "_TemporalMoments").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(m_Config.prefix + "Moments"); 
+        
+        data.depth          = builder.ReadCompute(RS::Depth);              
+        data.normal         = builder.ReadCompute(RS::Normal);             
+        data.prevDepth      = builder.ReadHistory(RS::Depth);              
+        data.prevNormal     = builder.ReadHistory(RS::Normal); 
+    }
+    void SVGFTemporalPass::Execute(const SVGFTemporalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    {
+        ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
+        ctx.BindPipeline("SVGF_Temporal");
+        ctx.Dispatch("SVGF_Temporal", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+    }
 
-        std::string temporalMomentsName = config.prefix + "_TemporalMoments";
+    // --- Atrous Pass ---
+    SVGFAtrousPass::SVGFAtrousPass(const SVGFPass::Config& config, int iteration, const std::string& inputName, const std::string& outputName, const std::string& momentsName)
+        : m_Config(config), m_Iteration(iteration), m_InputName(inputName), m_OutputName(outputName), m_MomentsName(momentsName) {}
+    void SVGFAtrousPass::Setup(SVGFAtrousData& data, RenderGraph::PassBuilder& builder)
+    {
+        data.input   = builder.ReadCompute(m_InputName);   
+        data.moments = builder.ReadCompute(m_MomentsName); 
+        data.normal  = builder.ReadCompute(RS::Normal);          
+        data.depth   = builder.ReadCompute(RS::Depth);           
+        data.output  = builder.WriteStorage(m_OutputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT); 
+    }
+    void SVGFAtrousPass::Execute(const SVGFAtrousData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    {
+        ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
+        int step = 1 << m_Iteration;
+        ctx.BindPipeline("SVGF_Atrous");
+        ctx.PushConstants(VK_SHADER_STAGE_ALL, step);
+        ctx.Dispatch("SVGF_Atrous", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+    }
 
-        graph.AddComputePass<TemporalData>(config.prefix + "_Temporal",
-            [&](TemporalData& data, RenderGraph::PassBuilder& builder)
-            {
-                // BINDING ORDER MUST MATCH SHADER SET 2
-                data.cur            = builder.ReadCompute(config.inputName);        // Binding 0
-                data.motion         = builder.ReadCompute(RS::Motion);             // Binding 1
-                data.history        = builder.ReadHistory(config.historyBaseName); // Binding 2
-                data.historyMoments = builder.ReadHistory(config.prefix + "Moments"); // Binding 3
-                
-                data.output         = builder.WriteStorage(config.prefix + "_TemporalColor").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.historyBaseName); // Binding 4
-                data.outMoments     = builder.WriteStorage(temporalMomentsName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.prefix + "Moments"); // Binding 5
-                
-                data.depth          = builder.ReadCompute(RS::Depth);              // Binding 6
-                data.normal         = builder.ReadCompute(RS::Normal);             // Binding 7
-                data.prevDepth      = builder.ReadHistory(RS::Depth);              // Binding 8
-                data.prevNormal     = builder.ReadHistory(RS::Normal);             // Binding 9
-            },
-            [config](const TemporalData& data, ComputeExecutionContext& ctx)
-            {
-                ctx.BindPipeline("SVGF_Temporal");
-                ctx.Dispatch("SVGF_Temporal", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
-            }
-        );
+    // --- Combine Pass ---
+    SVGFCombinePass::SVGFCombinePass(const SVGFPass::Config& config, const std::string& currentInputColor, const std::string& temporalMomentsName)
+        : m_Config(config), m_CurrentInputColor(currentInputColor), m_TemporalMomentsName(temporalMomentsName) {}
+    void SVGFCombinePass::Setup(SVGFCombineData& data, RenderGraph::PassBuilder& builder)
+    {
+        data.current = builder.ReadCompute(m_CurrentInputColor); 
+        data.history = builder.ReadHistory(m_Config.historyBaseName);
+        data.moments = builder.ReadCompute(m_TemporalMomentsName);
+        data.output  = builder.WriteStorage(m_Config.prefix + "_Filtered_Final").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(m_Config.historyBaseName);
+    }
+    void SVGFCombinePass::Execute(const SVGFCombineData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    {
+        ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
+        ctx.BindPipeline("SVGF_Combine");
+        ctx.Dispatch("SVGF_Combine", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
+    }
 
-        // 2. A-trous Filtering
+    // --- High-level Factory ---
+    void SVGFPass::Add(RenderGraph& graph, std::shared_ptr<Scene> scene, const Config& config)
+    {
+        // 1. Temporal
+        graph.AddPass<SVGFTemporalPass>(config);
+
+        // 2. Atrous
         std::string currentInputColor = config.prefix + "_TemporalColor";
-        std::string currentInputMoments = temporalMomentsName;
-
+        std::string currentInputMoments = config.prefix + "_TemporalMoments";
         for (int i = 0; i < config.atrousIterations; ++i)
         {
-            struct AtrousData 
-            { 
-                RGResourceHandle input; 
-                RGResourceHandle moments; 
-                RGResourceHandle normal; 
-                RGResourceHandle depth; 
-                RGResourceHandle output; 
-            };
-            
             std::string outputName = config.prefix + "_Filtered_" + std::to_string(i);
-            
-            graph.AddComputePass<AtrousData>(config.prefix + "_Atrous_" + std::to_string(i),
-                [&, currentInputColor, currentInputMoments, outputName](AtrousData& data, RenderGraph::PassBuilder& builder)
-                {
-                    data.input   = builder.ReadCompute(currentInputColor);   // Binding 0
-                    data.moments = builder.ReadCompute(currentInputMoments); // Binding 1
-                    data.normal  = builder.ReadCompute(RS::Normal);          // Binding 2
-                    data.depth   = builder.ReadCompute(RS::Depth);           // Binding 3
-                    data.output  = builder.WriteStorage(outputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT); // Binding 4
-                },
-                [i](const AtrousData& data, ComputeExecutionContext& ctx)
-                {
-                    int step = 1 << i;
-                    ctx.BindPipeline("SVGF_Atrous");
-                    ctx.PushConstants(VK_SHADER_STAGE_ALL, step);
-                    ctx.Dispatch("SVGF_Atrous", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
-                }
-            );
-
-            // [NEW] Cascading update: The next pass reads both Color and smoothed Variance from THIS pass's output
+            graph.AddPass<SVGFAtrousPass>(config, i, currentInputColor, outputName, currentInputMoments);
             currentInputColor = outputName;
             currentInputMoments = outputName; 
         }
 
-        // 3. Final Post-Temporal Combine (To reduce residual spatial noise)
-        struct CombineData 
-        { 
-            RGResourceHandle current; 
-            RGResourceHandle history; 
-            RGResourceHandle moments; 
-            RGResourceHandle output; 
-        };
-
-        std::string finalOutputName = config.prefix + "_Filtered_Final";
-
-        graph.AddComputePass<CombineData>(config.prefix + "_Combine",
-            [&](CombineData& data, RenderGraph::PassBuilder& builder)
-            {
-                data.current = builder.ReadCompute(currentInputColor); // Filtered_4
-                data.history = builder.ReadHistory(config.historyBaseName);
-                data.moments = builder.ReadCompute(temporalMomentsName);
-                data.output  = builder.WriteStorage(finalOutputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(config.historyBaseName);
-            },
-            [](const CombineData& data, ComputeExecutionContext& ctx)
-            {
-                ctx.BindPipeline("SVGF_Combine");
-                ctx.Dispatch("SVGF_Combine", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
-            }
-        );
+        // 3. Combine
+        graph.AddPass<SVGFCombinePass>(config, currentInputColor, config.prefix + "_TemporalMoments");
     }
 }

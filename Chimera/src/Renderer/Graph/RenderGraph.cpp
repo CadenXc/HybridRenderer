@@ -157,7 +157,7 @@ namespace Chimera
         }
     }
 
-    void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderPass& pass, uint32_t passIdx)
+    void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderGraphPass& pass, uint32_t passIdx)
     {
         std::vector<VkImageMemoryBarrier2> barriers;
         auto process = [&](std::vector<ResourceRequest>& reqs) 
@@ -590,6 +590,17 @@ namespace Chimera
         return ss.str();
     }
 
+    const GraphImage& RenderGraph::GetImage(const std::string& name) const
+    {
+        if (m_ResourceMap.count(name))
+        {
+            return m_Resources[m_ResourceMap.at(name)].image;
+        }
+
+        static GraphImage nullImage{};
+        return nullImage;
+    }
+
     bool RenderGraph::ContainsImage(const std::string& name) 
     { 
         return m_ResourceMap.count(name); 
@@ -614,7 +625,7 @@ namespace Chimera
         return names;
     }
 
-    void RenderGraph::BeginPassDebugLabel(VkCommandBuffer cmd, const RenderPass& pass)
+    void RenderGraph::BeginPassDebugLabel(VkCommandBuffer cmd, const RenderGraphPass& pass)
     {
         VkDebugUtilsLabelEXT l{ VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, pass.name.c_str(), {0.8f, 0.8f, 0.1f, 1.0f} };
         if (vkCmdBeginDebugUtilsLabelEXT)
@@ -631,7 +642,7 @@ namespace Chimera
         }
     }
 
-    bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd, const RenderPass& pass)
+    bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd, const RenderGraphPass& pass)
     {
         if (pass.colorFormats.empty() && pass.depthFormat == VK_FORMAT_UNDEFINED)
         {

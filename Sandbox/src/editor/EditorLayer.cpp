@@ -44,7 +44,8 @@ namespace Chimera
     void EditorLayer::OnAttach()
     {
         RefreshModelList();
-        LoadScene(Application::Get().GetSpecification().AssetDir + "models/Sponza/scene.gltf");
+        LoadScene(Application::Get().GetSpecification().AssetDir + "models/damaged-helmet/source/DamagedHelmet/DamagedHelmet.gltf");
+        // LoadScene(Application::Get().GetSpecification().AssetDir + "models/Sponza/scene.gltf");
     }
 
     void EditorLayer::OnDetach()
@@ -56,7 +57,7 @@ namespace Chimera
         m_AverageFrameTime = ts.GetMilliseconds();
         m_AverageFPS = 1.0f / ts.GetSeconds();
 
-        auto& window = Application::Get().GetWindow();
+        auto &window = Application::Get().GetWindow();
         float winW = (float)window.GetWidth();
         float winH = (float)window.GetHeight();
 

@@ -7,13 +7,28 @@
 #include <memory>
 #include <functional>
 #include <deque>
+#include <type_traits>
 
 namespace Chimera
 {
     class VulkanContext;
-    class GraphicsExecutionContext;
-    class ComputeExecutionContext;
-    class RaytracingExecutionContext;
+
+    struct PhysicalResource
+    {
+        std::string name; 
+        std::string historyName;
+        ImageDescription desc;
+        GraphImage image;
+        ResourceState currentState;
+        uint32_t firstPass = 0xFFFFFFFF;
+        uint32_t lastPass = 0;
+    };
+
+    struct HistoryResource
+    {
+        GraphImage image;
+        ResourceState state;
+    };
 
     class RenderGraph
     {
@@ -21,8 +36,8 @@ namespace Chimera
         struct PassBuilder
         {
             RenderGraph& graph;
-            RenderPass& pass;
-            PassBuilder(RenderGraph& g, RenderPass& p) : graph(g), pass(p) {}
+            struct RenderGraphPass& pass;
+            PassBuilder(RenderGraph& g, struct RenderGraphPass& p) : graph(g), pass(p) {}
 
             RGResourceHandle Read(const std::string& name);
             RGResourceHandle ReadCompute(const std::string& name);
@@ -35,10 +50,13 @@ namespace Chimera
         RenderGraph(VulkanContext& context, uint32_t w, uint32_t h);
         ~RenderGraph();
 
+        /**
+         * @brief Raw Lambda-based AddPass.
+         */
         template<typename PassData>
-        void AddPass(const std::string& name,
-                    std::function<void(PassData&, PassBuilder&)> setup,
-                    std::function<void(const PassData&, RenderGraphRegistry&, VkCommandBuffer)> execute)
+        void AddPassRaw(const std::string& name,
+                       std::function<void(PassData&, PassBuilder&)> setup,
+                       std::function<void(const PassData&, RenderGraphRegistry&, VkCommandBuffer)> execute)
         {
             auto& pass = m_PassStack.emplace_back();
             pass.name = name;
@@ -50,10 +68,38 @@ namespace Chimera
             pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) { execute(*data, reg, cmd); };
         }
 
+        /**
+         * @brief Class-based AddPass. Supports both atomic RenderPass subclasses 
+         * and Compound Pass types (which define their own static Add() method).
+         */
+        template<typename T, typename... Args>
+        void AddPass(Args&&... args)
+        {
+            if constexpr (HasPassData<T>::value)
+            {
+                auto passInstance = std::make_shared<T>(std::forward<Args>(args)...);
+                using Data = typename T::PassData;
+
+                this->AddPassRaw<Data>(
+                    T::Name,
+                    [passInstance](Data& data, PassBuilder& builder) {
+                        passInstance->Setup(data, builder);
+                    },
+                    [passInstance](const Data& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+                        passInstance->Execute(data, reg, cmd);
+                    }
+                );
+            }
+            else
+            {
+                T::Add(*this, std::forward<Args>(args)...);
+            }
+        }
+
         template<typename PassData>
         void AddComputePass(const std::string& name,
                            std::function<void(PassData&, PassBuilder&)> setup,
-                           std::function<void(const PassData&, ComputeExecutionContext&)> execute)
+                           std::function<void(const PassData&, class ComputeExecutionContext&)> execute)
         {
             auto& pass = m_PassStack.emplace_back();
             pass.name = name;
@@ -63,8 +109,11 @@ namespace Chimera
             auto data = std::make_shared<PassData>();
             PassBuilder builder(*this, pass);
             setup(*data, builder);
+            
+            // Pass the captured setup data to the execution callback
             pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) {
-                ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
+                // Since executeFunc takes RenderGraphRegistry&, we can re-wrap it
+                struct ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
                 execute(*data, ctx);
             };
         }
@@ -91,36 +140,24 @@ namespace Chimera
         std::string ExportToMermaid() const;
 
     private:
-        struct PhysicalResource
-        {
-            std::string name; 
-            std::string historyName;
-            GraphImage image; 
-            ImageDescription desc;
-            ResourceState currentState; 
-            uint32_t firstPass = 0xFFFFFFFF; 
-            uint32_t lastPass = 0;
-        };
-        
-        void BuildBarriers(VkCommandBuffer cmd, RenderPass& pass, uint32_t passIdx);
-        void BeginPassDebugLabel(VkCommandBuffer cmd, const RenderPass& pass);
+        template<typename T, typename = void>
+        struct HasPassData : std::false_type {};
+        template<typename T>
+        struct HasPassData<T, std::void_t<typename T::PassData>> : std::true_type {};
+
+        void BuildBarriers(VkCommandBuffer cmd, struct RenderGraphPass& pass, uint32_t passIdx);
+        void BeginPassDebugLabel(VkCommandBuffer cmd, const struct RenderGraphPass& pass);
         void EndPassDebugLabel(VkCommandBuffer cmd);
         void WriteTimestamp(VkCommandBuffer cmd, uint32_t queryIdx, VkPipelineStageFlags2 stage);
-        bool BeginDynamicRendering(VkCommandBuffer cmd, const RenderPass& pass);
+        bool BeginDynamicRendering(VkCommandBuffer cmd, const struct RenderGraphPass& pass);
         void UpdatePersistentResources(VkCommandBuffer cmd);
 
     private:
         VulkanContext& m_Context;
         uint32_t m_Width, m_Height;
-        std::vector<RenderPass> m_PassStack;
+        std::vector<struct RenderGraphPass> m_PassStack;
         std::vector<PhysicalResource> m_Resources;
         std::unordered_map<std::string, RGResourceHandle> m_ResourceMap;
-
-        struct HistoryResource
-        {
-            GraphImage image; 
-            ResourceState state;
-        };
         std::unordered_map<std::string, HistoryResource> m_HistoryResources;
         std::unordered_map<VkImage, ResourceState> m_ExternalImageStates;
         std::unordered_map<VkImage, ResourceState> m_PhysicalImageStates;

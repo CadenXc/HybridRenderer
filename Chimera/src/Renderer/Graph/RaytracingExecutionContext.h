@@ -1,37 +1,38 @@
 #pragma once
-#include "Renderer/Graph/RenderGraph.h"
+
+#include "volk.h"
+#include <string>
+#include <glm/glm.hpp>
+#include "Renderer/Graph/RenderGraphCommon.h"
 
 namespace Chimera
 {
+    class RenderGraph;
+    struct RenderGraphPass;
+
     class RaytracingExecutionContext
     {
     public:
-        RaytracingExecutionContext(RenderGraph& graph, struct RenderPass& pass, VkCommandBuffer cmd);
+        RaytracingExecutionContext(RenderGraph& graph, struct RenderGraphPass& pass, VkCommandBuffer cmd);
+        virtual ~RaytracingExecutionContext() = default;
 
+        // Support both direct shader name and full description
+        void BindPipeline(const std::string& name);
         void BindPipeline(const struct RaytracingPipelineDescription& desc);
-        void TraceRays(uint32_t width, uint32_t height, uint32_t depth = 1);
-
+        
+        void PushConstants(VkShaderStageFlags stages, const void* data, uint32_t size);
+        
         template<typename T>
-        void PushConstants(VkShaderStageFlags stages, const T& data)
-        {
-            if (m_ActiveLayout != VK_NULL_HANDLE)
-            {
-                vkCmdPushConstants(m_Cmd, m_ActiveLayout, VK_SHADER_STAGE_ALL, 0, sizeof(T), &data);
-            }
-        }
+        void PushConstants(VkShaderStageFlags stages, const T& data) { PushConstants(stages, &data, sizeof(T)); }
 
-        RenderGraph& GetGraph()
-        {
-            return m_Graph;
-        }
-        VkCommandBuffer GetCommandBuffer()
-        {
-            return m_Cmd;
-        }
+        void TraceRays(uint32_t w, uint32_t h, uint32_t d = 1);
+
+        VkCommandBuffer GetCommandBuffer() { return m_Cmd; }
+        RenderGraph& GetGraph() { return m_Graph; }
 
     private:
         RenderGraph& m_Graph;
-        struct RenderPass& m_Pass;
+        struct RenderGraphPass& m_Pass;
         VkCommandBuffer m_Cmd;
         VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE;
     };
