@@ -15,7 +15,7 @@
 namespace Chimera
 {
     GraphicsExecutionContext::GraphicsExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd)
-        : m_Graph(graph), m_Pass(pass), m_Cmd(cmd) 
+        : ExecutionContext(graph, pass, cmd) 
     {
     }
 

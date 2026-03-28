@@ -150,11 +150,6 @@ namespace Chimera
     {
         UpdateWorldTransforms();
 
-        for (auto& entity : m_Entities)
-        {
-            entity.prevTransform = entity.transform.GetTransform();
-        }
-
         if (m_NeedsTLASRebuild)
         {
             UpdateTLAS();

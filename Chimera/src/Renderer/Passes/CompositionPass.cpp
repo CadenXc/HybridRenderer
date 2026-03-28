@@ -4,6 +4,7 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Renderer/Resources/ResourceManager.h"
+#include "Core/Application.h"
 #include "Scene/Scene.h"
 
 namespace Chimera
@@ -29,10 +30,8 @@ namespace Chimera
         data.output         = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
     }
 
-    void CompositionPass::Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    void CompositionPass::Execute(const PassData& data, GraphicsExecutionContext& ctx)
     {
-        GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
-        
         GraphicsPipelineDescription desc{};
         desc.name = "Composition_Pipeline";
         desc.vertex_shader = "Fullscreen_Vert";
@@ -46,6 +45,7 @@ namespace Chimera
         struct PushConstants 
         {
             int skyboxIndex;
+            int displayMode;
         } pc;
         
         pc.skyboxIndex = -1;
@@ -53,6 +53,7 @@ namespace Chimera
         {
             pc.skyboxIndex = (int)scene->GetSkyboxTextureIndex();
         }
+        pc.displayMode = (int)Application::Get().GetFrameContext().DisplayMode;
         
         ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
         ctx.DrawMeshes(desc, nullptr);

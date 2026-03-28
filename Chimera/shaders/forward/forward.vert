@@ -31,9 +31,12 @@ void main()
     outCurPos = WorldToClip(worldPos);
     outPrevPos = PrevWorldToClip(prevWorldPos);
     
-    // [FIX] Apply TAA Jitter to rasterization position
+    // Apply TAA Jitter only if enabled
     gl_Position = outCurPos;
-    gl_Position.xy += camera.jitterData.xy * gl_Position.w;
+    if ((frameData.w & RENDER_FLAG_TAA_BIT) != 0)
+    {
+        gl_Position.xy += camera.jitterData.xy * gl_Position.w;
+    }
     
     mat3 normalMat = mat3(prim.normalMatrix);
     outNormal = normalize(normalMat * inNormal);

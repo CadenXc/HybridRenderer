@@ -283,17 +283,6 @@ namespace Chimera
         ubo.camera.prevView = m_FrameContext.PrevView;
         ubo.camera.prevProj = m_FrameContext.PrevProj;
         ubo.camera.position = glm::vec4(m_FrameContext.CameraPosition, 1.0f);
-
-        // [TAA] Handle Jitter
-        if (m_FrameContext.RenderFlags & RENDER_FLAG_TAA_BIT)
-        {
-            // [NEW] Check if history is available to prevent first-frame ghosting/jitters
-            if (m_RenderPath && m_RenderPath->GetRenderGraph().HasHistory("TAA_Ping"))
-            {
-                ubo.frameData.w |= RENDER_FLAG_TAA_HISTORY_BIT;
-            }
-        }
-
         ubo.camera.jitterData = glm::vec4(m_FrameContext.Jitter.x, m_FrameContext.Jitter.y, m_FrameContext.PrevJitter.x, m_FrameContext.PrevJitter.y);
 
         if (m_ResourceManager->HasActiveScene())
@@ -315,7 +304,16 @@ namespace Chimera
                                     1.0f / m_FrameContext.ViewportSize.x, 1.0f / m_FrameContext.ViewportSize.y);
 
         // Block 2: frameData
-        ubo.frameData = glm::uvec4(frameIndex, m_TotalFrameCount, m_FrameContext.DisplayMode, m_FrameContext.RenderFlags);
+        uint32_t currentFlags = m_FrameContext.RenderFlags;
+        // [TAA] Handle Jitter & History Status
+        if (currentFlags & RENDER_FLAG_TAA_BIT)
+        {
+            if (m_RenderPath && m_RenderPath->GetRenderGraph().HasHistory("TAAOutput"))
+            {
+                currentFlags |= RENDER_FLAG_TAA_HISTORY_BIT;
+            }
+        }
+        ubo.frameData = glm::uvec4(frameIndex, m_TotalFrameCount, m_FrameContext.DisplayMode, currentFlags);
 
         // Block 3: postData
         ubo.postData = glm::vec4(m_FrameContext.Exposure, m_FrameContext.AmbientStrength, 0.0f, (float)m_BlueNoiseTextureIndex);

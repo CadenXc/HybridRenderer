@@ -7,11 +7,12 @@
 #include "Core/Application.h"
 #include "Renderer/RenderState.h"
 #include <map>
+#include <deque>
 
 namespace Chimera
 {
     RaytracingExecutionContext::RaytracingExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd)
-        : m_Graph(graph), m_Pass(pass), m_Cmd(cmd) 
+        : ExecutionContext(graph, pass, cmd) 
     {
     }
 
@@ -123,14 +124,6 @@ namespace Chimera
             vkCmdBindDescriptorSets(m_Cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, pipe.layout, 2, 1, &m_Pass.descriptorSet, 0, nullptr);
         }
         s_ActiveRTPipe = &pipe;
-    }
-
-    void RaytracingExecutionContext::PushConstants(VkShaderStageFlags stages, const void* data, uint32_t size)
-    {
-        if (m_ActiveLayout != VK_NULL_HANDLE)
-        {
-            vkCmdPushConstants(m_Cmd, m_ActiveLayout, stages, 0, size, data);
-        }
     }
 
     void RaytracingExecutionContext::TraceRays(uint32_t width, uint32_t height, uint32_t depth)

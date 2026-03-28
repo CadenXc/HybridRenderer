@@ -321,6 +321,14 @@ namespace Chimera
                 graph.m_Resources.push_back(res);
                 graph.m_ResourceMap[historyName] = h;
             }
+            else
+            {
+                // [FIX] Always sync image and state from the persistent history record
+                // to ensure current frame's RenderGraph has the correct layout/handle.
+                auto& hist = graph.m_HistoryResources[name];
+                graph.m_Resources[h].image = hist.image;
+                graph.m_Resources[h].currentState = hist.state;
+            }
 
             pass.inputs.push_back({ h, pass.isCompute ? ResourceUsage::ComputeSampled : ResourceUsage::GraphicsSampled });
             return h;
@@ -664,7 +672,17 @@ namespace Chimera
             if (req.usage == ResourceUsage::ColorAttachment)
             {
                 PhysicalResource& res = m_Resources[req.handle];
-                VkAttachmentLoadOp loadOp = (res.firstPass == passIdx) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+                
+                // [FIX] More robust loadOp determination:
+                // If the pass specifically requested a clear, and it's the first WRITER, use CLEAR.
+                bool hasClear = false;
+                if (req.clearValue.color.float32[0] != 0.0f || req.clearValue.color.float32[1] != 0.0f || 
+                    req.clearValue.color.float32[2] != 0.0f || req.clearValue.color.float32[3] != 0.0f) hasClear = true;
+                
+                // For Motion specifically, we almost always want to clear if it's the first time we write to it this frame.
+                if (res.name == RS::Motion || res.name == RS::FinalColor || res.name == RS::Albedo) hasClear = true;
+
+                VkAttachmentLoadOp loadOp = (res.firstPass == passIdx || hasClear) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 
                 VkRenderingAttachmentInfo a{ 
                     VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO, nullptr, 

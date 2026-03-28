@@ -19,12 +19,10 @@ namespace Chimera
         builder.WriteStorage(RS::Motion).Format(VK_FORMAT_R16G16_SFLOAT);
     }
 
-    void RaytracePass::Execute(const RaytracePassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    void RaytracePass::Execute(const RaytracePassData& data, RaytracingExecutionContext& ctx)
     {
         if (!m_Scene) return;
 
-        RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
-        
         RaytracingPipelineDescription desc{};
         desc.raygen_shader = "Raytrace_Gen";
         desc.miss_shaders = { "Raytrace_Miss" };
@@ -35,6 +33,6 @@ namespace Chimera
         int alphaTest = m_UseAlphaTest ? 1 : 0;
         ctx.PushConstants(VK_SHADER_STAGE_ALL, alphaTest);
 
-        ctx.TraceRays(reg.graph.GetWidth(), reg.graph.GetHeight(), 1);
+        ctx.TraceRays(ctx.GetGraph().GetWidth(), ctx.GetGraph().GetHeight(), 1);
     }
 }

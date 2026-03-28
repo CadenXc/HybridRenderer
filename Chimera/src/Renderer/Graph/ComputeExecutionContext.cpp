@@ -10,16 +10,8 @@
 namespace Chimera
 {
     ComputeExecutionContext::ComputeExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd)
-        : m_Graph(graph), m_Pass(pass), m_Cmd(cmd) 
+        : ExecutionContext(graph, pass, cmd) 
     {
-    }
-
-    void ComputeExecutionContext::PushConstants(VkShaderStageFlags stages, const void* data, uint32_t size) 
-    {
-        if (m_ActiveLayout != VK_NULL_HANDLE)
-        {
-            vkCmdPushConstants(m_Cmd, m_ActiveLayout, VK_SHADER_STAGE_ALL, 0, size, data);
-        }
     }
 
     void ComputeExecutionContext::BindPipeline(const std::string& shaderName)

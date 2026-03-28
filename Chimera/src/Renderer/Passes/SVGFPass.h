@@ -70,37 +70,37 @@ namespace Chimera
 
     // --- Sub-Pass Classes (Internal use) ---
 
-    class SVGFTemporalPass : public RenderPass<SVGFTemporalData>
+    class SVGFTemporalPass : public ComputePass<SVGFTemporalData>
     {
     public:
         static constexpr const char* Name = "SVGFTemporalPass";
         SVGFTemporalPass(const SVGFPass::Config& config);
         virtual void Setup(SVGFTemporalData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const SVGFTemporalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+        virtual void Execute(const SVGFTemporalData& data, ComputeExecutionContext& ctx) override;
     private:
         SVGFPass::Config m_Config;
     };
 
-    class SVGFAtrousPass : public RenderPass<SVGFAtrousData>
+    class SVGFAtrousPass : public ComputePass<SVGFAtrousData>
     {
     public:
         static constexpr const char* Name = "SVGFAtrousPass";
         SVGFAtrousPass(const SVGFPass::Config& config, int iteration, const std::string& inputName, const std::string& outputName, const std::string& momentsName);
         virtual void Setup(SVGFAtrousData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const SVGFAtrousData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+        virtual void Execute(const SVGFAtrousData& data, ComputeExecutionContext& ctx) override;
     private:
         SVGFPass::Config m_Config;
         int m_Iteration;
         std::string m_InputName, m_OutputName, m_MomentsName;
     };
 
-    class SVGFCombinePass : public RenderPass<SVGFCombineData>
+    class SVGFCombinePass : public ComputePass<SVGFCombineData>
     {
     public:
         static constexpr const char* Name = "SVGFCombinePass";
         SVGFCombinePass(const SVGFPass::Config& config, const std::string& currentInputColor, const std::string& temporalMomentsName);
         virtual void Setup(SVGFCombineData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const SVGFCombineData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+        virtual void Execute(const SVGFCombineData& data, ComputeExecutionContext& ctx) override;
     private:
         SVGFPass::Config m_Config;
         std::string m_CurrentInputColor, m_TemporalMomentsName;

@@ -72,13 +72,24 @@ void main()
         ambient = (kD * envDiffuse * baseColor + kS * envSpecular) * ao * ambStr;
     }
     
-    // [FIX] Safe perspective divide to prevent NaN/Infinity
+    // [FIX] Since inCurPos/inPrevPos are unjittered, the difference is pure geometric motion.
     float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
     float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;
 
     vec2 curPos = (inCurPos.xy / safeCurW) * 0.5 + 0.5;
     vec2 prevPos = (inPrevPos.xy / safePrevW) * 0.5 + 0.5;
-    outMotionVector = curPos - prevPos;
+    
+    outMotionVector = (curPos - prevPos);
 
-    outColor = vec4(ambient + directLighting + emissive, albedo.a);
+    vec3 color = ambient + directLighting + emissive;
+    
+    // --- Display Mode Debugging ---
+    uint displayMode = frameData.z;
+    if (displayMode == DISPLAY_MODE_ALBEDO)   { outColor = vec4(baseColor, 1.0); return; }
+    if (displayMode == DISPLAY_MODE_NORMAL)   { outColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
+    if (displayMode == DISPLAY_MODE_MATERIAL) { outColor = vec4(roughness, metallic, ao, 1.0); return; }
+    if (displayMode == DISPLAY_MODE_MOTION)   { outColor = vec4(abs(outMotionVector) * 100.0, 0.0, 1.0); return; }
+    if (displayMode == DISPLAY_MODE_DEPTH)    { float depth = gl_FragCoord.z; outColor = vec4(vec3(depth), 1.0); return; }
+
+    outColor = vec4(color, albedo.a);
 }

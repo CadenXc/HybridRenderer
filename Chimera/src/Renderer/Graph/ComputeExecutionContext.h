@@ -1,33 +1,14 @@
 #pragma once
-#include "Renderer/Graph/RenderGraphCommon.h"
+#include "ExecutionContext.h"
 
 namespace Chimera
 {
-    class RenderGraph;
-
-    class ComputeExecutionContext
+    class ComputeExecutionContext : public ExecutionContext
     {
     public:
         ComputeExecutionContext(RenderGraph& graph, RenderGraphPass& pass, VkCommandBuffer cmd);
 
         void BindPipeline(const std::string& shaderName);
         void Dispatch(const std::string& shaderName, uint32_t groupX, uint32_t groupY, uint32_t groupZ = 1);
-        void PushConstants(VkShaderStageFlags stages, const void* data, uint32_t size);
-        template<typename T> void PushConstants(VkShaderStageFlags stages, const T& data) { PushConstants(stages, &data, sizeof(T)); }
-
-        VkCommandBuffer GetCommandBuffer()
-        {
-            return m_Cmd;
-        }
-        RenderGraph& GetGraph()
-        {
-            return m_Graph;
-        }
-
-    private:
-        RenderGraph& m_Graph;
-        RenderGraphPass& m_Pass;
-        VkCommandBuffer m_Cmd;
-        VkPipelineLayout m_ActiveLayout = VK_NULL_HANDLE;
     };
 }

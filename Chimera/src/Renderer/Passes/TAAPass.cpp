@@ -15,16 +15,19 @@ namespace Chimera
 
     void TAAPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
     {
-        uint32_t frameIndex = Application::Get().GetTotalFrameCount();
-        int currIdx = frameIndex % 2;
-        int prevIdx = (frameIndex + 1) % 2;
-
+        // current input color
         data.current = builder.ReadCompute(RS::FinalColor);
-        data.history = builder.ReadCompute(s_BufferNames[prevIdx]);
+        
+        // previous frame's accumulated result (Feedback)
+        data.history = builder.ReadHistory("TAAOutput");
+        
         data.motion  = builder.ReadCompute(RS::Motion);
         data.depth   = builder.ReadCompute(RS::Depth);
-        data.output  = builder.WriteStorage(s_BufferNames[currIdx]).Format(VK_FORMAT_R16G16B16A16_SFLOAT).Persistent();
-        builder.WriteStorage("TAAOutput").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+
+        // write new accumulated result and save it for the next frame
+        data.output  = builder.WriteStorage("TAAOutput")
+                              .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                              .SaveAsHistory("TAAOutput");
     }
 
     void TAAPass::Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)

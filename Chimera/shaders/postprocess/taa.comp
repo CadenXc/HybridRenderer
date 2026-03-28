@@ -8,8 +8,7 @@ layout(set = 2, binding = 1) uniform sampler2D historyColor;
 layout(set = 2, binding = 2) uniform sampler2D gMotion;
 layout(set = 2, binding = 3) uniform sampler2D gDepth;
 
-layout(set = 2, binding = 4, rgba16f) uniform image2D outPingPong; 
-layout(set = 2, binding = 5, rgba16f) uniform image2D outFinal;
+layout(set = 2, binding = 4, rgba16f) uniform image2D outFinal;
 
 // --- Helper Functions ---
 vec3 RGBToYCoCg(vec3 rgb) 
@@ -31,25 +30,39 @@ vec3 YCoCgToRGB(vec3 ycocg)
 // HDR Compression to suppress fireflies
 vec3 ToneMap(vec3 color) 
 {
+    // Handle potential NaNs or negatives
+    if (any(isnan(color)) || any(isinf(color))) return vec3(0.0);
+    color = max(color, vec3(0.0));
+    
     return color / (1.0 + max(color.r, max(color.g, color.b)));
 }
 
 vec3 UnToneMap(vec3 color) 
 {
-    return color / max(1.0 - max(color.r, max(color.g, color.b)), 0.0001);
+    // Inverse of ToneMap with a safe epsilon
+    float lum = max(color.r, max(color.g, color.b));
+    return color / max(1.0 - lum, 0.0001);
 }
 
-// Standard AABB Clipping from reference project
+// Standard AABB Clipping using ray-box intersection (Reference project style)
 vec3 ClipHistory(vec3 history, vec3 boxMin, vec3 boxMax)
 {
     vec3 filtered = (boxMin + boxMax) * 0.5;
     vec3 rayOrigin = history;
     vec3 rayDir = filtered - history;
-    rayDir = mix(rayDir, vec3(1e-6), lessThan(abs(rayDir), vec3(1e-6)));
+    
+    // Safety against division by zero
+    rayDir.x = abs(rayDir.x) < 0.00001 ? 0.00001 : rayDir.x;
+    rayDir.y = abs(rayDir.y) < 0.00001 ? 0.00001 : rayDir.y;
+    rayDir.z = abs(rayDir.z) < 0.00001 ? 0.00001 : rayDir.z;
+    
     vec3 invRayDir = 1.0 / rayDir;
     vec3 intersectMin = (boxMin - rayOrigin) * invRayDir;
     vec3 intersectMax = (boxMax - rayOrigin) * invRayDir;
-    float t = clamp(max(max(min(intersectMin, intersectMax).x, min(intersectMin, intersectMax).y), min(intersectMin, intersectMax).z), 0.0, 1.0);
+    
+    vec3 enterIntersect = min(intersectMin, intersectMax);
+    float t = clamp(max(enterIntersect.x, max(enterIntersect.y, enterIntersect.z)), 0.0, 1.0);
+    
     return mix(history, filtered, t);
 }
 
@@ -63,40 +76,51 @@ void main()
     if ((frameData.w & RENDER_FLAG_TAA_BIT) == 0) 
     {
         vec3 currentRGB = texelFetch(curColor, pixel, 0).rgb;
-        imageStore(outPingPong, pixel, vec4(currentRGB, 1.0));
         imageStore(outFinal, pixel, vec4(currentRGB, 1.0));
         return;
     }
 
     // 1. Velocity Dilation (Find closest point to camera in 3x3)
     ivec2 closestOffset = ivec2(0);
-    float minDepth = 1.0; 
+#if REVERSED_Z
+    float closestDepth = 0.0; 
     for (int y = -1; y <= 1; ++y)
     {
         for (int x = -1; x <= 1; ++x)
         {
             float d = texelFetch(gDepth, pixel + ivec2(x, y), 0).r;
-            if (d < minDepth) { minDepth = d; closestOffset = ivec2(x, y); }
+            if (d > closestDepth) { closestDepth = d; closestOffset = ivec2(x, y); }
         }
     }
+#else
+    float closestDepth = 1.0; 
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            float d = texelFetch(gDepth, pixel + ivec2(x, y), 0).r;
+            if (d < closestDepth) { closestDepth = d; closestOffset = ivec2(x, y); }
+        }
+    }
+#endif
 
     // 2. Sample Data
-    vec2 curJitter = camera.jitterData.xy * 0.5;
+    vec2 curJitter = camera.jitterData.xy * 0.5; // NDC to UV space
     vec2 preJitter = camera.jitterData.zw * 0.5;
     vec2 motion = texelFetch(gMotion, pixel + closestOffset, 0).xy;
     
-    // Reprojection formula (Decoupled from OIS)
-    vec2 prevUV = uv - motion - curJitter + preJitter;
+    // Reprojection: current_unjittered_uv - motion = previous_unjittered_uv
+    // previous_jittered_uv = previous_unjittered_uv + preJitter
+    vec2 unjitteredUV = uv - curJitter; 
+    vec2 prevUV = unjitteredUV - motion + preJitter;
 
-    // Sharp tap current frame
+    // Current frame sample (at jittered position)
     vec3 currentRGB = texelFetch(curColor, pixel, 0).rgb;
     vec3 currentYCoCg = RGBToYCoCg(ToneMap(currentRGB));
 
-    // 3. Construct Stable AABB
+    // 3. Construct Stable AABB (at jittered position context)
     vec3 m1 = vec3(0.0);
     vec3 m2 = vec3(0.0);
-    vec3 bMin = currentYCoCg;
-    vec3 bMax = currentYCoCg;
 
     for (int x = -1; x <= 1; ++x) 
     {
@@ -105,38 +129,39 @@ void main()
             vec3 c = RGBToYCoCg(ToneMap(texelFetch(curColor, pixel + ivec2(x, y), 0).rgb));
             m1 += c;
             m2 += c * c;
-            bMin = min(bMin, c);
-            bMax = max(bMax, c);
         }
     }
     
     // Variance-based box expansion
     vec3 mu = m1 / 9.0;
     vec3 sigma = sqrt(max(m2 / 9.0 - mu * mu, 0.0));
-    vec3 boxMin = mu - 1.25 * sigma; 
-    vec3 boxMax = mu + 1.25 * sigma;
     
-    // Tighten with Min/Max for extreme stability (Hybrid Approach)
-    boxMin = max(boxMin, bMin);
-    boxMax = min(boxMax, bMax);
-
+    float motionLen = length(motion * displayData.xy);
+    
+    // [ADJUST] Tighter box for more sharpness and less ghosting
+    // Standard is ~1.5 to 2.0. Lower = sharper but more jittery.
+    float varianceMultiplier = 1.5; 
+    vec3 boxMin = mu - varianceMultiplier * sigma; 
+    vec3 boxMax = mu + varianceMultiplier * sigma;
+    
     // 4. Sample and Clip History
     vec3 historyRGB = texture(historyColor, prevUV).rgb;
     vec3 historyYCoCg = RGBToYCoCg(ToneMap(historyRGB));
     
     historyYCoCg = ClipHistory(historyYCoCg, boxMin, boxMax);
 
-    // 5. Dynamic Alpha Blending (Reference Project Sensitivity)
-    float motionLen = length(motion * displayData.xy); // Motion in pixels
-    float alpha = clamp(0.05 + motionLen * 0.1, 0.05, 0.8);
+    // 5. Dynamic Alpha Blending
+    // [ADJUST] Increased floor and sensitivity to kill ghosting
+    float alpha = clamp(0.1 + motionLen * 0.1, 0.1, 0.9);
 
-    // Discard history if out of bounds
     if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0)))) alpha = 1.0;
-    if ((frameData.w & RENDER_FLAG_TAA_HISTORY_BIT) == 0) alpha = 1.0;
+    
+    // Safety check: only accumulate if the history bit is explicitly set by the engine
+    bool historyAvailable = (frameData.w & RENDER_FLAG_TAA_HISTORY_BIT) != 0;
+    if (!historyAvailable) alpha = 1.0;
     
     vec3 resolvedYCoCg = mix(historyYCoCg, currentYCoCg, alpha);
     vec3 resolvedRGB = UnToneMap(YCoCgToRGB(resolvedYCoCg));
 
-    imageStore(outPingPong, pixel, vec4(resolvedRGB, 1.0));
     imageStore(outFinal, pixel, vec4(resolvedRGB, 1.0));
 }

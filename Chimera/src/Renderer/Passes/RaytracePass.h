@@ -14,7 +14,7 @@ namespace Chimera
         RGResourceHandle output;
     };
 
-    class RaytracePass : public RenderPass<RaytracePassData>
+    class RaytracePass : public RaytracingPass<RaytracePassData>
     {
     public:
         static constexpr const char* Name = "RaytracePass";
@@ -22,7 +22,7 @@ namespace Chimera
         RaytracePass(std::shared_ptr<Scene> scene, bool useAlphaTest);
 
         virtual void Setup(RaytracePassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const RaytracePassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+        virtual void Execute(const RaytracePassData& data, RaytracingExecutionContext& ctx) override;
 
     private:
         std::shared_ptr<Scene> m_Scene;

@@ -26,7 +26,7 @@ namespace Chimera
         RGResourceHandle output; 
     };
 
-    class CompositionPass : public RenderPass<CompositionPassData>
+    class CompositionPass : public GraphicsPass<CompositionPassData>
     {
     public:
         using PassData = CompositionPassData;
@@ -44,7 +44,7 @@ namespace Chimera
         CompositionPass(const Config& config);
 
         virtual void Setup(PassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+        virtual void Execute(const PassData& data, GraphicsExecutionContext& ctx) override;
 
     private:
         Config m_Config;

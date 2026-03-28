@@ -80,20 +80,79 @@ namespace Chimera
                 auto passInstance = std::make_shared<T>(std::forward<Args>(args)...);
                 using Data = typename T::PassData;
 
-                this->AddPassRaw<Data>(
-                    T::Name,
-                    [passInstance](Data& data, PassBuilder& builder) {
-                        passInstance->Setup(data, builder);
-                    },
-                    [passInstance](const Data& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
-                        passInstance->Execute(data, reg, cmd);
-                    }
-                );
+                if constexpr (HasExecuteGraphics<T, Data>::value)
+                {
+                    this->AddGraphicsPass<Data>(
+                        T::Name,
+                        [passInstance](Data& data, PassBuilder& builder) {
+                            passInstance->Setup(data, builder);
+                        },
+                        [passInstance](const Data& data, class GraphicsExecutionContext& ctx) {
+                            passInstance->Execute(data, ctx);
+                        }
+                    );
+                }
+                else if constexpr (HasExecuteCompute<T, Data>::value)
+                {
+                    this->AddComputePass<Data>(
+                        T::Name,
+                        [passInstance](Data& data, PassBuilder& builder) {
+                            passInstance->Setup(data, builder);
+                        },
+                        [passInstance](const Data& data, class ComputeExecutionContext& ctx) {
+                            passInstance->Execute(data, ctx);
+                        }
+                    );
+                }
+                else if constexpr (HasExecuteRaytracing<T, Data>::value)
+                {
+                    this->AddRaytracingPass<Data>(
+                        T::Name,
+                        [passInstance](Data& data, PassBuilder& builder) {
+                            passInstance->Setup(data, builder);
+                        },
+                        [passInstance](const Data& data, class RaytracingExecutionContext& ctx) {
+                            passInstance->Execute(data, ctx);
+                        }
+                    );
+                }
+                else
+                {
+                    // Fallback to generic RenderPass
+                    this->AddPassRaw<Data>(
+                        T::Name,
+                        [passInstance](Data& data, PassBuilder& builder) {
+                            passInstance->Setup(data, builder);
+                        },
+                        [passInstance](const Data& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+                            passInstance->Execute(data, reg, cmd);
+                        }
+                    );
+                }
             }
             else
             {
                 T::Add(*this, std::forward<Args>(args)...);
             }
+        }
+
+        template<typename PassData>
+        void AddGraphicsPass(const std::string& name,
+                           std::function<void(PassData&, PassBuilder&)> setup,
+                           std::function<void(const PassData&, class GraphicsExecutionContext&)> execute)
+        {
+            auto& pass = m_PassStack.emplace_back();
+            pass.name = name;
+            pass.width = m_Width;
+            pass.height = m_Height;
+            auto data = std::make_shared<PassData>();
+            PassBuilder builder(*this, pass);
+            setup(*data, builder);
+            
+            pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
+                execute(*data, ctx);
+            };
         }
 
         template<typename PassData>
@@ -110,10 +169,27 @@ namespace Chimera
             PassBuilder builder(*this, pass);
             setup(*data, builder);
             
-            // Pass the captured setup data to the execution callback
             pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) {
-                // Since executeFunc takes RenderGraphRegistry&, we can re-wrap it
-                struct ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
+                ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
+                execute(*data, ctx);
+            };
+        }
+
+        template<typename PassData>
+        void AddRaytracingPass(const std::string& name,
+                           std::function<void(PassData&, PassBuilder&)> setup,
+                           std::function<void(const PassData&, class RaytracingExecutionContext&)> execute)
+        {
+            auto& pass = m_PassStack.emplace_back();
+            pass.name = name;
+            pass.width = m_Width;
+            pass.height = m_Height;
+            auto data = std::make_shared<PassData>();
+            PassBuilder builder(*this, pass);
+            setup(*data, builder);
+            
+            pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) {
+                RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
                 execute(*data, ctx);
             };
         }
@@ -144,6 +220,21 @@ namespace Chimera
         struct HasPassData : std::false_type {};
         template<typename T>
         struct HasPassData<T, std::void_t<typename T::PassData>> : std::true_type {};
+
+        template<typename T, typename Data, typename = void>
+        struct HasExecuteGraphics : std::false_type {};
+        template<typename T, typename Data>
+        struct HasExecuteGraphics<T, Data, std::void_t<decltype(std::declval<T>().Execute(std::declval<const Data&>(), std::declval<class GraphicsExecutionContext&>()))>> : std::true_type {};
+
+        template<typename T, typename Data, typename = void>
+        struct HasExecuteCompute : std::false_type {};
+        template<typename T, typename Data>
+        struct HasExecuteCompute<T, Data, std::void_t<decltype(std::declval<T>().Execute(std::declval<const Data&>(), std::declval<class ComputeExecutionContext&>()))>> : std::true_type {};
+
+        template<typename T, typename Data, typename = void>
+        struct HasExecuteRaytracing : std::false_type {};
+        template<typename T, typename Data>
+        struct HasExecuteRaytracing<T, Data, std::void_t<decltype(std::declval<T>().Execute(std::declval<const Data&>(), std::declval<class RaytracingExecutionContext&>()))>> : std::true_type {};
 
         void BuildBarriers(VkCommandBuffer cmd, struct RenderGraphPass& pass, uint32_t passIdx);
         void BeginPassDebugLabel(VkCommandBuffer cmd, const struct RenderGraphPass& pass);

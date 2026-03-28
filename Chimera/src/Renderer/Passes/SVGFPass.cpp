@@ -23,9 +23,8 @@ namespace Chimera
         data.prevDepth      = builder.ReadHistory(RS::Depth);              
         data.prevNormal     = builder.ReadHistory(RS::Normal); 
     }
-    void SVGFTemporalPass::Execute(const SVGFTemporalData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    void SVGFTemporalPass::Execute(const SVGFTemporalData& data, ComputeExecutionContext& ctx)
     {
-        ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
         ctx.BindPipeline("SVGF_Temporal");
         ctx.Dispatch("SVGF_Temporal", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
     }
@@ -41,9 +40,8 @@ namespace Chimera
         data.depth   = builder.ReadCompute(RS::Depth);           
         data.output  = builder.WriteStorage(m_OutputName).Format(VK_FORMAT_R16G16B16A16_SFLOAT); 
     }
-    void SVGFAtrousPass::Execute(const SVGFAtrousData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    void SVGFAtrousPass::Execute(const SVGFAtrousData& data, ComputeExecutionContext& ctx)
     {
-        ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
         int step = 1 << m_Iteration;
         ctx.BindPipeline("SVGF_Atrous");
         ctx.PushConstants(VK_SHADER_STAGE_ALL, step);
@@ -60,9 +58,8 @@ namespace Chimera
         data.moments = builder.ReadCompute(m_TemporalMomentsName);
         data.output  = builder.WriteStorage(m_Config.prefix + "_Filtered_Final").Format(VK_FORMAT_R16G16B16A16_SFLOAT).SaveAsHistory(m_Config.historyBaseName);
     }
-    void SVGFCombinePass::Execute(const SVGFCombineData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    void SVGFCombinePass::Execute(const SVGFCombineData& data, ComputeExecutionContext& ctx)
     {
-        ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
         ctx.BindPipeline("SVGF_Combine");
         ctx.Dispatch("SVGF_Combine", (ctx.GetGraph().GetWidth() + 15) / 16, (ctx.GetGraph().GetHeight() + 15) / 16);
     }

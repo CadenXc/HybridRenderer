@@ -10,16 +10,13 @@
 
 namespace Chimera
 {
-    ForwardRenderPath::ForwardRenderPath(VulkanContext& context)
+    ForwardRenderPath::ForwardRenderPath(VulkanContext &context)
         : RenderPath(context.GetShared())
     {
     }
 
-    void ForwardRenderPath::BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    void ForwardRenderPath::BuildGraph(RenderGraph &graph, std::shared_ptr<Scene> scene)
     {
-        // 1. Background Pass (Draws Skybox if exists)
-        graph.AddPass<SkyboxPass>();
-
         // 2. Scene Rendering (Outputs RS::FinalColor, uses depth testing)
         graph.AddPass<ForwardPass>(scene);
 
