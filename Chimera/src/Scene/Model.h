@@ -8,11 +8,24 @@
 
 namespace Chimera
 {
+    enum class LoadingStatus { Uninitialized, Loading, Uploading, Ready, Failed };
+
     class Model
     {
     public:
+        // Regular constructor for immediate loading
         Model(std::shared_ptr<VulkanContext> context, const ImportedScene &importedScene);
+        
+        // Constructor for async loading: creates a placeholder
+        Model(std::shared_ptr<VulkanContext> context);
+        
         ~Model();
+
+        LoadingStatus GetStatus() const { return m_Status; }
+        bool IsReady() const { return m_Status == LoadingStatus::Ready; }
+        
+        // Called by main thread when CPU parsing is done to upload to GPU
+        void UploadToGPU(const ImportedScene& sceneData);
 
         const std::vector<Mesh> &GetMeshes() const
         {
@@ -70,5 +83,7 @@ namespace Chimera
 
         uint32_t m_VertexCount = 0;
         uint32_t m_IndexCount = 0;
+
+        LoadingStatus m_Status = LoadingStatus::Uninitialized;
     };
 }

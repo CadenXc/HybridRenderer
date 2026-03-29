@@ -80,6 +80,10 @@ namespace Chimera
         {
             return m_CommandPool;
         }
+        std::mutex& GetQueueMutex()
+        {
+            return m_QueueMutex;
+        }
 
         // ---------------------------------------------------------------------------------------------------------------------
         // [Swapchain Management]
@@ -176,5 +180,6 @@ namespace Chimera
         VkDescriptorSetLayout m_EmptyDescriptorSetLayout = VK_NULL_HANDLE;
         VkDescriptorSet m_EmptyDescriptorSet = VK_NULL_HANDLE;
         DeletionQueue m_DeletionQueue;
+        std::mutex m_QueueMutex;
     };
 }

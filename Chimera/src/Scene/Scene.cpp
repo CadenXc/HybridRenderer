@@ -44,10 +44,12 @@ namespace Chimera
 
     void Scene::LoadModel(const std::string& path)
     {
-        VkDevice device = m_Context->GetDevice();
-        vkDeviceWaitIdle(device);
+        // Now just fire the request and return immediately!
+        ResourceManager::Get().LoadModelAsync(path, Application::Get().GetActiveSceneShared());
+    }
 
-        auto imported = AssetImporter::ImportScene(path);
+    void Scene::FinalizeAsyncModelLoad(std::shared_ptr<Model> model, std::shared_ptr<ImportedScene> imported, const std::string& path)
+    {
         if (!imported) return;
 
         // 1. Sync Materials
@@ -69,10 +71,7 @@ namespace Chimera
         }
         ResourceManager::Get().SyncMaterialsToGPU();
 
-        // 2. Create Model
-        auto model = std::make_shared<Model>(m_Context->GetShared(), *imported);
-
-        // 3. Import Nodes (Hierarchy)
+        // 2. Import Nodes (Hierarchy)
         uint32_t modelRootIdx = (uint32_t)m_Nodes.size();
         Node modelRoot{};
         modelRoot.name = std::filesystem::path(path).filename().string();
@@ -88,7 +87,7 @@ namespace Chimera
         }
         m_Nodes[modelRootIdx].children.push_back(nodeOffset); 
 
-        // 4. Create Entity and Link
+        // 3. Create Entity and Link
         Entity entity{};
         entity.name = modelRoot.name;
         entity.mesh.model = model;
@@ -96,7 +95,6 @@ namespace Chimera
         entity.transform.position = { 0, 0, 0 };
         entity.prevTransform = entity.transform.GetTransform();
         
-        // [NEW] Calculate primitive offset based on existing entities
         uint32_t currentOffset = 0;
         for (const auto& e : m_Entities)
         {
@@ -115,6 +113,8 @@ namespace Chimera
         {
             renderPath->OnSceneUpdated();
         }
+        
+        CH_CORE_INFO("Scene: Async model {0} integrated successfully.", path);
     }
 
     void Scene::UpdateWorldTransforms()

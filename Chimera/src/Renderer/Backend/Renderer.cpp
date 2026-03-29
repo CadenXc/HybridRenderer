@@ -241,15 +241,25 @@ namespace Chimera
         VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         VkSemaphore signalSemaphores[] = { frameResource.renderFinishedSemaphore };
         VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO, nullptr, 1, waitSemaphores, waitStages, 1, &frameResource.commandBuffer, 1, signalSemaphores };
-        VK_CHECK(vkQueueSubmit(VulkanContext::Get().GetGraphicsQueue(), 1, &submitInfo, frameResource.inFlightFence));
-        VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, nullptr, 1, signalSemaphores, 1, nullptr, nullptr, nullptr };
-        VkSwapchainKHR swapChains[] = { VulkanContext::Get().GetSwapChain() };
-        presentInfo.swapchainCount = 1; presentInfo.pSwapchains = swapChains; presentInfo.pImageIndices = &m_CurrentImageIndex;
-        VkResult result = vkQueuePresentKHR(VulkanContext::Get().GetPresentQueue(), &presentInfo);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_NeedResize)
+        
         {
-            m_NeedResize = true;
+            // [FIX] Global synchronization for queue operations
+            std::lock_guard<std::mutex> lock(VulkanContext::Get().GetQueueMutex());
+            VK_CHECK(vkQueueSubmit(VulkanContext::Get().GetGraphicsQueue(), 1, &submitInfo, frameResource.inFlightFence));
+            
+            VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, nullptr, 1, signalSemaphores, 1, nullptr, nullptr, nullptr };
+            VkSwapchainKHR swapChains[] = { VulkanContext::Get().GetSwapChain() };
+            presentInfo.swapchainCount = 1; 
+            presentInfo.pSwapchains = swapChains; 
+            presentInfo.pImageIndices = &m_CurrentImageIndex;
+            
+            VkResult result = vkQueuePresentKHR(VulkanContext::Get().GetPresentQueue(), &presentInfo);
+            if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_NeedResize)
+            {
+                m_NeedResize = true;
+            }
         }
+
         m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % MaxFramesInFlight;
         m_IsFrameInProgress = false;
     }

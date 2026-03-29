@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "AssetImporter.h"
 #include "Renderer/Resources/ResourceManager.h"
+#include "Core/Application.h"
+#include "Core/TaskSystem.h"
 #include <glm/gtc/type_ptr.hpp>
 
 #include <cgltf.h>
@@ -26,7 +28,38 @@ namespace Chimera
 
         auto outScene = std::make_shared<ImportedScene>();
 
-        // 1. Load Materials
+        // --- 1. Parallel Texture Preloading ---
+        std::string baseDir = path.substr(0, path.find_last_of("/\\") + 1);
+        std::vector<std::future<void>> textureFutures;
+        std::set<std::string> uniquePaths;
+
+        for (size_t i = 0; i < data->textures_count; ++i)
+        {
+            cgltf_texture& tex = data->textures[i];
+            if (tex.image && tex.image->uri)
+            {
+                std::string relativeUri = tex.image->uri;
+                std::replace(relativeUri.begin(), relativeUri.end(), '\\', '/');
+                std::string fullPath = baseDir + relativeUri;
+
+                if (uniquePaths.find(fullPath) == uniquePaths.end())
+                {
+                    uniquePaths.insert(fullPath);
+                    // Decide if srgb based on usage (simplified: assume baseColor is SRGB)
+                    // In a real engine, you'd check which material slot uses this texture.
+                    // For now, we fire tasks that will populate the cache in ResourceManager.
+                    textureFutures.push_back(Application::Get().GetTaskSystem()->Enqueue([fullPath]() {
+                        // We load as SRGB by default, ResourceManager handles caching
+                        ResourceManager::Get().LoadTexture(fullPath, true);
+                    }));
+                }
+            }
+        }
+
+        // Wait for all decodes to finish (this happens in parallel)
+        for (auto& f : textureFutures) f.wait();
+
+        // 2. Load Materials (using now-cached textures)
         std::unordered_map<cgltf_image*, TextureHandle> textureCache;
         auto LoadTex = [&](cgltf_texture* tex, bool srgb)
         {

@@ -19,6 +19,7 @@ namespace Chimera
 
         // Scene Management
         void LoadModel(const std::string &path);
+        void FinalizeAsyncModelLoad(std::shared_ptr<Model> model, std::shared_ptr<ImportedScene> imported, const std::string& path);
         void UpdateEntityTRS(uint32_t index, const glm::vec3 &pos, const glm::vec3 &rot, const glm::vec3 &scale);
         void OnUpdate(float ts);
         void ClearScene();

@@ -12,6 +12,7 @@
 #include "Scene/Scene.h"
 #include "Scene/EditorCamera.h"
 #include "Core/Input.h"
+#include "Core/TaskSystem.h"
 #include <imgui.h>
 
 namespace Chimera
@@ -67,6 +68,7 @@ namespace Chimera
 
         ShaderRegistry::RegisterAll();
         m_PipelineManager = std::make_unique<PipelineManager>();
+        m_TaskSystem = std::make_unique<TaskSystem>();
         m_RenderState = std::make_unique<RenderState>();
 
         m_ImGuiLayer = std::make_shared<ImGuiLayer>(m_Context);
@@ -222,6 +224,7 @@ namespace Chimera
                 if (cmd != VK_NULL_HANDLE)
                 {
                     uint32_t frameIndex = m_Renderer->GetCurrentFrameIndex();
+                    m_ResourceManager->UpdateLoadingTasks(); // [NEW] Check async tasks
                     for (auto &layer : m_LayerStack)
                     {
                         layer->OnUpdate(deltaTime);
@@ -384,6 +387,26 @@ namespace Chimera
     void Application::Close()
     {
         m_Running = false;
+    }
+
+    Scene* Application::GetActiveSceneRaw()
+    {
+        return m_ResourceManager->GetActiveScene();
+    }
+
+    std::shared_ptr<Scene> Application::GetActiveSceneShared()
+    {
+        return m_ResourceManager->GetActiveSceneShared();
+    }
+
+    RenderPath* Application::GetActiveRenderPath()
+    {
+        return m_RenderPath.get();
+    }
+
+    TaskSystem* Application::GetTaskSystem()
+    {
+        return m_TaskSystem.get();
     }
 
     uint32_t Application::GetCurrentImageIndex() const

@@ -21,6 +21,7 @@ namespace Chimera
     class RenderState;
     class ResourceManager;
     class PipelineManager;
+    class TaskSystem;
 
     struct AppFrameContext
     {
@@ -119,10 +120,11 @@ namespace Chimera
         {
             return m_ImGuiLayer;
         }
-        class RenderPath *GetActiveRenderPath()
-        {
-            return m_RenderPath.get();
-        }
+        
+        class Scene *GetActiveSceneRaw();
+        std::shared_ptr<class Scene> GetActiveSceneShared();
+        class RenderPath *GetActiveRenderPath();
+        TaskSystem *GetTaskSystem();
 
         uint32_t GetCurrentImageIndex() const;
         uint32_t GetCurrentFrameIndex() const;
@@ -185,6 +187,7 @@ namespace Chimera
         std::unique_ptr<Window> m_Window;
         std::unique_ptr<ResourceManager> m_ResourceManager;
         std::unique_ptr<PipelineManager> m_PipelineManager;
+        std::unique_ptr<TaskSystem> m_TaskSystem;
         std::unique_ptr<RenderState> m_RenderState;
         std::unique_ptr<Renderer> m_Renderer;
         std::unique_ptr<class RenderPath> m_RenderPath;

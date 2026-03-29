@@ -11,6 +11,8 @@
 #include "Renderer/Backend/ShaderCommon.h"
 #include "Scene/Scene.h"
 #include "Scene/Model.h"
+#include "Assets/AssetImporter.h"
+#include "Core/TaskSystem.h"
 
 #include "stb_image.h"
 
@@ -401,28 +403,76 @@ namespace Chimera
         }
     }
 
+    std::shared_ptr<Model> ResourceManager::LoadModelAsync(const std::string& path, std::shared_ptr<Scene> targetScene)
+    {
+        if (m_LoadingModels.count(path)) return m_LoadingModels[path].model;
+
+        CH_CORE_INFO("ResourceManager: Requesting FULL ASYNC load for model: {0}", path);
+        
+        auto model = std::make_shared<Model>(m_Context);
+        
+        // The task now performs BOTH parsing and GPU upload in the background
+        auto future = Application::Get().GetTaskSystem()->Enqueue([path, model]() -> std::shared_ptr<ImportedScene> {
+            auto sceneData = AssetImporter::ImportScene(path);
+            if (sceneData)
+            {
+                CH_CORE_INFO("ResourceManager: Background thread starting GPU upload for {0}...", path);
+                model->UploadToGPU(*sceneData);
+            }
+            return sceneData;
+        });
+
+        m_LoadingModels.emplace(path, LoadingTask{ model, std::move(future), targetScene, path });
+        return model;
+    }
+
+    void ResourceManager::UpdateLoadingTasks()
+    {
+        for (auto it = m_LoadingModels.begin(); it != m_LoadingModels.end(); )
+        {
+            auto& task = it->second;
+            
+            if (task.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            {
+                auto sceneData = task.future.get();
+                if (sceneData && task.model->IsReady())
+                {
+                    // If a target scene was provided, integrate the nodes and materials NOW
+                    if (task.targetScene)
+                    {
+                        CH_CORE_INFO("ResourceManager: Integrating fully ready model {0} into scene...", task.path);
+                        task.targetScene->FinalizeAsyncModelLoad(task.model, sceneData, task.path);
+                    }
+                }
+                else if (!sceneData)
+                {
+                    CH_CORE_ERROR("ResourceManager: Failed to load model {0}", task.path);
+                }
+                
+                it = m_LoadingModels.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
     void ResourceManager::SyncPrimitivesToGPU(Scene* scene)
     {
-        if (!scene || !m_PrimitiveBuffer)
-        {
-            return;
-        }
+        if (!scene || !m_PrimitiveBuffer) return;
 
         const auto& entities = scene->GetEntities();
-        if (entities.empty())
-        {
-            return;
-        }
+        if (entities.empty()) return;
 
         std::vector<GpuPrimitive> primitiveData;
         for (const auto& entity : entities)
         {
-            if (!entity.mesh.model)
-            {
-                continue;
-            }
+            auto model = entity.mesh.model;
+            // [FIX] Guard against models that are still loading or failed
+            if (!model || !model->IsReady()) continue;
 
-            const auto& meshes = entity.mesh.model->GetMeshes();
+            const auto& meshes = model->GetMeshes();
             glm::mat4 modelMatrix = entity.transform.GetTransform();
 
             for (const auto& mesh : meshes)
@@ -432,16 +482,13 @@ namespace Chimera
                 gpuPrim.normalMatrix = glm::transpose(glm::inverse(gpuPrim.transform));
                 gpuPrim.prevTransform = entity.prevTransform * mesh.transform;
                 gpuPrim.materialIndex = mesh.materialIndex;
-                gpuPrim.vertexAddress = entity.mesh.model->GetVertexBuffer()->GetDeviceAddress() + (mesh.vertexOffset * sizeof(GpuVertex));
-                gpuPrim.indexAddress = entity.mesh.model->GetIndexBuffer()->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
+                gpuPrim.vertexAddress = model->GetVertexBuffer()->GetDeviceAddress() + (mesh.vertexOffset * sizeof(GpuVertex));
+                gpuPrim.indexAddress = model->GetIndexBuffer()->GetDeviceAddress() + (mesh.indexOffset * sizeof(uint32_t));
                 primitiveData.push_back(gpuPrim);
             }
         }
 
-        if (primitiveData.empty())
-        {
-            return;
-        }
+        if (primitiveData.empty()) return;
 
         VkDeviceSize dataSize = primitiveData.size() * sizeof(GpuPrimitive);
         if (m_PrimitiveBuffer->GetSize() < dataSize)
@@ -570,11 +617,15 @@ namespace Chimera
 
     TextureHandle ResourceManager::LoadTexture(const std::string& p, bool srgb)
     {
-        if (m_TextureMap.count(p)) return m_TextureMap[p];
+        {
+            std::lock_guard<std::mutex> lock(m_AssetMutex);
+            if (m_TextureMap.count(p)) return m_TextureMap[p];
+        }
+
         int tw, th, tc;
         stbi_uc* px = stbi_load(p.c_str(), &tw, &th, &tc, STBI_rgb_alpha);
         if (!px) return TextureHandle();
-        VkDeviceSize s = tw * th * 4;
+        VkDeviceSize s = (VkDeviceSize)tw * th * 4;
         Buffer st(s, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, "Staging_LoadTexture");
         st.Update(px, s);
         stbi_image_free(px);
@@ -592,7 +643,11 @@ namespace Chimera
 
     TextureHandle ResourceManager::LoadHDRTexture(const std::string& p)
     {
-        if (m_TextureMap.count(p)) return m_TextureMap[p];
+        {
+            std::lock_guard<std::mutex> lock(m_AssetMutex);
+            if (m_TextureMap.count(p)) return m_TextureMap[p];
+        }
+
         int tw, th, tc;
         // Load as RGBA float to maintain 4-channel alignment
         float* px = stbi_loadf(p.c_str(), &tw, &th, &tc, STBI_rgb_alpha);
@@ -623,6 +678,7 @@ namespace Chimera
 
     TextureHandle ResourceManager::AddTexture(std::unique_ptr<Image> t, const std::string& n)
     {
+        std::lock_guard<std::mutex> lock(m_AssetMutex);
         uint32_t idx = (uint32_t)m_Textures.size();
         CH_CORE_INFO("ResourceManager: Registered Texture [ID: {}, Name: {}].", idx, n);
         m_Textures.push_back(std::move(t));
@@ -638,6 +694,7 @@ namespace Chimera
 
     MaterialHandle ResourceManager::AddMaterial(std::unique_ptr<Material> m, const std::string& n)
     {
+        std::lock_guard<std::mutex> lock(m_AssetMutex);
         uint32_t idx = (uint32_t)m_Materials.size();
         CH_CORE_INFO("ResourceManager: Registered Material [ID: {}, Name: {}].", idx, n);
         m_Materials.push_back(std::move(m));

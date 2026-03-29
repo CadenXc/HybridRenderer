@@ -8,6 +8,7 @@
 #include "Renderer/Resources/ResourceHandle.h"
 #include "Renderer/Graph/RenderGraphCommon.h"
 #include "Scene/SceneCommon.h"
+#include <future>
 
 namespace Chimera
 {
@@ -107,6 +108,10 @@ namespace Chimera
         void SyncMaterialsToGPU();
         void SyncPrimitivesToGPU(class Scene* scene); 
 
+        // [NEW] Async Model Loading
+        std::shared_ptr<class Model> LoadModelAsync(const std::string& path, std::shared_ptr<class Scene> targetScene = nullptr);
+        void UpdateLoadingTasks(); // Must be called every frame
+
         void UpdateMaterial(uint32_t materialIndex, const GpuMaterial& material);
 
         void AddTransientBuffer(std::shared_ptr<Buffer> buffer)
@@ -198,9 +203,20 @@ namespace Chimera
         std::vector<std::shared_ptr<Buffer>> m_TransientBuffers[MAX_FRAMES_IN_FLIGHT];
 
         std::vector<std::vector<std::function<void()>>> m_ResourceFreeQueue;
+        
+        struct LoadingTask {
+            std::shared_ptr<class Model> model;
+            std::future<std::shared_ptr<ImportedScene>> future;
+            std::shared_ptr<class Scene> targetScene;
+            std::string path;
+        };
+        std::unordered_map<std::string, LoadingTask> m_LoadingModels;
+
         std::shared_ptr<class Scene> m_ActiveScene;
         uint32_t m_CurrentFrameIndex = 0;
         bool m_IsCleared = false;
+
+        mutable std::mutex m_AssetMutex;
     };
 
     template<> 
