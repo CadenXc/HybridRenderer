@@ -84,7 +84,9 @@ void main()
     vec3 worldPos = GetWorldPos(depth, inUV, camera.viewProjInverse);
     vec3 viewDirection = normalize(camera.position.xyz - worldPos);
     vec3 lightDirection = normalize(-sunLight.direction.xyz);
-    vec3 lightIntensity = sunLight.color.rgb * sunLight.intensity.x;
+    
+    bool lightEnabled = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
+    vec3 lightIntensity = lightEnabled ? (sunLight.color.rgb * sunLight.intensity.x) : vec3(0.0);
 
     // 4. RT/SVGF Signals
     float shadowFactor = 1.0;

@@ -4,6 +4,7 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Passes/RaytracePass.h"
+#include "Renderer/Passes/DepthPrepass.h"
 #include "Renderer/Passes/StandardPasses.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
@@ -12,24 +13,27 @@
 
 namespace Chimera
 {
-    RayTracedRenderPath::RayTracedRenderPath(VulkanContext& context)
+    RayTracedRenderPath::RayTracedRenderPath(VulkanContext &context)
         : RenderPath(context.GetShared())
     {
     }
 
-    void RayTracedRenderPath::BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    void RayTracedRenderPath::BuildGraph(RenderGraph &graph, std::shared_ptr<Scene> scene)
     {
-        // 1. Full Path Tracing Pass (Outputs RS::FinalColor and RS::Motion)
+        // 0. Depth Prepass (MANDATORY for TAA)
+        // TAA needs depth buffer for velocity dilation and reprojection.
+        graph.AddPass<DepthPrepass>(scene);
+
+        // 1. Ray Tracing Pass (Writes HDR output to FinalColor and Motion)
         graph.AddPass<RaytracePass>(scene, m_UseAlphaTest);
 
-        // 2. TAA Pass (Stabilizes the jittered RT output, outputs "TAAOutput")
+        // 2. TAA Pass (Stabilizes the jittered RT output)
+        // Reads RS::FinalColor, RS::Motion, RS::Depth. Outputs "TAAOutput"
         graph.AddPass<TAAPass>();
 
-        // 3. Final Composition & Tone Mapping (Outputs RS::RENDER_OUTPUT)
+        // 3. Post-Processing & Tone Mapping
+        // Now reads from the stabilized "TAAOutput" instead of raw "FinalColor"
         graph.AddPass<PostProcessPass>("TAAOutput");
-
-        // 4. Linearize Depth (For debug view)
-        StandardPasses::AddLinearizeDepthPass(graph);
     }
 
     void RayTracedRenderPath::OnImGui()
@@ -41,4 +45,3 @@ namespace Chimera
         }
     }
 }
-

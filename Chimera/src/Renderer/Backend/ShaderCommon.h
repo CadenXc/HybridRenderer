@@ -50,6 +50,7 @@ using uint64 = uint64_t;
 #define RENDER_FLAG_REFLECTION_BIT  (1 << 4)
 #define RENDER_FLAG_TAA_BIT         (1 << 5)
 #define RENDER_FLAG_TAA_HISTORY_BIT (1 << 6) // [NEW] Bit to indicate if history is available
+#define RENDER_FLAG_LIGHT_BIT       (1 << 7) // [NEW] Control for the main sun light
 
 // --- 2. Data Structures ---
 

@@ -33,7 +33,7 @@ namespace Chimera
         m_EditorCamera.SetFocalPoint({0.0f, 1.0f, 0.0f});
         m_EditorCamera.SetDistance(5.0f);
 
-        m_RenderFlags = RENDER_FLAG_SHADOW_BIT;
+        m_RenderFlags = RENDER_FLAG_LIGHT_BIT; // Default: Light ON, others off
 
         auto scene = std::make_shared<Scene>(app.GetContext());
         ResourceManager::Get().SetActiveScene(scene);
@@ -44,8 +44,9 @@ namespace Chimera
     void EditorLayer::OnAttach()
     {
         RefreshModelList();
-        LoadScene(Application::Get().GetSpecification().AssetDir + "models/damaged-helmet/source/DamagedHelmet/DamagedHelmet.gltf");
-        // LoadScene(Application::Get().GetSpecification().AssetDir + "models/Sponza/scene.gltf");
+        // LoadScene(Application::Get().GetSpecification().AssetDir + "models/damaged-helmet/source/DamagedHelmet/DamagedHelmet.gltf");
+        LoadScene(Application::Get().GetSpecification().AssetDir + "models/Sponza/scene.gltf");
+        // LoadScene(Application::Get().GetSpecification().AssetDir + "models/pica_pica_-_machines/scene.gltf");
     }
 
     void EditorLayer::OnDetach()
@@ -63,7 +64,6 @@ namespace Chimera
 
         if (winW > 0 && (std::abs(winW - m_ViewportSize.x) > 0.1f || std::abs(winH - m_ViewportSize.y) > 0.1f))
         {
-            // Immediate resize for background rendering to stay sharp
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
             Renderer::Get().OnResize((uint32_t)winW, (uint32_t)winH);
             if (GetRenderPath())
@@ -74,7 +74,6 @@ namespace Chimera
             m_ViewportSize = {winW, winH};
         }
 
-        // [MOD] Camera interaction now works when not hovering over UI panels
         bool uiHovered = ImGui::GetIO().WantCaptureMouse;
         m_EditorCamera.OnUpdate(ts, !uiHovered, !uiHovered);
         m_EditorCamera.UpdateTAAState(Application::Get().GetTotalFrameCount(), (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0);
@@ -189,7 +188,6 @@ namespace Chimera
             ImGuiID dock_main_id = dockspace_id;
             ImGuiID dock_right_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Right, 0.20f, nullptr, &dock_main_id);
 
-            // The central node will be empty (passthru) to show the background
             ImGui::DockBuilderDockWindow("Control Panel", dock_right_id);
             ImGui::DockBuilderFinish(dockspace_id);
         }
@@ -197,10 +195,8 @@ namespace Chimera
 
         DrawMenuBar();
 
-        RenderPath *activePath = GetRenderPath();
-
         ImGui::Begin("Control Panel", &m_ShowControlPanel);
-        DrawControlPanelContent(activePath);
+        DrawControlPanelContent(GetRenderPath());
         ImGui::End();
 
         ImGui::End();
@@ -211,7 +207,7 @@ namespace Chimera
         Scene *scene = GetActiveSceneRaw();
         if (!scene)
             return;
-        if (ImGui::Button("Clear Scene"))
+        if (ImGui::Button("Clear Scene", ImVec2(-1, 0)))
         {
             ClearScene();
             m_SelectedInstanceIndex = -1;
@@ -232,13 +228,13 @@ namespace Chimera
         Scene *scene = GetActiveSceneRaw();
         if (!scene || m_SelectedInstanceIndex < 0)
         {
-            ImGui::Text("Select an object.");
+            ImGui::TextDisabled("Select an object in Hierarchy.");
             return;
         }
 
         const auto &entities = scene->GetEntities();
         auto &entity = entities[m_SelectedInstanceIndex];
-        ImGui::Text("Name: %s", entity.name.c_str());
+        ImGui::Text("Selected: %s", entity.name.c_str());
 
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -266,7 +262,7 @@ namespace Chimera
         {
             if (entity.mesh.model)
             {
-                uint32_t materialIndex = entity.mesh.model->GetMeshes()[0].materialIndex; // Assume 1st mesh for now
+                uint32_t materialIndex = entity.mesh.model->GetMeshes()[0].materialIndex;
                 Material *mat = ResourceManager::Get().GetMaterial(MaterialHandle(materialIndex));
 
                 if (mat)
@@ -300,9 +296,8 @@ namespace Chimera
         m_AvailableModels.clear();
         std::string rootPath = Application::Get().GetSpecification().AssetDir + "models";
         if (!std::filesystem::exists(rootPath))
-        {
             return;
-        }
+
         for (const auto &entry : std::filesystem::recursive_directory_iterator(rootPath))
         {
             if (entry.is_regular_file() && (entry.path().extension() == ".gltf" || entry.path().extension() == ".glb"))
@@ -333,7 +328,6 @@ namespace Chimera
             if (ImGui::BeginMenu("View"))
             {
                 ImGui::MenuItem("Control Panel", nullptr, &m_ShowControlPanel);
-                ImGui::Separator();
                 if (ImGui::MenuItem("Reset Layout"))
                     ImGui::GetIO().IniFilename = nullptr;
                 ImGui::EndMenu();
@@ -357,16 +351,13 @@ namespace Chimera
 
             if (ImGui::Button("Load HDR Skybox"))
             {
-                std::string path = hdrPath;
-                if (std::filesystem::exists(path))
+                if (std::filesystem::exists(hdrPath))
                 {
-                    scene->LoadHDRSkybox(path);
+                    scene->LoadHDRSkybox(hdrPath);
                     changed = true;
                 }
                 else
-                {
-                    CH_CORE_WARN("EditorLayer: HDR not found at {}.", path);
-                }
+                    CH_CORE_WARN("EditorLayer: HDR not found at {}.", hdrPath);
             }
             ImGui::SameLine();
             if (ImGui::Button("Clear Skybox"))
@@ -384,6 +375,17 @@ namespace Chimera
 
         if (ImGui::TreeNodeEx("Directional Light", ImGuiTreeNodeFlags_DefaultOpen))
         {
+            bool lightEnabled = (m_RenderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
+            if (ImGui::Checkbox("Enable Main Light", &lightEnabled))
+            {
+                if (lightEnabled)
+                    m_RenderFlags |= RENDER_FLAG_LIGHT_BIT;
+                else
+                    m_RenderFlags &= ~RENDER_FLAG_LIGHT_BIT;
+                changed = true;
+            }
+            ImGui::Separator();
+
             if (ImGui::DragFloat3("Direction", &light.direction.x, 0.01f, -1.0f, 1.0f))
             {
                 light.direction = glm::vec4(glm::normalize(glm::vec3(light.direction)), light.direction.w);
@@ -399,9 +401,10 @@ namespace Chimera
                 changed = true;
             }
 
+            // Light Radius only makes sense for RT shadows (Soft Shadows)
             if (activePath && activePath->GetType() != RenderPathType::Forward)
             {
-                if (ImGui::SliderFloat("Light Radius", &m_LightRadius, 0.0f, 0.5f))
+                if (ImGui::SliderFloat("Light Radius (Softness)", &m_LightRadius, 0.0f, 0.5f))
                 {
                     light.direction.w = m_LightRadius;
                     changed = true;
@@ -418,69 +421,39 @@ namespace Chimera
         const auto &allTypes = GetAllRenderPathTypes();
         RenderPathType currentType = activePath ? activePath->GetType() : RenderPathType::Forward;
 
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.8f, 1.0f, 1.0f));
-        ImGui::Text("Core Pipeline");
-        ImGui::PopStyleColor();
-        ImGui::Separator();
-
-        // 1. Path Selection
-        if (ImGui::BeginCombo("Active Path", RenderPathTypeToString(currentType)))
+        // --- 1. View & Debug ---
+        if (ImGui::CollapsingHeader("View & Debug", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            for (auto type : allTypes)
+            if (ImGui::BeginCombo("Active Path", RenderPathTypeToString(currentType)))
             {
-                if (ImGui::Selectable(RenderPathTypeToString(type), currentType == type))
-                    SwitchRenderPath(type);
+                for (auto type : allTypes)
+                {
+                    if (ImGui::Selectable(RenderPathTypeToString(type), currentType == type))
+                        SwitchRenderPath(type);
+                }
+                ImGui::EndCombo();
             }
-            ImGui::EndCombo();
-        }
 
-        // 2. Display Mode Selection (THE most used tool)
-        const char *displayModes[] =
-            {
+            const char *displayModes[] = {
                 "Final Color", "Albedo", "Normal", "Material", "Motion", "Depth",
                 "Shadow/AO", "Reflection", "Diffuse GI", "Emissive", "SVGF Variance"};
-        int currentDisplayMode = (int)m_DisplayMode;
-        if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes, IM_ARRAYSIZE(displayModes)))
-        {
-            m_DisplayMode = (uint32_t)currentDisplayMode;
+
+            int currentDisplayMode = (int)m_DisplayMode;
+            if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes, IM_ARRAYSIZE(displayModes)))
+            {
+                m_DisplayMode = (uint32_t)currentDisplayMode;
+            }
+
+            ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 5.0f);
         }
 
-        ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 5.0f);
-
-        if (currentType == RenderPathType::Forward)
-        {
-            ImGui::Spacing();
-            bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
-            if (ImGui::Checkbox("Enable TAA (Anti-Aliasing)", &taa))
-            {
-                if (taa)
-                {
-                    m_RenderFlags |= RENDER_FLAG_TAA_BIT;
-                }
-                else
-                {
-                    m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
-                }
-                if (activePath)
-                {
-                    activePath->OnSceneUpdated();
-                }
-            }
-            if (ImGui::IsItemHovered())
-            {
-                ImGui::SetTooltip("Smooths geometric edges using temporal accumulation.");
-            }
-        }
-
-        ImGui::Spacing();
-
-        // 3. Modular Feature Toggles (Hybrid Only now for better clarity)
+        // --- 2. Pipeline Features ---
         if (currentType == RenderPathType::Hybrid)
         {
-            if (ImGui::CollapsingHeader("Ray Tracing (Real-time)", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader("Hybrid Enhancements", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 bool shadow = (m_RenderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
-                if (ImGui::Checkbox("Hard/Soft Shadows", &shadow))
+                if (ImGui::Checkbox("Ray Traced Shadows", &shadow))
                 {
                     if (shadow)
                         m_RenderFlags |= RENDER_FLAG_SHADOW_BIT;
@@ -506,20 +479,26 @@ namespace Chimera
                         m_RenderFlags &= ~RENDER_FLAG_GI_BIT;
                 }
             }
+        }
 
-            if (ImGui::CollapsingHeader("Denoising & Stability", ImGuiTreeNodeFlags_DefaultOpen))
+        // --- 3. Denoising & Post-Processing ---
+        if (ImGui::CollapsingHeader("Post-Processing", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
+            if (ImGui::Checkbox("Temporal Anti-Aliasing (TAA)", &taa))
             {
-                bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
-                if (ImGui::Checkbox("Temporal Anti-Aliasing", &taa))
-                {
-                    if (taa)
-                        m_RenderFlags |= RENDER_FLAG_TAA_BIT;
-                    else
-                        m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
-                    if (activePath)
-                        activePath->OnSceneUpdated();
-                }
+                if (taa)
+                    m_RenderFlags |= RENDER_FLAG_TAA_BIT;
+                else
+                    m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
+                if (activePath)
+                    activePath->OnSceneUpdated();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Smooths geometric edges using temporal accumulation.");
 
+            if (currentType == RenderPathType::Hybrid)
+            {
                 ImGui::Spacing();
                 bool svgf = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
                 if (ImGui::Checkbox("SVGF Denoising Network", &svgf))
@@ -531,73 +510,85 @@ namespace Chimera
                     if (activePath)
                         activePath->OnSceneUpdated();
                 }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Advanced spatiotemporal filter for RT signals.");
             }
         }
+
+        // --- 4. Custom Path UI ---
         if (activePath)
             activePath->OnImGui();
     }
 
     void EditorLayer::DrawControlPanelContent(RenderPath *activePath)
     {
-        // Section 1: Top Level Pipeline Control
         DrawRenderPathPanel(activePath);
         ImGui::Spacing();
         ImGui::Separator();
 
-        // Section 2: Environment
         if (ImGui::CollapsingHeader("Environment & Lighting"))
         {
-            DrawGeneralSettings();
+            ImGui::Text("Global Background:");
+            if (ImGui::ColorEdit4("Clear Color", &m_ClearColor.x))
+            {
+                if (activePath)
+                    activePath->OnSceneUpdated();
+            }
             ImGui::Spacing();
             DrawLightSettings(activePath);
         }
 
-        // Section 3: Scene Data
-        if (ImGui::CollapsingHeader("Scene Hierarchy"))
+        // --- Consolidated Scene & Assets Group ---
+        if (ImGui::CollapsingHeader("Scene & Assets", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            DrawSceneHierarchy();
-        }
-
-        if (ImGui::CollapsingHeader("Object Properties", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            DrawPropertiesPanel(activePath);
-        }
-
-        // Section 4: Assets
-        if (ImGui::CollapsingHeader("Asset Library"))
-        {
-            if (ImGui::Button("Refresh"))
-                RefreshModelList();
-            ImGui::SameLine();
-            ImGui::InputTextWithHint("##Search", "Search...", m_AssetSearchFilter, sizeof(m_AssetSearchFilter));
-
-            ImGui::BeginChild("AssetScroll", ImVec2(0, 150), true);
-            std::string filter = m_AssetSearchFilter;
-            std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
-            for (int i = 0; i < (int)m_AvailableModels.size(); i++)
+            if (ImGui::TreeNodeEx("Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
             {
-                std::string name = m_AvailableModels[i].Name;
-                std::string lowName = name;
-                std::transform(lowName.begin(), lowName.end(), lowName.begin(), ::tolower);
-                if (!filter.empty() && lowName.find(filter) == std::string::npos)
-                    continue;
-                if (ImGui::Selectable(name.c_str(), m_SelectedModelIndex == i))
-                {
-                    m_SelectedModelIndex = i;
-                    LoadModel(m_AvailableModels[i].Path);
-                }
+                DrawSceneHierarchy();
+                ImGui::TreePop();
             }
-            ImGui::EndChild();
+            ImGui::Spacing();
+
+            if (ImGui::TreeNodeEx("Properties", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                DrawPropertiesPanel(activePath);
+                ImGui::TreePop();
+            }
+            ImGui::Spacing();
+
+            if (ImGui::TreeNodeEx("Asset Library", ImGuiTreeNodeFlags_DefaultOpen))
+            {
+                if (ImGui::Button("Refresh"))
+                    RefreshModelList();
+                ImGui::SameLine();
+                ImGui::InputTextWithHint("##Search", "Search...", m_AssetSearchFilter, sizeof(m_AssetSearchFilter));
+
+                ImGui::BeginChild("AssetScroll", ImVec2(0, 150), true);
+                std::string filter = m_AssetSearchFilter;
+                std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
+                for (int i = 0; i < (int)m_AvailableModels.size(); i++)
+                {
+                    std::string lowName = m_AvailableModels[i].Name;
+                    std::transform(lowName.begin(), lowName.end(), lowName.begin(), ::tolower);
+                    if (!filter.empty() && lowName.find(filter) == std::string::npos)
+                        continue;
+
+                    if (ImGui::Selectable(m_AvailableModels[i].Name.c_str(), m_SelectedModelIndex == i))
+                    {
+                        m_SelectedModelIndex = i;
+                        LoadModel(m_AvailableModels[i].Path);
+                    }
+                }
+                ImGui::EndChild();
+                ImGui::TreePop();
+            }
         }
 
-        // Section 5: Stats (Fixed at bottom)
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Performance Metrics", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Text("GPU: %s", VulkanContext::Get().GetDeviceProperties().deviceName);
             ImGui::TextColored(ImVec4(0, 1, 0, 1), "Frame: %.3f ms (%.1f FPS)", m_AverageFrameTime, m_AverageFPS);
 
-            // [NEW] Scene Culling Stats
             const auto &stats = Application::Get().GetFrameStats();
             ImGui::Separator();
             ImGui::Text("Scene Stats:");
@@ -622,16 +613,6 @@ namespace Chimera
             {
                 ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
             }
-        }
-    }
-
-    void EditorLayer::DrawGeneralSettings()
-    {
-        ImGui::Text("Global Background Color:");
-        if (ImGui::ColorEdit4("Clear Color", &m_ClearColor.x))
-        {
-            if (GetRenderPath())
-                GetRenderPath()->OnSceneUpdated();
         }
     }
 }

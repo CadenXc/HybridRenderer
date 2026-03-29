@@ -36,8 +36,10 @@ void main()
     vec3 emissive = GetEmissive(mat, inUV);
 
     // 4. 计算直接光 (Sunlight)
+    uint renderFlags = frameData.w;
+    bool lightEnabled = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
     vec3 lightDirection = normalize(-sunLight.direction.xyz);
-    vec3 lightIntensity = sunLight.color.rgb * sunLight.intensity.x;
+    vec3 lightIntensity = lightEnabled ? (sunLight.color.rgb * sunLight.intensity.x) : vec3(0.0);
 
     // Ray Query Shadows
     vec3 ddx = dFdx(inWorldPos);

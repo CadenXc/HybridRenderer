@@ -21,12 +21,12 @@
 
 namespace Chimera
 {
-    HybridRenderPath::HybridRenderPath(VulkanContext& context)
+    HybridRenderPath::HybridRenderPath(VulkanContext &context)
         : RenderPath(context.GetShared())
     {
     }
 
-    void HybridRenderPath::BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene)
+    void HybridRenderPath::BuildGraph(RenderGraph &graph, std::shared_ptr<Scene> scene)
     {
         // 0. Depth Prepass (Early-Z Optimization)
         graph.AddPass<DepthPrepass>(scene);
@@ -40,7 +40,7 @@ namespace Chimera
 
         // 2. Ray Tracing Passes (Shadows, Reflections, GI)
         bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
-        if (rtSupported && hasTLAS) 
+        if (rtSupported && hasTLAS)
         {
             graph.AddPass<RTShadowAOPass>(scene);
             graph.AddPass<RTReflectionPass>(scene);
@@ -48,33 +48,30 @@ namespace Chimera
         }
 
         // 3. SVGF Denoising Passes (Conditional)
-        if (rtSupported && scene && useSVGF) 
+        if (rtSupported && scene && useSVGF)
         {
             graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
-                .inputName = "CurColor",
-                .prefix = "Shadow",
-                .historyBaseName = "ShadowAccum"
-            });
+                                               .inputName = "CurColor",
+                                               .prefix = "Shadow",
+                                               .historyBaseName = "ShadowAccum"});
 
             graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
-                .inputName = "ReflectionRaw",
-                .prefix = "Refl",
-                .historyBaseName = "ReflAccum"
-            });
+                                               .inputName = "ReflectionRaw",
+                                               .prefix = "Refl",
+                                               .historyBaseName = "ReflAccum"});
 
             graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
-                .inputName = "GIRaw",
-                .prefix = "GI",
-                .historyBaseName = "GIAccum"
-            });
+                                               .inputName = "GIRaw",
+                                               .prefix = "GI",
+                                               .historyBaseName = "GIAccum"});
         }
 
         // 4. Composition Pass (Connect either SVGF output or Raw RT output)
         CompositionPass::Config compConfig;
-        compConfig.shadowName     = useSVGF ? "Shadow_Filtered_Final" : "CurColor";
-        compConfig.reflectionName = useSVGF ? "Refl_Filtered_Final"   : "ReflectionRaw";
-        compConfig.giName         = useSVGF ? "GI_Filtered_Final"     : "GIRaw";
-        
+        compConfig.shadowName = useSVGF ? "Shadow_Filtered_Final" : "CurColor";
+        compConfig.reflectionName = useSVGF ? "Refl_Filtered_Final" : "ReflectionRaw";
+        compConfig.giName = useSVGF ? "GI_Filtered_Final" : "GIRaw";
+
         graph.AddPass<CompositionPass>(compConfig);
 
         // 5. Post Processing (Static Chain)

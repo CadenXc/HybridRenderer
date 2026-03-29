@@ -56,9 +56,11 @@ void main()
     vec3 emissive = GetEmissive(mat, uv);
 
     // 4. Lighting Calculation
+    uint renderFlags = frameData.w;
+    bool lightEnabled = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
     vec3 viewDir = -gl_WorldRayDirectionEXT; 
     vec3 lightDir = normalize(-sunLight.direction.xyz);
-    vec3 lightIntensity = sunLight.color.rgb * sunLight.intensity.x;
+    vec3 lightIntensity = lightEnabled ? (sunLight.color.rgb * sunLight.intensity.x) : vec3(0.0);
 
     // Ray Query Shadows from Hit Point
     vec3 shadowOrigin = OffsetRay(worldPos, geoNormal);

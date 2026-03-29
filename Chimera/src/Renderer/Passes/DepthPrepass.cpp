@@ -16,14 +16,12 @@ namespace Chimera
     {
     }
 
-    void DepthPrepass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
+    void DepthPrepass::Setup(PassData &data, RenderGraph::PassBuilder &builder)
     {
-        data.depth = builder.Write(RS::Depth)
-                           .Format(VK_FORMAT_D32_SFLOAT)
-                           .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE);
+        data.depth = builder.Write(RS::Depth).Format(VK_FORMAT_D32_SFLOAT).ClearDepthStencil(CH_DEPTH_CLEAR_VALUE);
     }
 
-    void DepthPrepass::Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd)
+    void DepthPrepass::Execute(const PassData &data, RenderGraphRegistry &reg, VkCommandBuffer cmd)
     {
         if (!m_Scene)
             return;
@@ -40,15 +38,15 @@ namespace Chimera
         desc.cull_mode = VK_CULL_MODE_NONE;
         ctx.BindPipeline(desc);
 
-        const auto& entities = m_Scene->GetEntities();
-        const auto& frustum = Application::Get().GetFrameContext().CamFrustum;
+        const auto &entities = m_Scene->GetEntities();
+        const auto &frustum = Application::Get().GetFrameContext().CamFrustum;
         uint32_t globalObjectId = 0;
 
-        for (const auto& entity : entities)
+        for (const auto &entity : entities)
         {
             if (entity.mesh.model)
             {
-                const auto& meshes = entity.mesh.model->GetMeshes();
+                const auto &meshes = entity.mesh.model->GetMeshes();
 
                 VkBuffer vBuffer = (VkBuffer)entity.mesh.model->GetVertexBuffer()->GetBuffer();
                 VkDeviceSize offset = 0;
@@ -57,7 +55,7 @@ namespace Chimera
 
                 glm::mat4 entityTransform = entity.transform.GetTransform();
 
-                for (const auto& mesh : meshes)
+                for (const auto &mesh : meshes)
                 {
                     AABB worldBounds = mesh.localBounds.Transform(entityTransform * mesh.transform);
                     if (!frustum.Intersects(worldBounds))
@@ -66,7 +64,7 @@ namespace Chimera
                         continue;
                     }
 
-                    ScenePushConstants pc{ globalObjectId++ };
+                    ScenePushConstants pc{globalObjectId++};
                     ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
                     ctx.DrawIndexed(mesh.indexCount, 1, mesh.indexOffset, (int32_t)mesh.vertexOffset, 0);
                 }

@@ -329,7 +329,6 @@ namespace Chimera
 
         VkDevice device = m_Context->GetDevice();
         std::vector<VkAccelerationStructureInstanceKHR> instances;
-        uint32_t globalInstanceIndex = 0;
 
         for (const auto& entity : m_Entities)
         {
@@ -340,28 +339,29 @@ namespace Chimera
             const auto& meshes = model->GetMeshes();
             if (blasHandles.empty()) continue;
 
-            // Simplified: Search nodes from the entity's root index
-            for (uint32_t i = entity.rootNodeIndex; i < (uint32_t)m_Nodes.size(); ++i)
+            glm::mat4 entityTransform = entity.transform.GetTransform();
+
+            for (uint32_t i = 0; i < (uint32_t)meshes.size(); ++i)
             {
-                const Node& node = m_Nodes[i];
-                if (node.meshIndex < 0) continue;
+                if (i >= (uint32_t)blasHandles.size()) break;
 
-                if (node.meshIndex >= (int)meshes.size() || node.meshIndex >= (int)blasHandles.size())
-                    continue;
-
-                const Mesh& mesh = meshes[node.meshIndex];
+                const Mesh& mesh = meshes[i];
                 if (mesh.indexCount == 0) continue;
 
                 VkAccelerationStructureInstanceKHR inst{};
-                glm::mat4 transpose = glm::transpose(m_WorldTransforms[i]);
+                
+                // Use the same transform logic as GBufferPass
+                glm::mat4 modelMatrix = entityTransform * mesh.transform;
+                glm::mat4 transpose = glm::transpose(modelMatrix);
                 memcpy(&inst.transform, &transpose, sizeof(inst.transform));
                 
-                inst.instanceCustomIndex = globalInstanceIndex++; 
+                // Match the primitive indexing in Raytrace shaders and G-Buffer
+                inst.instanceCustomIndex = entity.primitiveOffset + i; 
                 inst.mask = 0xFF;
                 
                 VkAccelerationStructureDeviceAddressInfoKHR addrInfo{ 
                     VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR, nullptr, 
-                    blasHandles[node.meshIndex] 
+                    blasHandles[i] 
                 };
                 
                 inst.accelerationStructureReference = vkGetAccelerationStructureDeviceAddressKHR(device, &addrInfo);
