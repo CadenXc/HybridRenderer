@@ -67,21 +67,50 @@ namespace Chimera
     // --- High-level Factory ---
     void SVGFPass::Add(RenderGraph& graph, std::shared_ptr<Scene> scene, const Config& config)
     {
+        std::string currentInputColor = config.inputName;
+        std::string currentInputMoments = "";
+
         // 1. Temporal
-        graph.AddPass<SVGFTemporalPass>(config);
+        if (config.temporalEnabled)
+        {
+            graph.AddPass<SVGFTemporalPass>(config);
+            currentInputColor = config.prefix + "_TemporalColor";
+            currentInputMoments = config.prefix + "_TemporalMoments";
+        }
 
         // 2. Atrous
-        std::string currentInputColor = config.prefix + "_TemporalColor";
-        std::string currentInputMoments = config.prefix + "_TemporalMoments";
-        for (int i = 0; i < config.atrousIterations; ++i)
+        if (config.spatialEnabled)
         {
-            std::string outputName = config.prefix + "_Filtered_" + std::to_string(i);
-            graph.AddPass<SVGFAtrousPass>(config, i, currentInputColor, outputName, currentInputMoments);
-            currentInputColor = outputName;
-            currentInputMoments = outputName; 
+            // If temporal is off, we still need a moments buffer for the Atrous shader's binding,
+            // though variance will be 0 or uninitialized if we didn't run temporal.
+            // For now, assume if spatial is on but temporal is off, it just filters the raw input.
+            if (currentInputMoments.empty())
+            {
+                // Create a dummy moments buffer if needed, but usually we expect them to be used together.
+                currentInputMoments = config.prefix + "_TemporalMoments"; 
+            }
+
+            for (int i = 0; i < config.atrousIterations; ++i)
+            {
+                std::string outputName = config.prefix + "_Filtered_" + std::to_string(i);
+                graph.AddPass<SVGFAtrousPass>(config, i, currentInputColor, outputName, currentInputMoments);
+                currentInputColor = outputName;
+            }
         }
 
         // 3. Combine
-        graph.AddPass<SVGFCombinePass>(config, currentInputColor, config.prefix + "_TemporalMoments");
+        // The final filtered output is aliased to config.prefix + "_Filtered_Final" to satisfy dependencies.
+        // We use a simple CopyPass or similar if we want to skip Combine when no filtering happened, 
+        // but SVGFPass::Add is only called if SVGF is "active" at some level.
+        
+        if (config.temporalEnabled || config.spatialEnabled)
+        {
+            graph.AddPass<SVGFCombinePass>(config, currentInputColor, config.prefix + "_TemporalMoments");
+        }
+        else
+        {
+            // If neither is enabled but we were asked to add SVGF, just provide the raw input as the "final"
+            // This case shouldn't really happen with the current BuildGraph logic.
+        }
     }
 }

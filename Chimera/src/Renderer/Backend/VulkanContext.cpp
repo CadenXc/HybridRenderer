@@ -6,6 +6,12 @@ namespace Chimera
 {
     VulkanContext* VulkanContext::s_Instance = nullptr;
     static std::shared_ptr<VulkanContext> s_SharedInstance = nullptr;
+    static std::mutex s_GlobalQueueMutex; // The ONE lock to rule them all
+
+    std::mutex& VulkanContext::GetGlobalQueueMutex()
+    {
+        return s_GlobalQueueMutex;
+    }
 
     VulkanContext& VulkanContext::Get()
     {
@@ -72,6 +78,16 @@ namespace Chimera
         {
             vkDestroyCommandPool(GetDevice(), m_CommandPool, nullptr);
             m_CommandPool = VK_NULL_HANDLE;
+        }
+
+        // [NEW] Cleanup all thread-local pools
+        {
+            std::lock_guard<std::mutex> lock(m_PoolMutex);
+            for (auto& [id, pool] : m_ThreadCommandPools)
+            {
+                vkDestroyCommandPool(GetDevice(), pool, nullptr);
+            }
+            m_ThreadCommandPools.clear();
         }
 
         if (m_Device)
@@ -150,5 +166,34 @@ namespace Chimera
             nameInfo.pObjectName = name;
             func(GetDevice(), &nameInfo);
         }
+    }
+
+    VkCommandPool VulkanContext::GetThreadLocalCommandPool()
+    {
+        std::thread::id tid = std::this_thread::get_id();
+        
+        {
+            std::lock_guard<std::mutex> lock(m_PoolMutex);
+            if (m_ThreadCommandPools.count(tid))
+            {
+                return m_ThreadCommandPools[tid];
+            }
+        }
+
+        // Create a new pool for this thread
+        VkCommandPoolCreateInfo poolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        poolInfo.queueFamilyIndex = m_Device->GetGraphicsQueueFamily();
+
+        VkCommandPool pool;
+        VK_CHECK(vkCreateCommandPool(GetDevice(), &poolInfo, nullptr, &pool));
+        
+        {
+            std::lock_guard<std::mutex> lock(m_PoolMutex);
+            m_ThreadCommandPools[tid] = pool;
+        }
+
+        CH_CORE_INFO("VulkanContext: Created new thread-local CommandPool for Thread {0}", (uint64_t)*(uint64_t*)&tid);
+        return pool;
     }
 }

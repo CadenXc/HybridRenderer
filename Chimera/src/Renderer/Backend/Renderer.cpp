@@ -243,8 +243,8 @@ namespace Chimera
         VkSubmitInfo submitInfo{ VK_STRUCTURE_TYPE_SUBMIT_INFO, nullptr, 1, waitSemaphores, waitStages, 1, &frameResource.commandBuffer, 1, signalSemaphores };
         
         {
-            // [FIX] Global synchronization for queue operations
-            std::lock_guard<std::mutex> lock(VulkanContext::Get().GetQueueMutex());
+            // [FIX] Use static global mutex to ensure sync across ALL contexts/instances
+            std::lock_guard<std::mutex> lock(VulkanContext::GetGlobalQueueMutex());
             VK_CHECK(vkQueueSubmit(VulkanContext::Get().GetGraphicsQueue(), 1, &submitInfo, frameResource.inFlightFence));
             
             VkPresentInfoKHR presentInfo{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR, nullptr, 1, signalSemaphores, 1, nullptr, nullptr, nullptr };

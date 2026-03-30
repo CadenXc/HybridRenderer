@@ -443,8 +443,6 @@ namespace Chimera
             {
                 m_DisplayMode = (uint32_t)currentDisplayMode;
             }
-
-            ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 5.0f);
         }
 
         // --- 2. Pipeline Features ---
@@ -512,6 +510,29 @@ namespace Chimera
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Advanced spatiotemporal filter for RT signals.");
+
+                if (svgf)
+                {
+                    ImGui::Indent();
+                    
+                    bool temporal = (m_RenderFlags & RENDER_FLAG_SVGF_TEMPORAL_BIT) != 0;
+                    if (ImGui::Checkbox("Temporal Accumulation", &temporal))
+                    {
+                        if (temporal) m_RenderFlags |= RENDER_FLAG_SVGF_TEMPORAL_BIT;
+                        else m_RenderFlags &= ~RENDER_FLAG_SVGF_TEMPORAL_BIT;
+                        if (activePath) activePath->OnSceneUpdated();
+                    }
+
+                    bool spatial = (m_RenderFlags & RENDER_FLAG_SVGF_SPATIAL_BIT) != 0;
+                    if (ImGui::Checkbox("Spatial A-Trous Filter", &spatial))
+                    {
+                        if (spatial) m_RenderFlags |= RENDER_FLAG_SVGF_SPATIAL_BIT;
+                        else m_RenderFlags &= ~RENDER_FLAG_SVGF_SPATIAL_BIT;
+                        if (activePath) activePath->OnSceneUpdated();
+                    }
+
+                    ImGui::Unindent();
+                }
             }
         }
 
@@ -528,6 +549,10 @@ namespace Chimera
 
         if (ImGui::CollapsingHeader("Environment & Lighting"))
         {
+            ImGui::Text("Post-Processing Exposure:");
+            ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 5.0f);
+            ImGui::Separator();
+
             ImGui::Text("Global Background:");
             if (ImGui::ColorEdit4("Clear Color", &m_ClearColor.x))
             {

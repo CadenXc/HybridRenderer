@@ -59,6 +59,8 @@ namespace Chimera
             std::string prefix = "SVGF";
             std::string historyBaseName = "Accumulated";
             int atrousIterations = 5;
+            bool temporalEnabled = true;
+            bool spatialEnabled = true;
         };
 
         /**

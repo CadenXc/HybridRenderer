@@ -215,7 +215,14 @@ namespace Chimera
         void DrawPerformanceStatistics();
         std::string ExportToMermaid() const;
 
+        // --- Multi-threaded Extension ---
+        void BuildDependencyGraph();
+        const std::vector<std::vector<uint32_t>>& GetParallelLayers() const { return m_ParallelLayers; }
+
     private:
+        // Parallel execution layers: each inner vector contains indices of passes that can run concurrently
+        std::vector<std::vector<uint32_t>> m_ParallelLayers; 
+
         template<typename T, typename = void>
         struct HasPassData : std::false_type {};
         template<typename T>

@@ -36,7 +36,13 @@ namespace Chimera
 
         bool rtSupported = m_Context->IsRayTracingSupported();
         uint32_t renderFlags = Application::Get().GetFrameContext().RenderFlags;
-        bool useSVGF = (renderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+        
+        bool useSVGFMaster = (renderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+        bool doTemporal = (renderFlags & RENDER_FLAG_SVGF_TEMPORAL_BIT) != 0;
+        bool doSpatial = (renderFlags & RENDER_FLAG_SVGF_SPATIAL_BIT) != 0;
+        
+        // SVGF is active only if the master gate is open AND at least one stage is enabled
+        bool svgfActive = useSVGFMaster && (doTemporal || doSpatial);
 
         // 2. Ray Tracing Passes (Shadows, Reflections, GI)
         bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
@@ -48,29 +54,36 @@ namespace Chimera
         }
 
         // 3. SVGF Denoising Passes (Conditional)
-        if (rtSupported && scene && useSVGF)
+        if (rtSupported && scene && svgfActive)
         {
-            graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
-                                               .inputName = "CurColor",
-                                               .prefix = "Shadow",
-                                               .historyBaseName = "ShadowAccum"});
+            SVGFPass::Config baseConfig;
+            baseConfig.temporalEnabled = doTemporal;
+            baseConfig.spatialEnabled = doSpatial;
 
-            graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
-                                               .inputName = "ReflectionRaw",
-                                               .prefix = "Refl",
-                                               .historyBaseName = "ReflAccum"});
+            SVGFPass::Config shadowConfig = baseConfig;
+            shadowConfig.inputName = "CurColor";
+            shadowConfig.prefix = "Shadow";
+            shadowConfig.historyBaseName = "ShadowAccum";
+            graph.AddPass<SVGFPass>(scene, shadowConfig);
 
-            graph.AddPass<SVGFPass>(scene, SVGFPass::Config{
-                                               .inputName = "GIRaw",
-                                               .prefix = "GI",
-                                               .historyBaseName = "GIAccum"});
+            SVGFPass::Config reflConfig = baseConfig;
+            reflConfig.inputName = "ReflectionRaw";
+            reflConfig.prefix = "Refl";
+            reflConfig.historyBaseName = "ReflAccum";
+            graph.AddPass<SVGFPass>(scene, reflConfig);
+
+            SVGFPass::Config giConfig = baseConfig;
+            giConfig.inputName = "GIRaw";
+            giConfig.prefix = "GI";
+            giConfig.historyBaseName = "GIAccum";
+            graph.AddPass<SVGFPass>(scene, giConfig);
         }
 
         // 4. Composition Pass (Connect either SVGF output or Raw RT output)
         CompositionPass::Config compConfig;
-        compConfig.shadowName = useSVGF ? "Shadow_Filtered_Final" : "CurColor";
-        compConfig.reflectionName = useSVGF ? "Refl_Filtered_Final" : "ReflectionRaw";
-        compConfig.giName = useSVGF ? "GI_Filtered_Final" : "GIRaw";
+        compConfig.shadowName = svgfActive ? "Shadow_Filtered_Final" : "CurColor";
+        compConfig.reflectionName = svgfActive ? "Refl_Filtered_Final" : "ReflectionRaw";
+        compConfig.giName = svgfActive ? "GI_Filtered_Final" : "GIRaw";
 
         graph.AddPass<CompositionPass>(compConfig);
 

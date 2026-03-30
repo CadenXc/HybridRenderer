@@ -155,6 +155,49 @@ namespace Chimera
                 }
             }
         }
+
+        // 3. Perform parallel analysis
+        BuildDependencyGraph();
+    }
+
+    void RenderGraph::BuildDependencyGraph()
+    {
+        m_ParallelLayers.clear();
+        uint32_t numPasses = (uint32_t)m_PassStack.size();
+        if (numPasses == 0) return;
+
+        std::vector<uint32_t> passDepths(numPasses, 0);
+        std::unordered_map<RGResourceHandle, uint32_t> lastWriter; // Resource -> Last pass index that wrote to it
+
+        // 1. Leveling algorithm: Assign depth to each pass based on its dependencies
+        for (uint32_t i = 0; i < numPasses; ++i)
+        {
+            auto& pass = m_PassStack[i];
+            uint32_t maxDepth = 0;
+
+            // Check dependency: If I read what someone else wrote, I must be at least one level deeper
+            for (auto& input : pass.inputs) {
+                if (lastWriter.count(input.handle)) {
+                    maxDepth = std::max(maxDepth, passDepths[lastWriter[input.handle]] + 1);
+                }
+            }
+            
+            passDepths[i] = maxDepth;
+
+            // Track who is the last writer of this resource
+            for (auto& output : pass.outputs) {
+                lastWriter[output.handle] = i;
+            }
+        }
+
+        // Group passes into parallel layers
+        uint32_t totalLayers = 0;
+        for (uint32_t d : passDepths) totalLayers = std::max(totalLayers, d + 1);
+        
+        m_ParallelLayers.resize(totalLayers);
+        for (uint32_t i = 0; i < numPasses; ++i) {
+            m_ParallelLayers[passDepths[i]].push_back(i);
+        }
     }
 
     void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderGraphPass& pass, uint32_t passIdx)
@@ -200,39 +243,52 @@ namespace Chimera
 
     VkSemaphore RenderGraph::Execute(VkCommandBuffer cmd)
     {
-        for (uint32_t i = 0; i < (uint32_t)m_PassStack.size(); ++i)
+        // New Multi-threaded Ready Execution Model: Execute by parallel layers
+        for (const auto& layer : m_ParallelLayers)
         {
-            auto& pass = m_PassStack[i];
-            BeginPassDebugLabel(cmd, pass);
-            BuildBarriers(cmd, pass, i);
-
-            if (pass.isCompute)
+            // 1. Global Barrier Sync: Master thread emits all barriers for this parallel layer
+            // This ensures all resource transitions are done before any concurrent recording starts
+            for (uint32_t passIdx : layer)
             {
-                ComputeExecutionContext ctx(*this, pass, cmd);
-                pass.executeFunc(reinterpret_cast<RenderGraphRegistry&>(ctx), cmd);
+                BuildBarriers(cmd, m_PassStack[passIdx], passIdx);
             }
-            else
-            {
-                // [FIX] Ensure viewport/scissor are set PER PASS to match pass dimensions
-                VkViewport vp{ 0.0f, 0.0f, (float)pass.width, (float)pass.height, 0.0f, 1.0f };
-                VkRect2D sc{ {0, 0}, {pass.width, pass.height} };
-                vkCmdSetViewport(cmd, 0, 1, &vp);
-                vkCmdSetScissor(cmd, 0, 1, &sc);
 
-                bool active = BeginDynamicRendering(cmd, pass);
-                RenderGraphRegistry reg{ *this, pass };
-                pass.executeFunc(reg, cmd);
-                if (active)
+            // 2. Parallel Recording Point: 
+            // In a full multi-threaded implementation, the passes within this loop 
+            // can be dispatched to separate worker threads to record into Secondary Command Buffers.
+            for (uint32_t passIdx : layer)
+            {
+                auto& pass = m_PassStack[passIdx];
+                CH_CORE_TRACE("RenderGraph: Executing pass '{}' (Parallel Layer Mode)", pass.name);
+                
+                BeginPassDebugLabel(cmd, pass);
+
+                if (pass.isCompute)
                 {
-                    vkCmdEndRendering(cmd);
+                    RenderGraphRegistry reg{ *this, pass };
+                    pass.executeFunc(reg, cmd);
                 }
+                else
+                {
+                    // [FIX] Ensure viewport/scissor are set PER PASS to match pass dimensions
+                    VkViewport vp{ 0.0f, 0.0f, (float)pass.width, (float)pass.height, 0.0f, 1.0f };
+                    VkRect2D sc{ {0, 0}, {pass.width, pass.height} };
+                    vkCmdSetViewport(cmd, 0, 1, &vp);
+                    vkCmdSetScissor(cmd, 0, 1, &sc);
+
+                    bool active = BeginDynamicRendering(cmd, pass);
+                    RenderGraphRegistry reg{ *this, pass };
+                    pass.executeFunc(reg, cmd);
+                    if (active)
+                    {
+                        vkCmdEndRendering(cmd);
+                    }
+                }
+                EndPassDebugLabel(cmd);
             }
-            EndPassDebugLabel(cmd);
         }
 
         // [OPTIMIZATION] Only update history/persistent resources. 
-        // Do NOT force transition every single resource to READ_ONLY here,
-        // as it might break swapchain presentation in simple Forward paths.
         UpdatePersistentResources(cmd);
         return VK_NULL_HANDLE;
     }
