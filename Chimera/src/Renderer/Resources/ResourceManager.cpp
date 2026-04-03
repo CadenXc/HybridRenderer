@@ -190,6 +190,10 @@ namespace Chimera
         // 3. [CRITICAL] Clear m_Buffers
         m_Buffers.clear();
         m_BufferRefCount.clear();
+        
+        // [FIX] Reset GPU Buffers to prevent ID reuse from previous scene
+        if (m_MaterialBuffer) m_MaterialBuffer.reset();
+        if (m_PrimitiveBuffer) m_PrimitiveBuffer.reset();
 
         // 4. Flush Deletion Queues
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
@@ -197,7 +201,7 @@ namespace Chimera
             ClearResourceFreeQueue(i);
         }
 
-        CH_CORE_INFO("ResourceManager: Runtime assets cleared. Preserved system textures.");
+        CH_CORE_INFO("ResourceManager: Runtime assets cleared. GPU Buffers reset.");
     }
 
     void ResourceManager::InitGlobalResources()
@@ -744,8 +748,16 @@ namespace Chimera
     {
         if (h.id < m_MaterialRefCount.size() && --m_MaterialRefCount[h.id] == 0 && h.id != 0)
         {
-            Material* r = m_Materials[h.id].release();
-            SubmitResourceFree([r]() { delete r; });
+            CH_CORE_INFO("ResourceManager: Material [ID: {}] reference count zero. Resetting to default.", h.id);
+            
+            // [FIX] Reset the material content so a new model reusing this ID won't inherit old properties
+            if (m_Materials[h.id])
+            {
+                m_Materials[h.id]->SetData(GpuMaterial{}); // Clear to standard PBR defaults
+            }
+
+            // Optional: You could also remove it from the map to allow name reuse
+            // However, keeping the slot in m_Materials prevents index shifting
         }
     }
 

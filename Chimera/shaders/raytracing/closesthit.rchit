@@ -82,7 +82,10 @@ void main()
         vec3 F = FresnelSchlickRoughness(max(dot(worldNormal, viewDir), 0.0), F0, roughness);
         vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
 
-        ambient = (kD * envDiffuse * albedoSample.rgb + F * envSpecular) * ao * postData.y;
+        // [FIX] For GI rays, we always want some ambient light to see the bounce, 
+        // even if the main UI toggle is off. We use a base minimum if postData.y is 0.
+        float ambientIntensity = max(postData.y, 0.2); 
+        ambient = (kD * envDiffuse * albedoSample.rgb + F * envSpecular) * ao * ambientIntensity;
     }
 
     // 5. Motion Vectors (Strictly Unjittered)

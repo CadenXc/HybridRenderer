@@ -31,7 +31,7 @@ namespace Chimera
         desc.miss_shaders = { "Raytrace_Miss" };
         desc.hit_shaders = { { "Raytrace_Hit", "", "" } };
 
-        int skyboxIndex = m_Scene->GetSkyboxTextureIndex();
+        int skyboxIndex = (int)m_Scene->GetSkyboxTextureIndex();
         
         ctx.BindPipeline(desc);
         ctx.PushConstants(VK_SHADER_STAGE_ALL, skyboxIndex);

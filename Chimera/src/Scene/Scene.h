@@ -21,6 +21,7 @@ namespace Chimera
         void LoadModel(const std::string &path);
         void FinalizeAsyncModelLoad(std::shared_ptr<Model> model, std::shared_ptr<ImportedScene> imported, const std::string& path);
         void UpdateEntityTRS(uint32_t index, const glm::vec3 &pos, const glm::vec3 &rot, const glm::vec3 &scale);
+        void RemoveEntity(uint32_t index);
         void OnUpdate(float ts);
         void ClearScene();
 
@@ -28,6 +29,11 @@ namespace Chimera
         void LoadSkybox(const std::string &path);
         void LoadHDRSkybox(const std::string &path);
         void ClearSkybox();
+
+        void SetSkyboxTextureIndex(uint32_t index)
+        {
+            m_SkyboxTexture = TextureHandle(index);
+        }
 
         uint32_t GetSkyboxTextureIndex() const
         {
@@ -46,8 +52,8 @@ namespace Chimera
             {
                 Light defaultLight;
                 defaultLight.position.w = (float)LightType::Directional;
-                defaultLight.direction = glm::vec4(glm::normalize(glm::vec3(0.5f, -0.8f, 0.2f)), 0.0f);
-                defaultLight.color = glm::vec4(1.0f, 1.0f, 1.0f, 3.0f); // Intensity in Alpha
+                defaultLight.direction = glm::vec4(glm::normalize(glm::vec3(0.1f, -1.0f, 0.1f)), 0.0f);
+                defaultLight.color = glm::vec4(1.0f, 1.0f, 1.0f, 5.0f); // Intensity in Alpha
                 m_Lights.push_back(defaultLight);
             }
             return m_Lights[0];
@@ -98,5 +104,7 @@ namespace Chimera
         VkAccelerationStructureKHR m_TopLevelAS = VK_NULL_HANDLE;
         std::unique_ptr<Buffer> m_TLASBuffer;
         std::unique_ptr<Buffer> m_ASInstanceBuffer;
+        
+        std::vector<uint32_t> m_EntitiesToRemove;
     };
 }

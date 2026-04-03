@@ -1,0 +1,74 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "../common/common.glsl"
+
+layout(set = 2, binding = 0, rgba16f) uniform image2D rtShadow;
+layout(set = 2, binding = 1) uniform sampler2D gNormal;
+layout(set = 2, binding = 2) uniform sampler2D gDepth;
+
+layout(location = 0) rayPayloadEXT HitPayload payload;
+
+void main() 
+{
+    const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
+    
+    float depth = texture(gDepth, inUV).r;
+    if (depth == 0.0) 
+    {
+        imageStore(rtShadow, ivec2(gl_LaunchIDEXT.xy), vec4(1.0));
+        return;
+    }
+
+    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
+    vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
+
+    ivec2 noiseOffset = ivec2(frameData.y * 123, frameData.y * 456);
+    vec4 blueNoise = GetBlueNoise(ivec2(gl_LaunchIDEXT.xy) + noiseOffset);
+    vec2 randSample = blueNoise.xy;
+
+    // [DEBUG FIX] Use the same light direction logic as composition.frag: point TOWARDS the sun.
+    vec3 lightDirection = normalize(-sunLight.direction.xyz);
+    float lightRadius = sunLight.intensity.y; 
+
+    // [FIX] Enable soft shadows via cone sampling
+    if (lightRadius > 0.0)
+    {
+        vec3 tangent = abs(lightDirection.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
+        vec3 bitangent = normalize(cross(lightDirection, tangent));
+        tangent = cross(bitangent, lightDirection);
+
+        // Convert radius to a meaningful angular spread for soft shadows
+        vec3 coneSample = SquareToUniformCone(randSample, cos(lightRadius * 0.1));
+        lightDirection = normalize(tangent * coneSample.x + bitangent * coneSample.y + lightDirection * coneSample.z);
+    }
+
+    float shadow = 1.0;
+    if ((frameData.w & RENDER_FLAG_SHADOW_BIT) != 0)
+    {
+        vec3 origin = OffsetRay(worldPos, worldNormal);
+        
+        // Initialize as NO HIT (0.0)
+        payload.motion_hit = vec4(0.0, 0.0, 0.0, 0.0); 
+        
+        // 1. Trace Ray towards the light source
+        traceRayEXT(TLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                    0xFF, 0, 0, 1, origin, 0.01, lightDirection, 1e10, 0);
+                    
+        // If the MISS shader is correct, payload.motion_hit.b will stay 0.0 if nothing is hit.
+        // If a HIT occurs, the payload won't be modified by the miss shader, BUT we need a way
+        // to detect the hit. 
+        // IMPORTANT: In raytracing with gl_RayFlagsSkipClosestHitShaderEXT, 
+        // the payload value is ONLY updated by the MISS shader.
+        // So: If payload.motion_hit.b starts at 1.0 and is NOT changed by miss, it's a HIT.
+        // Let's use that logic but with a more explicit check.
+        
+        payload.motion_hit.b = 1.0; // Assume hit
+        traceRayEXT(TLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                    0xFF, 0, 0, 1, origin, 0.01, lightDirection, 1e10, 0);
+        
+        shadow = (payload.motion_hit.b > 0.5) ? 0.0 : 1.0;
+    }
+
+    imageStore(rtShadow, ivec2(gl_LaunchIDEXT.xy), vec4(shadow, 0.0, 0.0, 1.0));
+}

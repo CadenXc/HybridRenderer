@@ -38,21 +38,25 @@ using uint64 = uint64_t;
 #define DISPLAY_MODE_MATERIAL   3
 #define DISPLAY_MODE_MOTION     4
 #define DISPLAY_MODE_DEPTH      5
-#define DISPLAY_MODE_SHADOW_AO  6
-#define DISPLAY_MODE_REFLECTION 7
-#define DISPLAY_MODE_GI         8
-#define DISPLAY_MODE_EMISSIVE   9
+#define DISPLAY_MODE_SHADOW     6
+#define DISPLAY_MODE_AO         7
+#define DISPLAY_MODE_REFLECTION 8
+#define DISPLAY_MODE_GI         9
+#define DISPLAY_MODE_EMISSIVE   10
+#define DISPLAY_MODE_SVGF_VARIANCE 11
 
-#define RENDER_FLAG_SVGF_BIT        (1 << 0)
-#define RENDER_FLAG_GI_BIT          (1 << 1)
-#define RENDER_FLAG_SHOW_VARIANCE   (1 << 2)
-#define RENDER_FLAG_SHADOW_BIT      (1 << 3)
-#define RENDER_FLAG_REFLECTION_BIT  (1 << 4)
-#define RENDER_FLAG_TAA_BIT         (1 << 5)
-#define RENDER_FLAG_TAA_HISTORY_BIT (1 << 6) // [NEW] Bit to indicate if history is available
-#define RENDER_FLAG_LIGHT_BIT       (1 << 7) // [NEW] Control for the main sun light
-#define RENDER_FLAG_SVGF_TEMPORAL_BIT (1 << 8) // [NEW] SVGF Temporal Accumulation
-#define RENDER_FLAG_SVGF_SPATIAL_BIT  (1 << 9) // [NEW] SVGF Spatial (A-Trous) Filter
+#define RENDER_FLAG_LIGHT_BIT           (1 << 0)
+#define RENDER_FLAG_SHADOW_BIT          (1 << 1)
+#define RENDER_FLAG_AO_BIT              (1 << 2)
+#define RENDER_FLAG_REFLECTION_BIT      (1 << 3)
+#define RENDER_FLAG_GI_BIT              (1 << 4)
+#define RENDER_FLAG_TAA_BIT             (1 << 5)
+#define RENDER_FLAG_TAA_HISTORY_BIT     (1 << 6)
+#define RENDER_FLAG_SVGF_BIT            (1 << 7)
+#define RENDER_FLAG_SVGF_TEMPORAL_BIT   (1 << 8)
+#define RENDER_FLAG_SVGF_SPATIAL_BIT    (1 << 9)
+#define RENDER_FLAG_IBL_BIT             (1 << 10) // [NEW] Toggle for Environment IBL
+#define RENDER_FLAG_EMISSIVE_BIT        (1 << 11) // [NEW] Toggle for Material Emission
 
 // --- 2. Data Structures ---
 

@@ -26,7 +26,9 @@ namespace Chimera
         data.gi_raw         = builder.Read(m_Config.giName);         
         data.reflection_raw = builder.Read(m_Config.reflectionName); 
         data.shadow_raw     = builder.Read(m_Config.shadowName);     
-        
+        data.ao_raw         = builder.Read(m_Config.aoName);
+        data.shadow_debug_raw = builder.Read("ShadowRaw"); 
+
         data.output         = builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
     }
 
@@ -39,8 +41,6 @@ namespace Chimera
         desc.depth_test = false;
         desc.depth_write = false;
         desc.cull_mode = VK_CULL_MODE_NONE;
-
-        ctx.BindPipeline(desc);
 
         struct PushConstants 
         {
@@ -55,6 +55,7 @@ namespace Chimera
         }
         pc.displayMode = (int)Application::Get().GetFrameContext().DisplayMode;
         
+        ctx.BindPipeline(desc);
         ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
         ctx.DrawMeshes(desc, nullptr);
     }

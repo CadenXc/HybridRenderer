@@ -1,0 +1,49 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "../common/common.glsl"
+
+layout(set = 2, binding = 0, rgba16f) uniform image2D rtAO;
+layout(set = 2, binding = 1) uniform sampler2D gNormal;
+layout(set = 2, binding = 2) uniform sampler2D gDepth;
+
+layout(location = 0) rayPayloadEXT HitPayload payload;
+
+void main() 
+{
+    const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
+    
+    float depth = texture(gDepth, inUV).r;
+    if (depth == 0.0) 
+    {
+        imageStore(rtAO, ivec2(gl_LaunchIDEXT.xy), vec4(1.0));
+        return;
+    }
+
+    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
+    vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
+
+    // 1. Initialize random seed using frame count and pixel ID
+    uint seed = InitRandomSeed(InitRandomSeed(gl_LaunchIDEXT.x, gl_LaunchIDEXT.y), frameData.y);
+
+    // 2. Sample cosine-weighted hemisphere using the provided utility
+    vec3 rayDir = GetCosHemisphereSample(seed, worldNormal);
+
+    // 3. Trace short-range AO ray
+    float ao = 1.0;
+    float aoRadius = 2.0; // AO max distance
+    
+    vec3 origin = OffsetRay(worldPos, worldNormal);
+    
+    // [FIX] Use a safer logic for hit detection
+    payload.motion_hit.b = 1.0; // Initialize as "Hit"
+    
+    // Use Miss Index 0 (Standard Raytrace_Miss)
+    traceRayEXT(TLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                0xFF, 0, 0, 0, origin, 0.001, rayDir, aoRadius, 0);
+                
+    // If Miss Shader (Index 0) executes, it sets motion_hit.b to 0.0
+    ao = (payload.motion_hit.b > 0.5) ? 0.0 : 1.0;
+
+    imageStore(rtAO, ivec2(gl_LaunchIDEXT.xy), vec4(ao, 0.0, 0.0, 1.0));
+}

@@ -47,10 +47,14 @@ namespace Chimera
 	private:
 		void RefreshModelList();
 		void LoadModel(const std::string &relativePath);
+		
+		void RefreshHDRList();
+		void LoadHDR(const std::string &relativePath);
 
 		// UI Panels (Accept active path as parameter)
 		void DrawMenuBar();
 		void DrawRenderPathPanel(RenderPath *activePath);
+		void DrawFeatureToggles(RenderPath *activePath);
 		void DrawControlPanelContent(RenderPath *activePath);
 		void DrawSceneHierarchy();
 		void DrawPropertiesPanel(RenderPath *activePath);
@@ -85,6 +89,17 @@ namespace Chimera
 		char m_AssetSearchFilter[256] = {0}; // [NEW] Search filter for models
 		std::string m_ActiveModelPath = "";
 		int m_SelectedModelIndex = -1;
+
+		// HDR/Environment Management
+		struct HdrAsset
+		{
+			std::string Name;
+			std::string Path;
+		};
+		std::vector<HdrAsset> m_AvailableHDRs;
+		char m_HdrSearchFilter[256] = {0};
+		std::string m_ActiveHdrPath = "";
+		int m_SelectedHdrIndex = -1;
 
 		int m_SelectedInstanceIndex = -1;
 

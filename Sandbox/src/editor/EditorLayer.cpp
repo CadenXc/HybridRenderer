@@ -14,6 +14,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <filesystem>
+#include <algorithm>
 #include "Renderer/Pipelines/RenderPathFactory.h"
 #include "Renderer/RenderState.h"
 
@@ -33,9 +34,21 @@ namespace Chimera
         m_EditorCamera.SetFocalPoint({0.0f, 1.0f, 0.0f});
         m_EditorCamera.SetDistance(5.0f);
 
-        m_RenderFlags = RENDER_FLAG_LIGHT_BIT; // Default: Light ON, others off
+        // [DEBUG DEFAULT] Minimal Shadow Test Mode: Sun ON, Shadows ON, others OFF
+        m_RenderFlags = RENDER_FLAG_LIGHT_BIT | RENDER_FLAG_SHADOW_BIT |
+                        RENDER_FLAG_SVGF_TEMPORAL_BIT | RENDER_FLAG_SVGF_SPATIAL_BIT; 
+        
+        m_AmbientStrength = 0.0f; 
+        m_Exposure = 1.0f;
+        m_LightRadius = 0.5f;
 
         auto scene = std::make_shared<Scene>(app.GetContext());
+
+        // Setup initial light for Sponza (High-angle slanting down)
+        auto &light = scene->GetMainLight();
+        light.direction = glm::vec4(glm::normalize(glm::vec3(0.385f, -0.678f, 0.626f)), 0.5f); // direction.w is radius
+        light.color = glm::vec4(1.0f, 0.95f, 0.8f, 5.0f);                                       // RGB + Intensity (A)
+
         ResourceManager::Get().SetActiveScene(scene);
 
         SwitchRenderPath(RenderPathType::Hybrid);
@@ -44,17 +57,65 @@ namespace Chimera
     void EditorLayer::OnAttach()
     {
         RefreshModelList();
-        // LoadScene(Application::Get().GetSpecification().AssetDir + "models/damaged-helmet/source/DamagedHelmet/DamagedHelmet.gltf");
-        LoadScene(Application::Get().GetSpecification().AssetDir + "models/Sponza/scene.gltf");
-        // LoadScene(Application::Get().GetSpecification().AssetDir + "models/pica_pica_-_machines/scene.gltf");
+        RefreshHDRList();
+        LoadScene(Application::Get().GetSpecification().AssetDir + "models/pica_pica_-_machines/scene.gltf");
     }
 
-    void EditorLayer::OnDetach()
+    void EditorLayer::RefreshHDRList()
     {
+        m_AvailableHDRs.clear();
+        std::string assetDir = Application::Get().GetSpecification().AssetDir;
+        std::string hdrDir = assetDir + "textures/hdr";
+
+        if (!std::filesystem::exists(hdrDir))
+        {
+            std::filesystem::create_directories(hdrDir);
+            return;
+        }
+
+        for (const auto &entry : std::filesystem::directory_iterator(hdrDir))
+        {
+            if (entry.is_regular_file())
+            {
+                std::string ext = entry.path().extension().string();
+                if (ext == ".hdr" || ext == ".exr" || ext == ".png" || ext == ".jpg")
+                {
+                    m_AvailableHDRs.push_back({entry.path().filename().string(), assetDir + "textures/hdr/" + entry.path().filename().string()});
+                }
+            }
+        }
     }
+
+    void EditorLayer::LoadHDR(const std::string &relativePath)
+    {
+        TextureHandle textureIndex;
+        std::string ext = std::filesystem::path(relativePath).extension().string();
+
+        if (ext == ".hdr" || ext == ".exr")
+            textureIndex = ResourceManager::Get().LoadHDRTexture(relativePath);
+        else
+            textureIndex = ResourceManager::Get().LoadTexture(relativePath, false);
+
+        if (!textureIndex.IsValid()) return;
+
+        if (auto scene = GetActiveSceneRaw())
+        {
+            scene->SetSkyboxTextureIndex(textureIndex.id);
+            scene->MarkMaterialDirty();
+            m_ActiveHdrPath = relativePath;
+        }
+    }
+
+    void EditorLayer::OnDetach() {}
 
     void EditorLayer::OnUpdate(Timestep ts)
     {
+        // Keyboard Shortcuts for Feature Toggles
+        if (Input::IsKeyPressed(KeyCode::F1)) m_RenderFlags ^= RENDER_FLAG_SHADOW_BIT;
+        if (Input::IsKeyPressed(KeyCode::F2)) m_RenderFlags ^= RENDER_FLAG_GI_BIT;
+        if (Input::IsKeyPressed(KeyCode::F3)) m_RenderFlags ^= RENDER_FLAG_SVGF_BIT;
+        if (Input::IsKeyPressed(KeyCode::F4)) m_RenderFlags ^= RENDER_FLAG_TAA_BIT;
+
         m_AverageFrameTime = ts.GetMilliseconds();
         m_AverageFPS = 1.0f / ts.GetSeconds();
 
@@ -66,10 +127,7 @@ namespace Chimera
         {
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
             Renderer::Get().OnResize((uint32_t)winW, (uint32_t)winH);
-            if (GetRenderPath())
-            {
-                GetRenderPath()->SetViewportSize((uint32_t)winW, (uint32_t)winH);
-            }
+            if (GetRenderPath()) GetRenderPath()->SetViewportSize((uint32_t)winW, (uint32_t)winH);
             m_EditorCamera.SetViewportSize(winW, winH);
             m_ViewportSize = {winW, winH};
         }
@@ -78,10 +136,7 @@ namespace Chimera
         m_EditorCamera.OnUpdate(ts, !uiHovered, !uiHovered);
         m_EditorCamera.UpdateTAAState(Application::Get().GetTotalFrameCount(), (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0);
 
-        if (auto scene = GetActiveSceneRaw())
-        {
-            scene->OnUpdate(ts.GetSeconds());
-        }
+        if (auto scene = GetActiveSceneRaw()) scene->OnUpdate(ts.GetSeconds());
 
         AppFrameContext context;
         context.View = m_EditorCamera.GetViewMatrix();
@@ -120,49 +175,43 @@ namespace Chimera
 
     void EditorLayer::OnEvent(Event &e)
     {
-        if (!ImGui::GetIO().WantCaptureMouse)
-            m_EditorCamera.OnEvent(e);
+        if (!ImGui::GetIO().WantCaptureMouse) m_EditorCamera.OnEvent(e);
     }
 
     void EditorLayer::SwitchRenderPath(RenderPathType type)
     {
-        Application::Get().QueueEvent([this, type]()
-                                      {
-            CH_CORE_INFO("EditorLayer: Switching RenderPath to {}...", RenderPathTypeToString(type));
+        Application::Get().QueueEvent([this, type]() {
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-            try
-            {
+            try {
                 auto newPath = RenderPathFactory::Create(type, Application::Get().GetContext());
-                if (newPath)
-                {
+                if (newPath) {
                     newPath->SetViewportSize((uint32_t)m_ViewportSize.x, (uint32_t)m_ViewportSize.y);
                     Application::Get().SwitchRenderPath(std::move(newPath));
                 }
-            }
-            catch (const std::exception& e)
-            {
-                CH_CORE_ERROR("EditorLayer: Failed to switch: {}", e.what());
-            } });
+            } catch (...) {}
+        });
     }
 
     void EditorLayer::LoadScene(const std::string &path)
     {
-        Application::Get().QueueEvent([this, path]()
-                                      {
+        Application::Get().QueueEvent([this, path]() {
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
             GetActiveSceneRaw()->LoadModel(path);
-            if (GetRenderPath())
-            {
-                GetRenderPath()->OnSceneUpdated();
-            } });
+            if (GetRenderPath()) GetRenderPath()->OnSceneUpdated();
+        });
     }
 
     void EditorLayer::ClearScene()
     {
-        Application::Get().QueueEvent([this]()
-                                      {
+        Application::Get().QueueEvent([this]() {
             vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-            ResourceManager::Get().SetActiveScene(std::make_shared<Scene>(Application::Get().GetContext())); });
+            ResourceManager::Get().ClearRuntimeAssets();
+            auto newScene = std::make_shared<Scene>(Application::Get().GetContext());
+            ResourceManager::Get().SetActiveScene(newScene);
+            m_SelectedInstanceIndex = -1;
+            m_SelectedModelIndex = -1;
+            m_ActiveModelPath = "";
+        });
     }
 
     void EditorLayer::OnImGuiRender()
@@ -184,35 +233,24 @@ namespace Chimera
             ImGui::DockBuilderRemoveNode(dockspace_id);
             ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->Size);
-
             ImGuiID dock_main_id = dockspace_id;
             ImGuiID dock_right_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Right, 0.20f, nullptr, &dock_main_id);
-
             ImGui::DockBuilderDockWindow("Control Panel", dock_right_id);
             ImGui::DockBuilderFinish(dockspace_id);
         }
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 
         DrawMenuBar();
-
         ImGui::Begin("Control Panel", &m_ShowControlPanel);
         DrawControlPanelContent(GetRenderPath());
         ImGui::End();
-
         ImGui::End();
     }
 
     void EditorLayer::DrawSceneHierarchy()
     {
         Scene *scene = GetActiveSceneRaw();
-        if (!scene)
-            return;
-        if (ImGui::Button("Clear Scene", ImVec2(-1, 0)))
-        {
-            ClearScene();
-            m_SelectedInstanceIndex = -1;
-        }
-        ImGui::Separator();
+        if (!scene) return;
         const auto &entities = scene->GetEntities();
         for (int i = 0; i < (int)entities.size(); i++)
         {
@@ -221,73 +259,34 @@ namespace Chimera
                 m_SelectedInstanceIndex = i;
             ImGui::PopID();
         }
+        if (m_SelectedInstanceIndex >= 0)
+        {
+            ImGui::Spacing(); ImGui::Separator();
+            if (ImGui::Button("Remove Selected", ImVec2(-1, 0)))
+            {
+                vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
+                GetActiveSceneRaw()->RemoveEntity(m_SelectedInstanceIndex);
+                m_SelectedInstanceIndex = -1;
+            }
+        }
     }
 
     void EditorLayer::DrawPropertiesPanel(RenderPath *activePath)
     {
         Scene *scene = GetActiveSceneRaw();
-        if (!scene || m_SelectedInstanceIndex < 0)
-        {
-            ImGui::TextDisabled("Select an object in Hierarchy.");
-            return;
-        }
-
+        if (!scene || m_SelectedInstanceIndex < 0) return;
         const auto &entities = scene->GetEntities();
         auto &entity = entities[m_SelectedInstanceIndex];
-        ImGui::Text("Selected: %s", entity.name.c_str());
-
         if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen))
         {
             bool changed = false;
             glm::vec3 pos = entity.transform.position;
             glm::vec3 rot = entity.transform.rotation;
             glm::vec3 scale = entity.transform.scale;
-
-            if (ImGui::DragFloat3("Position", &pos.x, 0.1f))
-                changed = true;
-            if (ImGui::DragFloat3("Rotation", &rot.x, 0.5f))
-                changed = true;
-            if (ImGui::DragFloat3("Scale", &scale.x, 0.05f))
-                changed = true;
-
-            if (changed)
-            {
-                scene->UpdateEntityTRS(m_SelectedInstanceIndex, pos, rot, scale);
-                if (activePath)
-                    activePath->OnSceneUpdated();
-            }
-        }
-
-        if (ImGui::CollapsingHeader("Material", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            if (entity.mesh.model)
-            {
-                uint32_t materialIndex = entity.mesh.model->GetMeshes()[0].materialIndex;
-                Material *mat = ResourceManager::Get().GetMaterial(MaterialHandle(materialIndex));
-
-                if (mat)
-                {
-                    GpuMaterial data = mat->GetData();
-                    bool matChanged = false;
-
-                    if (ImGui::ColorEdit3("Albedo", &data.albedo.x))
-                        matChanged = true;
-                    if (ImGui::SliderFloat("Roughness", &data.roughness, 0.0f, 1.0f))
-                        matChanged = true;
-                    if (ImGui::SliderFloat("Metallic", &data.metallic, 0.0f, 1.0f))
-                        matChanged = true;
-                    if (ImGui::SliderFloat("Emission Intensity", &data.emission.x, 0.0f, 10.0f))
-                        matChanged = true;
-
-                    if (matChanged)
-                    {
-                        ResourceManager::Get().UpdateMaterial(materialIndex, data);
-                        scene->MarkMaterialDirty();
-                        if (activePath)
-                            activePath->OnSceneUpdated();
-                    }
-                }
-            }
+            if (ImGui::DragFloat3("Position", &pos.x, 0.1f)) changed = true;
+            if (ImGui::DragFloat3("Rotation", &rot.x, 0.5f)) changed = true;
+            if (ImGui::DragFloat3("Scale", &scale.x, 0.05f)) changed = true;
+            if (changed) { scene->UpdateEntityTRS(m_SelectedInstanceIndex, pos, rot, scale); if (activePath) activePath->OnSceneUpdated(); }
         }
     }
 
@@ -295,41 +294,20 @@ namespace Chimera
     {
         m_AvailableModels.clear();
         std::string rootPath = Application::Get().GetSpecification().AssetDir + "models";
-        if (!std::filesystem::exists(rootPath))
-            return;
-
+        if (!std::filesystem::exists(rootPath)) return;
         for (const auto &entry : std::filesystem::recursive_directory_iterator(rootPath))
-        {
             if (entry.is_regular_file() && (entry.path().extension() == ".gltf" || entry.path().extension() == ".glb"))
-            {
                 m_AvailableModels.push_back({entry.path().filename().string(), std::filesystem::relative(entry.path(), ".").generic_string()});
-            }
-        }
     }
 
-    void EditorLayer::LoadModel(const std::string &path)
-    {
-        m_ActiveModelPath = path;
-        LoadScene(path);
-    }
+    void EditorLayer::LoadModel(const std::string &path) { m_ActiveModelPath = path; LoadScene(path); }
 
     void EditorLayer::DrawMenuBar()
     {
-        if (ImGui::BeginMainMenuBar())
-        {
-            if (ImGui::BeginMenu("File"))
-            {
-                if (ImGui::MenuItem("Refresh Assets"))
-                    RefreshModelList();
-                if (ImGui::MenuItem("Exit"))
-                    Application::Get().Close();
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("View"))
-            {
-                ImGui::MenuItem("Control Panel", nullptr, &m_ShowControlPanel);
-                if (ImGui::MenuItem("Reset Layout"))
-                    ImGui::GetIO().IniFilename = nullptr;
+        if (ImGui::BeginMainMenuBar()) {
+            if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("Refresh Assets")) RefreshModelList();
+                if (ImGui::MenuItem("Exit")) Application::Get().Close();
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -339,305 +317,125 @@ namespace Chimera
     void EditorLayer::DrawLightSettings(RenderPath *activePath)
     {
         Scene *scene = GetActiveSceneRaw();
-        if (!scene)
-            return;
+        if (!scene) return;
         auto &light = scene->GetMainLight();
         bool changed = false;
-
-        if (ImGui::TreeNodeEx("Environment (Skybox)", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::TreeNodeEx("Sun & Environment Parameters", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            static char hdrPath[256] = "assets\\textures\\newport_loft.hdr";
-            ImGui::InputText("HDR Path", hdrPath, sizeof(hdrPath));
-
-            if (ImGui::Button("Load HDR Skybox"))
-            {
-                if (std::filesystem::exists(hdrPath))
-                {
-                    scene->LoadHDRSkybox(hdrPath);
-                    changed = true;
-                }
-                else
-                    CH_CORE_WARN("EditorLayer: HDR not found at {}.", hdrPath);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Clear Skybox"))
-            {
-                scene->ClearSkybox();
-                changed = true;
-            }
-
-            ImGui::Text("Ambient Strength:");
-            if (ImGui::SliderFloat("##AmbientStrength", &m_AmbientStrength, 0.0f, 10.0f))
-                changed = true;
-
-            ImGui::TreePop();
-        }
-
-        if (ImGui::TreeNodeEx("Directional Light", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            bool lightEnabled = (m_RenderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
-            if (ImGui::Checkbox("Enable Main Light", &lightEnabled))
-            {
-                if (lightEnabled)
-                    m_RenderFlags |= RENDER_FLAG_LIGHT_BIT;
-                else
-                    m_RenderFlags &= ~RENDER_FLAG_LIGHT_BIT;
-                changed = true;
-            }
-            ImGui::Separator();
-
-            if (ImGui::DragFloat3("Direction", &light.direction.x, 0.01f, -1.0f, 1.0f))
-            {
+            if (ImGui::DragFloat3("Direction", &light.direction.x, 0.01f, -1.0f, 1.0f)) {
                 light.direction = glm::vec4(glm::normalize(glm::vec3(light.direction)), light.direction.w);
                 changed = true;
             }
-            if (ImGui::ColorEdit3("Color", &light.color.x))
-                changed = true;
-
+            if (ImGui::ColorEdit3("Color", &light.color.x)) changed = true;
             float intensity = light.color.a;
-            if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 100.0f))
+            if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 100.0f)) { light.color.a = intensity; changed = true; }
+            if (ImGui::SliderFloat("Light Radius (Soft Shadows)", &m_LightRadius, 0.0f, 0.5f))
             {
-                light.color.a = intensity;
+                light.direction.w = m_LightRadius;
                 changed = true;
             }
-
-            // Light Radius only makes sense for RT shadows (Soft Shadows)
-            if (activePath && activePath->GetType() != RenderPathType::Forward)
-            {
-                if (ImGui::SliderFloat("Light Radius (Softness)", &m_LightRadius, 0.0f, 0.5f))
-                {
-                    light.direction.w = m_LightRadius;
-                    changed = true;
-                }
-            }
+            ImGui::Separator();
+            if (ImGui::DragFloat("Exposure", &m_Exposure, 0.05f, 0.01f, 10.0f)) changed = true;
+            if (ImGui::SliderFloat("Ambient Strength", &m_AmbientStrength, 0.0f, 2.0f)) changed = true;
             ImGui::TreePop();
         }
-        if (changed && activePath)
-            activePath->OnSceneUpdated();
+        if (changed && activePath) activePath->OnSceneUpdated();
     }
 
     void EditorLayer::DrawRenderPathPanel(RenderPath *activePath)
     {
-        const auto &allTypes = GetAllRenderPathTypes();
         RenderPathType currentType = activePath ? activePath->GetType() : RenderPathType::Forward;
-
-        // --- 1. View & Debug ---
-        if (ImGui::CollapsingHeader("View & Debug", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            if (ImGui::BeginCombo("Active Path", RenderPathTypeToString(currentType)))
-            {
-                for (auto type : allTypes)
-                {
-                    if (ImGui::Selectable(RenderPathTypeToString(type), currentType == type))
-                        SwitchRenderPath(type);
-                }
-                ImGui::EndCombo();
-            }
-
-            const char *displayModes[] = {
-                "Final Color", "Albedo", "Normal", "Material", "Motion", "Depth",
-                "Shadow/AO", "Reflection", "Diffuse GI", "Emissive", "SVGF Variance"};
-
-            int currentDisplayMode = (int)m_DisplayMode;
-            if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes, IM_ARRAYSIZE(displayModes)))
-            {
-                m_DisplayMode = (uint32_t)currentDisplayMode;
-            }
+        if (ImGui::BeginCombo("Active Path", RenderPathTypeToString(currentType))) {
+            for (auto type : GetAllRenderPathTypes())
+                if (ImGui::Selectable(RenderPathTypeToString(type), currentType == type)) SwitchRenderPath(type);
+            ImGui::EndCombo();
         }
+        const char *displayModes[] = { "Final Color", "Albedo", "Normal", "Material", "Motion", "Depth", "Shadow", "AO", "Reflection", "Diffuse GI", "Emissive", "SVGF Variance" };
+        int currentDisplayMode = (int)m_DisplayMode;
+        if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes, IM_ARRAYSIZE(displayModes))) m_DisplayMode = (uint32_t)currentDisplayMode;
+    }
 
-        // --- 2. Pipeline Features ---
-        if (currentType == RenderPathType::Hybrid)
-        {
-            if (ImGui::CollapsingHeader("Hybrid Enhancements", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                bool shadow = (m_RenderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
-                if (ImGui::Checkbox("Ray Traced Shadows", &shadow))
-                {
-                    if (shadow)
-                        m_RenderFlags |= RENDER_FLAG_SHADOW_BIT;
-                    else
-                        m_RenderFlags &= ~RENDER_FLAG_SHADOW_BIT;
-                }
-
-                bool refl = (m_RenderFlags & RENDER_FLAG_REFLECTION_BIT) != 0;
-                if (ImGui::Checkbox("Specular Reflections", &refl))
-                {
-                    if (refl)
-                        m_RenderFlags |= RENDER_FLAG_REFLECTION_BIT;
-                    else
-                        m_RenderFlags &= ~RENDER_FLAG_REFLECTION_BIT;
-                }
-
-                bool gi = (m_RenderFlags & RENDER_FLAG_GI_BIT) != 0;
-                if (ImGui::Checkbox("Diffuse GI (1-Bounce)", &gi))
-                {
-                    if (gi)
-                        m_RenderFlags |= RENDER_FLAG_GI_BIT;
-                    else
-                        m_RenderFlags &= ~RENDER_FLAG_GI_BIT;
-                }
+    void EditorLayer::DrawFeatureToggles(RenderPath *activePath)
+    {
+        if (!ImGui::CollapsingHeader("Render Feature Toggles", ImGuiTreeNodeFlags_DefaultOpen)) return;
+        bool changed = false;
+        auto toggleFlag = [&](const char *label, uint32_t flag) {
+            bool enabled = (m_RenderFlags & flag) != 0;
+            if (ImGui::Checkbox(label, &enabled)) {
+                if (enabled) m_RenderFlags |= flag; else m_RenderFlags &= ~flag;
+                changed = true;
             }
+        };
+        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Ray Tracing");
+        ImGui::Columns(2, nullptr, false);
+        toggleFlag("Sun Light (Direct)", RENDER_FLAG_LIGHT_BIT);
+        toggleFlag("RT Shadows", RENDER_FLAG_SHADOW_BIT); 
+        ImGui::NextColumn();
+        toggleFlag("RT GI", RENDER_FLAG_GI_BIT);
+        toggleFlag("RT Reflections", RENDER_FLAG_REFLECTION_BIT); 
+        ImGui::Columns(1);
+        toggleFlag("RT AO", RENDER_FLAG_AO_BIT);
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "Post-Process");
+        toggleFlag("SVGF Denoising", RENDER_FLAG_SVGF_BIT);
+        if (m_RenderFlags & RENDER_FLAG_SVGF_BIT) {
+            ImGui::Indent(); toggleFlag("Temporal", RENDER_FLAG_SVGF_TEMPORAL_BIT); toggleFlag("Spatial", RENDER_FLAG_SVGF_SPATIAL_BIT); ImGui::Unindent();
         }
-
-        // --- 3. Denoising & Post-Processing ---
-        if (ImGui::CollapsingHeader("Post-Processing", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            bool taa = (m_RenderFlags & RENDER_FLAG_TAA_BIT) != 0;
-            if (ImGui::Checkbox("Temporal Anti-Aliasing (TAA)", &taa))
-            {
-                if (taa)
-                    m_RenderFlags |= RENDER_FLAG_TAA_BIT;
-                else
-                    m_RenderFlags &= ~RENDER_FLAG_TAA_BIT;
-                if (activePath)
-                    activePath->OnSceneUpdated();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Smooths geometric edges using temporal accumulation.");
-
-            if (currentType == RenderPathType::Hybrid)
-            {
-                ImGui::Spacing();
-                bool svgf = (m_RenderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-                if (ImGui::Checkbox("SVGF Denoising Network", &svgf))
-                {
-                    if (svgf)
-                        m_RenderFlags |= RENDER_FLAG_SVGF_BIT;
-                    else
-                        m_RenderFlags &= ~RENDER_FLAG_SVGF_BIT;
-                    if (activePath)
-                        activePath->OnSceneUpdated();
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Advanced spatiotemporal filter for RT signals.");
-
-                if (svgf)
-                {
-                    ImGui::Indent();
-                    
-                    bool temporal = (m_RenderFlags & RENDER_FLAG_SVGF_TEMPORAL_BIT) != 0;
-                    if (ImGui::Checkbox("Temporal Accumulation", &temporal))
-                    {
-                        if (temporal) m_RenderFlags |= RENDER_FLAG_SVGF_TEMPORAL_BIT;
-                        else m_RenderFlags &= ~RENDER_FLAG_SVGF_TEMPORAL_BIT;
-                        if (activePath) activePath->OnSceneUpdated();
-                    }
-
-                    bool spatial = (m_RenderFlags & RENDER_FLAG_SVGF_SPATIAL_BIT) != 0;
-                    if (ImGui::Checkbox("Spatial A-Trous Filter", &spatial))
-                    {
-                        if (spatial) m_RenderFlags |= RENDER_FLAG_SVGF_SPATIAL_BIT;
-                        else m_RenderFlags &= ~RENDER_FLAG_SVGF_SPATIAL_BIT;
-                        if (activePath) activePath->OnSceneUpdated();
-                    }
-
-                    ImGui::Unindent();
-                }
-            }
-        }
-
-        // --- 4. Custom Path UI ---
-        if (activePath)
-            activePath->OnImGui();
+        toggleFlag("TAA", RENDER_FLAG_TAA_BIT);
+        ImGui::Spacing();
+        toggleFlag("IBL Lighting", RENDER_FLAG_IBL_BIT); toggleFlag("Emissive", RENDER_FLAG_EMISSIVE_BIT);
+        if (changed && activePath) activePath->OnSceneUpdated();
     }
 
     void EditorLayer::DrawControlPanelContent(RenderPath *activePath)
     {
-        DrawRenderPathPanel(activePath);
+        if (ImGui::CollapsingHeader("Pipeline & View", ImGuiTreeNodeFlags_DefaultOpen)) DrawRenderPathPanel(activePath);
         ImGui::Spacing();
-        ImGui::Separator();
-
-        if (ImGui::CollapsingHeader("Environment & Lighting"))
-        {
-            ImGui::Text("Post-Processing Exposure:");
-            ImGui::SliderFloat("Exposure", &m_Exposure, 0.01f, 5.0f);
-            ImGui::Separator();
-
-            ImGui::Text("Global Background:");
-            if (ImGui::ColorEdit4("Clear Color", &m_ClearColor.x))
-            {
-                if (activePath)
-                    activePath->OnSceneUpdated();
-            }
-            ImGui::Spacing();
-            DrawLightSettings(activePath);
-        }
-
-        // --- Consolidated Scene & Assets Group ---
-        if (ImGui::CollapsingHeader("Scene & Assets", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            if (ImGui::TreeNodeEx("Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                DrawSceneHierarchy();
-                ImGui::TreePop();
-            }
-            ImGui::Spacing();
-
-            if (ImGui::TreeNodeEx("Properties", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                DrawPropertiesPanel(activePath);
-                ImGui::TreePop();
-            }
-            ImGui::Spacing();
-
-            if (ImGui::TreeNodeEx("Asset Library", ImGuiTreeNodeFlags_DefaultOpen))
-            {
-                if (ImGui::Button("Refresh"))
-                    RefreshModelList();
-                ImGui::SameLine();
-                ImGui::InputTextWithHint("##Search", "Search...", m_AssetSearchFilter, sizeof(m_AssetSearchFilter));
-
-                ImGui::BeginChild("AssetScroll", ImVec2(0, 150), true);
-                std::string filter = m_AssetSearchFilter;
-                std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
-                for (int i = 0; i < (int)m_AvailableModels.size(); i++)
-                {
-                    std::string lowName = m_AvailableModels[i].Name;
-                    std::transform(lowName.begin(), lowName.end(), lowName.begin(), ::tolower);
-                    if (!filter.empty() && lowName.find(filter) == std::string::npos)
-                        continue;
-
-                    if (ImGui::Selectable(m_AvailableModels[i].Name.c_str(), m_SelectedModelIndex == i))
-                    {
-                        m_SelectedModelIndex = i;
-                        LoadModel(m_AvailableModels[i].Path);
+        DrawFeatureToggles(activePath);
+        ImGui::Spacing();
+        DrawLightSettings(activePath);
+        ImGui::Spacing(); ImGui::Separator();
+        if (ImGui::CollapsingHeader("Scene & Assets", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::TreeNodeEx("Hierarchy", ImGuiTreeNodeFlags_DefaultOpen)) { DrawSceneHierarchy(); ImGui::TreePop(); }
+            if (ImGui::TreeNodeEx("Content Browser", ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (ImGui::BeginTabBar("ContentTabs")) {
+                    if (ImGui::BeginTabItem("Models")) {
+                        ImGui::BeginChild("ModelScroll", ImVec2(0, 150), true);
+                        for (int i = 0; i < (int)m_AvailableModels.size(); i++)
+                            if (ImGui::Selectable(m_AvailableModels[i].Name.c_str(), m_SelectedModelIndex == i)) { m_SelectedModelIndex = i; LoadModel(m_AvailableModels[i].Path); }
+                        ImGui::EndChild(); ImGui::EndTabItem();
                     }
+                    if (ImGui::BeginTabItem("Environments")) {
+                        ImGui::BeginChild("HDRScroll", ImVec2(0, 150), true);
+                        for (int i = 0; i < (int)m_AvailableHDRs.size(); i++)
+                            if (ImGui::Selectable(m_AvailableHDRs[i].Name.c_str(), m_SelectedHdrIndex == i)) { m_SelectedHdrIndex = i; LoadHDR(m_AvailableHDRs[i].Path); if (activePath) activePath->OnSceneUpdated(); }
+                        ImGui::EndChild(); ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
                 }
-                ImGui::EndChild();
                 ImGui::TreePop();
             }
         }
-
         ImGui::Separator();
-        if (ImGui::CollapsingHeader("Performance Metrics", ImGuiTreeNodeFlags_DefaultOpen))
-        {
-            ImGui::Text("GPU: %s", VulkanContext::Get().GetDeviceProperties().deviceName);
-            ImGui::TextColored(ImVec4(0, 1, 0, 1), "Frame: %.3f ms (%.1f FPS)", m_AverageFrameTime, m_AverageFPS);
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), "Performance: %.3f ms (%.1f FPS)", m_AverageFrameTime, m_AverageFPS);
+        
+        const auto &stats = Application::Get().GetFrameStats();
+        ImGui::Text("Scene: %u Meshes (%u Visible, %u Culled)", stats.TotalMeshes, stats.DrawCalls, stats.CulledMeshes);
 
-            const auto &stats = Application::Get().GetFrameStats();
+        if (ImGui::TreeNode("GPU Pass Breakdown")) { 
+            if (activePath) activePath->GetRenderGraph().DrawPerformanceStatistics(); 
+            ImGui::TreePop(); 
+        }
+
+        if (ImGui::Button("Copy RenderGraph (Mermaid)", ImVec2(-1, 0)) && activePath) {
+            ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
+        }
+
+        // --- IMPORTANT: RESTORE PATH-SPECIFIC DEBUG UI ---
+        if (activePath) {
+            ImGui::Spacing();
             ImGui::Separator();
-            ImGui::Text("Scene Stats:");
-            ImGui::Text("  Total Meshes: %u", stats.TotalMeshes);
-            ImGui::Text("  Visible Meshes: %u", stats.DrawCalls);
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "  Culled Meshes: %u", stats.CulledMeshes);
-
-            if (stats.TotalMeshes > 0)
-            {
-                float culledRatio = (float)stats.CulledMeshes / (float)stats.TotalMeshes;
-                ImGui::ProgressBar(culledRatio, ImVec2(-1, 0), "Culling Efficiency");
-            }
-
-            if (ImGui::TreeNode("GPU Pass Breakdown"))
-            {
-                if (activePath)
-                    activePath->GetRenderGraph().DrawPerformanceStatistics();
-                ImGui::TreePop();
-            }
-
-            if (ImGui::Button("Copy Graph to Clipboard", ImVec2(-1, 0)) && activePath)
-            {
-                ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
-            }
+            activePath->OnImGui(); 
         }
     }
 }

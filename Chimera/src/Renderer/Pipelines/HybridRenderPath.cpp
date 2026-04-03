@@ -6,7 +6,8 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Passes/GBufferPass.h"
 #include "Renderer/Passes/DepthPrepass.h"
-#include "Renderer/Passes/RTShadowAOPass.h"
+#include "Renderer/Passes/RTShadowPass.h"
+#include "Renderer/Passes/RTAOPass.h"
 #include "Renderer/Passes/RTReflectionPass.h"
 #include "Renderer/Passes/RTDiffuseGIPass.h"
 #include "Renderer/Passes/SVGFPass.h"
@@ -44,11 +45,12 @@ namespace Chimera
         // SVGF is active only if the master gate is open AND at least one stage is enabled
         bool svgfActive = useSVGFMaster && (doTemporal || doSpatial);
 
-        // 2. Ray Tracing Passes (Shadows, Reflections, GI)
+        // 2. Ray Tracing Passes (Shadows, AO, Reflections, GI)
         bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
         if (rtSupported && hasTLAS)
         {
-            graph.AddPass<RTShadowAOPass>(scene);
+            graph.AddPass<RTShadowPass>(scene);
+            graph.AddPass<RTAOPass>(scene);
             graph.AddPass<RTReflectionPass>(scene);
             graph.AddPass<RTDiffuseGIPass>(scene);
         }
@@ -61,10 +63,16 @@ namespace Chimera
             baseConfig.spatialEnabled = doSpatial;
 
             SVGFPass::Config shadowConfig = baseConfig;
-            shadowConfig.inputName = "CurColor";
+            shadowConfig.inputName = "ShadowRaw";
             shadowConfig.prefix = "Shadow";
             shadowConfig.historyBaseName = "ShadowAccum";
             graph.AddPass<SVGFPass>(scene, shadowConfig);
+
+            SVGFPass::Config aoConfig = baseConfig;
+            aoConfig.inputName = "AORaw";
+            aoConfig.prefix = "AO";
+            aoConfig.historyBaseName = "AOAccum";
+            graph.AddPass<SVGFPass>(scene, aoConfig);
 
             SVGFPass::Config reflConfig = baseConfig;
             reflConfig.inputName = "ReflectionRaw";
@@ -81,18 +89,18 @@ namespace Chimera
 
         // 4. Composition Pass (Connect either SVGF output or Raw RT output)
         CompositionPass::Config compConfig;
-        compConfig.shadowName = svgfActive ? "Shadow_Filtered_Final" : "CurColor";
+        compConfig.shadowName = svgfActive ? "Shadow_Filtered_Final" : "ShadowRaw";
+        compConfig.aoName     = svgfActive ? "AO_Filtered_Final"     : "AORaw";
         compConfig.reflectionName = svgfActive ? "Refl_Filtered_Final" : "ReflectionRaw";
         compConfig.giName = svgfActive ? "GI_Filtered_Final" : "GIRaw";
 
         graph.AddPass<CompositionPass>(compConfig);
 
-        // 5. Post Processing (Static Chain)
-        // 5.1 TAA (Always outputs TAAOutput)
-        graph.AddPass<TAAPass>();
+        // 5. Post Processing (Bypassed for Debugging)
+        // graph.AddPass<TAAPass>();
 
-        // 5.2 Final Post & Tone Mapping (Outputs RS::RENDER_OUTPUT)
-        graph.AddPass<PostProcessPass>("TAAOutput");
+        // [DEBUG] Directly use Composition output, skipping TAA
+        graph.AddPass<PostProcessPass>(RS::FinalColor);
     }
 
     void HybridRenderPath::OnImGui()

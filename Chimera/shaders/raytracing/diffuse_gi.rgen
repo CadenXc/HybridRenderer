@@ -5,6 +5,7 @@
 layout(set = 2, binding = 0, rgba16f) uniform image2D giOutput;
 layout(set = 2, binding = 1) uniform sampler2D gNormal;
 layout(set = 2, binding = 2) uniform sampler2D gDepth;
+layout(set = 2, binding = 3) uniform sampler2D gMaterial; 
 
 layout(push_constant) uniform PushConstants 
 {
@@ -45,6 +46,16 @@ void main()
     if ((frameData.w & RENDER_FLAG_GI_BIT) != 0)
     {
         traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, rayDirection, 1e10, 0);
+        
+        // [DEBUG] If ray tracing is working but payload is black, provide a hint color
+        if (length(payload.color_dist.rgb) < 0.001) {
+            // payload.color_dist.rgb = vec3(0.01, 0.02, 0.05); // Very dim blue hint
+        }
+    }
+    else
+    {
+        // [DEBUG] If GI is OFF, output a recognizable pattern if needed
+        payload.color_dist = vec4(0.0);
     }
 
     // [OUTPUT] Real color retrieved from Hit or Miss shaders

@@ -82,9 +82,19 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 
 vec2 SampleEquirectangular(vec3 v)
 {
-    vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
-    uv *= vec2(0.1591, 0.3183); // 1/(2*PI), 1/PI
-    uv += 0.5;
+    // Equirectangular mapping:
+    // phi = atan2(z, x), theta = asin(y)
+    float phi = atan(v.z, v.x);
+    float theta = asin(v.y);
+    
+    vec2 uv;
+    uv.x = (phi / (2.0 * PI)) + 0.5;
+    uv.y = (theta / PI) + 0.5;
+    
+    // Most HDRs need V to be 0 at the top (theta = PI/2)
+    // and 1 at the bottom (theta = -PI/2)
+    uv.y = 1.0 - uv.y; 
+    
     return uv;
 }
 
@@ -248,24 +258,49 @@ float GeometrySchlickGGX(float NoV, float NoL, float roughness)
     return g1 * g2;
 }
 
+// 4.3 Kulla-Conty Multi-Scattering Compensation
+// Analytical approximation of the integrated BRDF (Directional Albedo)
+float DirectionalAlbedo(float NoV, float roughness)
+{
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = roughness * c0 + c1;
+    float a = min(r.x * r.y, exp2(-9.28 * NoV)) * r.z + r.w;
+    return clamp(a, 0.0, 1.0);
+}
+
 vec3 EvaluateDirectPBR(vec3 worldNormal, vec3 viewDirection, vec3 lightDirection, vec3 baseColor, float roughness, float metallic, vec3 lightIntensity) 
 {
     vec3 halfVector = normalize(viewDirection + lightDirection);
-    float NoV = max(dot(worldNormal, viewDirection), 0.001);
-    float NoL = max(dot(worldNormal, lightDirection), 0.001);
+    float NoV = max(dot(worldNormal, viewDirection), 0.0001);
+    float NoL = max(dot(worldNormal, lightDirection), 0.0);
     float NoH = max(dot(worldNormal, halfVector), 0.0);
     float HoV = max(dot(halfVector, viewDirection), 0.0);
     
+    if (NoL <= 0.0) return vec3(0.0); // Early out for back-lit surfaces
+
     vec3 F0 = mix(vec3(0.04), baseColor, metallic);
     
+    // 1. Single Scattering (Standard Cook-Torrance)
     float D = DistributionGGX(NoH, roughness);
     float G = GeometrySchlickGGX(NoV, NoL, roughness);
     vec3 F = FresnelSchlickRoughness(HoV, F0, roughness);
     
-    vec3 specular = (D * G * F) / (4.0 * NoV * NoL);
-    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    // Use an epsilon to prevent division by zero and resulting NaNs
+    vec3 f_single = (D * G * F) / max(4.0 * NoV * NoL, 0.0001);
     
-    return (kD * baseColor / PI + specular) * lightIntensity * NoL;
+    // 2. Multi-Scattering Compensation (Kulla-Conty)
+    float Ess = DirectionalAlbedo(NoV, roughness);
+    float Esl = DirectionalAlbedo(NoL, roughness);
+    float Eavg = 0.6; 
+    
+    vec3 f_add = F0 * (1.0 - Ess) * (1.0 - Esl) / max(PI * (1.0 - Eavg), 0.0001);
+    
+    // 3. Combined Reflectance
+    vec3 kS = F + f_add * Ess; 
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+    
+    return (kD * baseColor / PI + f_single + f_add) * lightIntensity * NoL;
 }
 
 #endif // CHIMERA_COMMON_GLSL

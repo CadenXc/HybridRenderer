@@ -181,8 +181,17 @@ namespace Chimera
 	void EditorCamera::MouseRotate(const glm::vec2& delta)
 	{
 		float yawSign = GetUpDirection().y < 0 ? -1.0f : 1.0f;
+		
+		// 记录旋转前的相机绝对位置
+		glm::vec3 currentPosition = CalculatePosition();
+
+		// 更新角度
 		m_Yaw += yawSign * delta.x * RotationSpeed();
-		m_Pitch += delta.y * RotationSpeed(); 
+		m_Pitch += delta.y * RotationSpeed();
+
+		// [核心修改] 模拟“转头”动作：
+		// 保持相机位置不变，将焦点推到视线前方固定距离处
+		m_FocalPoint = currentPosition + GetForwardDirection() * m_Distance;
 	}
 
 	void EditorCamera::MouseZoom(float delta)

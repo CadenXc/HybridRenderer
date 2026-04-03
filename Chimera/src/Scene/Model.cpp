@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Model.h"
+#include "Renderer/Resources/ResourceManager.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Backend/RenderContext.h"
 #include "Renderer/Resources/Buffer.h"
@@ -140,15 +141,24 @@ namespace Chimera
 
     Model::~Model()
     {
+        CH_CORE_INFO("Model: Destroying GPU resources...");
         if (m_Context)
         {
             VkDevice device = m_Context->GetDevice();
+            
+            // 1. Destroy BLAS handles
             if (device != VK_NULL_HANDLE && vkDestroyAccelerationStructureKHR)
             {
                 for (auto h : m_BLASHandles)
                 {
                     vkDestroyAccelerationStructureKHR(device, h, nullptr);
                 }
+            }
+
+            // 2. [FIX] Notify ResourceManager to release materials
+            for (const auto& mesh : m_Meshes)
+            {
+                ResourceManager::Get().Release(MaterialHandle(mesh.materialIndex));
             }
         }
     }

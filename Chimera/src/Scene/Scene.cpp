@@ -146,8 +146,54 @@ namespace Chimera
         }
     }
 
+    void Scene::RemoveEntity(uint32_t index)
+    {
+        if (index < m_Entities.size())
+        {
+            m_EntitiesToRemove.push_back(index);
+        }
+    }
+
     void Scene::OnUpdate(float ts)
     {
+        if (!m_EntitiesToRemove.empty())
+        {
+            // Sort in descending order to avoid index shifting problems during erasure
+            std::sort(m_EntitiesToRemove.begin(), m_EntitiesToRemove.end(), std::greater<uint32_t>());
+            
+            for (uint32_t index : m_EntitiesToRemove)
+            {
+                if (index >= m_Entities.size()) continue;
+
+                auto& entity = m_Entities[index];
+                CH_CORE_INFO("Scene: Deferring removal of entity '{}'.", entity.name);
+
+                // Capture the shared_ptr to the model
+                std::shared_ptr<Model> modelToDestroy = entity.mesh.model;
+
+                // Move the actual deletion to the resource manager's queue (safe after GPU is done)
+                ResourceManager::SubmitResourceFree([modelToDestroy]() mutable {
+                    modelToDestroy.reset(); // This triggers Model destructor later
+                });
+
+                m_Entities.erase(m_Entities.begin() + index);
+            }
+            m_EntitiesToRemove.clear();
+
+            // 1. Recalculate all primitive offsets to maintain sync with GPU/TLAS
+            uint32_t currentOffset = 0;
+            for (auto& e : m_Entities)
+            {
+                e.primitiveOffset = currentOffset;
+                if (e.mesh.model)
+                    currentOffset += (uint32_t)e.mesh.model->GetMeshes().size();
+            }
+
+            // 2. Rebuild auxiliary structures
+            BuildOctree();
+            MarkDirty(); // Rebuild TLAS
+        }
+
         UpdateWorldTransforms();
 
         if (m_NeedsTLASRebuild)
@@ -191,6 +237,7 @@ namespace Chimera
 
     void Scene::BuildOctree()
     {
+        m_OctreeRoot.reset(); // Always clear old tree first
         if (m_Entities.empty()) return;
 
         // 1. Calculate Scene Bounds

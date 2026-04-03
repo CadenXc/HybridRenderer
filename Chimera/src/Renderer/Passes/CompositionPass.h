@@ -22,6 +22,8 @@ namespace Chimera
         RGResourceHandle gi_raw;
         RGResourceHandle reflection_raw;
         RGResourceHandle shadow_raw;
+        RGResourceHandle ao_raw;
+        RGResourceHandle shadow_debug_raw; // NEW: Always points to the raw, un-denoised signal
         
         RGResourceHandle output; 
     };
@@ -35,6 +37,7 @@ namespace Chimera
         struct Config
         {
             std::string shadowName = "Shadow_Filtered_Final";
+            std::string aoName = "AO_Filtered_Final";
             std::string reflectionName = "Refl_Filtered_Final";
             std::string giName = "GI_Filtered_Final";
         };

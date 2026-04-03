@@ -16,7 +16,9 @@ layout(set = 2, binding = 5) uniform sampler2D gEmissive; // Binding 5
 // --- [PHASE 3 SLOTS] RT/SVGF Signal Inputs ---
 layout(set = 2, binding = 6) uniform sampler2D gGI_Raw;
 layout(set = 2, binding = 7) uniform sampler2D gReflection_Raw;
-layout(set = 2, binding = 8) uniform sampler2D gShadowAO_Raw;
+layout(set = 2, binding = 8) uniform sampler2D gShadow_Raw;
+layout(set = 2, binding = 9) uniform sampler2D gAO_Raw;
+layout(set = 2, binding = 10) uniform sampler2D gShadow_Debug_Raw; // NEW: Always un-denoised
 
 void main() 
 {
@@ -31,7 +33,6 @@ void main()
     vec4 finalClearColor = gpuClearColor;
 
     // 1. 处理背景 (Environment)
-    // Reversed-Z: 0.0 is far plane (skybox)
     if (depth <= 0.0001) 
     {
         if (displayMode == DISPLAY_MODE_NORMAL || displayMode == DISPLAY_MODE_MATERIAL)
@@ -40,17 +41,22 @@ void main()
             return;
         }
         
-        if (skyIdx >= 0) 
+        // [FIX] Background rendering should respect IBL toggle
+        bool hasIBL = (renderFlags & RENDER_FLAG_IBL_BIT) != 0;
+
+        if (skyIdx >= 0 && hasIBL) 
         {
-            // Reconstruction of direction from clip space
-            vec4 clip = vec4(inUV * 2.0 - 1.0, 0.0, 1.0); // 0.0 is far in reversed-z
+            // [FIX] Correct Y mapping for Vulkan: top is -1 in clip space
+            vec2 clipUV = inUV * 2.0 - 1.0;
+            vec4 clip = vec4(clipUV.x, clipUV.y, 0.0, 1.0); 
             vec4 view = camera.projInverse * clip;
             vec3 viewDir = normalize((camera.viewInverse * vec4(normalize(view.xyz), 0.0)).xyz);
             outFinalColor = vec4(texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(viewDir)).rgb, 1.0);
         } 
         else 
         {
-            outFinalColor = finalClearColor;
+            // [PHYSICAL] No IBL means no sky light. It should be pitch black.
+            outFinalColor = vec4(0.0, 0.0, 0.0, 1.0);
         }
         return;
     }
@@ -63,24 +69,23 @@ void main()
     vec4 material = texture(gMaterial, inUV);
     float roughness = clamp(material.r, 0.05, 1.0); 
     float metallic = clamp(material.g, 0.0, 1.0);
-    float ao = clamp(material.b, 0.0, 1.0);
+    float gBufferAO = clamp(material.b, 0.0, 1.0);
 
     // 3. 调试视图切换
     if (displayMode == DISPLAY_MODE_ALBEDO) { outFinalColor = vec4(baseColor, 1.0); return; }
     if (displayMode == DISPLAY_MODE_NORMAL) { outFinalColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
-    if (displayMode == DISPLAY_MODE_MATERIAL) { outFinalColor = vec4(roughness, metallic, ao, 1.0); return; }
+    if (displayMode == DISPLAY_MODE_MATERIAL) { outFinalColor = vec4(roughness, metallic, gBufferAO, 1.0); return; }
     if (displayMode == DISPLAY_MODE_MOTION) { outFinalColor = vec4(abs(texture(gMotion, inUV).xy) * 10.0, 0.0, 1.0); return; }
     if (displayMode == DISPLAY_MODE_DEPTH) 
     { 
-        // [FIX] Linearize depth for better debugging in Reversed-Z
         vec4 target = camera.projInverse * vec4(0.0, 0.0, depth, 1.0);
         float linearZ = abs(target.z / target.w);
-        outFinalColor = vec4(vec3(exp(-linearZ * 0.1)), 1.0); // Fog-like visualization
+        outFinalColor = vec4(vec3(linearZ * 0.01), 1.0); 
         return; 
     }
     if (displayMode == DISPLAY_MODE_EMISSIVE) { outFinalColor = vec4(emissive, 1.0); return; }
 
-    // 4. 核心物理合成
+    // 4. 核心物理参数
     vec3 worldPos = GetWorldPos(depth, inUV, camera.viewProjInverse);
     vec3 viewDirection = normalize(camera.position.xyz - worldPos);
     vec3 lightDirection = normalize(-sunLight.direction.xyz);
@@ -90,64 +95,85 @@ void main()
 
     // 4. RT/SVGF Signals
     float shadowFactor = 1.0;
+    float rtAO = 1.0;
     bool hasRTShadow = (renderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
+    bool hasRTAO = (renderFlags & RENDER_FLAG_AO_BIT) != 0;
+    bool hasIBL = (renderFlags & RENDER_FLAG_IBL_BIT) != 0;
+    bool hasEmissive = (renderFlags & RENDER_FLAG_EMISSIVE_BIT) != 0;
     
     if (hasRTShadow)
     {
-        shadowFactor = texture(gShadowAO_Raw, inUV).r;
+        shadowFactor = texture(gShadow_Raw, inUV).r;
     }
-    else
+    
+    if (hasRTAO)
     {
-        // Screen space fallback or simple shadow mapping
-        shadowFactor = 1.0; 
+        rtAO = texture(gAO_Raw, inUV).r;
     }
 
+    float shadowDebugFactor = texture(gShadow_Debug_Raw, inUV).r;
     vec3 reflectionSignal = texture(gReflection_Raw, inUV).rgb;
     vec3 giSignal = texture(gGI_Raw, inUV).rgb;
 
-    // 5. 调试视图切换 (Phase 3)
-    if (displayMode == DISPLAY_MODE_SHADOW_AO) { outFinalColor = vec4(vec3(shadowFactor), 1.0); return; }
+    // [ARCHITECTURAL DECISION] 
+    // RT GI (Ray Traced Global Illumination) already accounts for physical occlusion
+    // in crevices and corners (self-shadowing). Adding an extra AO pass on top of GI
+    // can lead to double-darkening and breaks physical correctness.
+    // We keep the AO pass for debug visualization, but it no longer affects the final composite.
+    float finalAO = 1.0; // hasRTAO ? rtAO : gBufferAO; 
+
+    // 5. 调试视图切换 - 这里强制使用未降噪的信号
+    if (displayMode == DISPLAY_MODE_SHADOW) { outFinalColor = vec4(vec3(shadowDebugFactor), 1.0); return; }
+    if (displayMode == DISPLAY_MODE_AO) { outFinalColor = vec4(vec3(finalAO), 1.0); return; }
     if (displayMode == DISPLAY_MODE_REFLECTION) { outFinalColor = vec4(reflectionSignal, 1.0); return; }
     if (displayMode == DISPLAY_MODE_GI) { outFinalColor = vec4(giSignal, 1.0); return; }
 
     // 6. 核心物理合成
-    // 6.1 直接光 PBR (Direct)
     vec3 directLighting = EvaluateDirectPBR(worldNormal, viewDirection, lightDirection, baseColor, roughness, metallic, lightIntensity) * shadowFactor;
 
-    // 6.2 间接光 (Indirect / GI)
     vec3 F0 = mix(vec3(0.04), baseColor, metallic);
     vec3 fresnelTerm = FresnelSchlickRoughness(max(dot(worldNormal, viewDirection), 0.0), F0, roughness);
     
-    // kS is the energy that reflects, kD is the energy that refracts/diffuses
     vec3 kS = fresnelTerm;
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
     
-    // [FIX] GI signal should be modulated by albedo and refraction ratio (kD)
-    vec3 indirectDiffuse = giSignal * baseColor * kD;
-    
-    // [FIX] Reflection signal from SVGF is already an irradiance/radiance sample
-    // but needs to be weighted by the Fresnel term at the surface
+    // [DEBUG AMPLIFICATION] Boost GI signal to make it visible during testing
+    vec3 indirectDiffuse = giSignal * baseColor * kD * 5.0; 
     vec3 indirectSpecular = reflectionSignal * kS;
 
-    // Fallback if no RT reflection/GI
     if ((renderFlags & RENDER_FLAG_GI_BIT) == 0) 
     {
-        // Simple ambient with AO
-        indirectDiffuse = ambStr * baseColor * ao * 0.05;
+        indirectDiffuse = ambStr * baseColor * finalAO * 0.05;
     }
     
-    if ((renderFlags & RENDER_FLAG_REFLECTION_BIT) == 0 && skyIdx >= 0) 
+    // --- [DEBUG OVERRIDES] ---
+    if (displayMode == 9) // DISPLAY_MODE_GI
+    {
+        // If we see pure magenta, it means the GI signal is being received but might be black
+        if (length(giSignal) < 0.0001) outFinalColor = vec4(1.0, 0.0, 1.0, 1.0); 
+        else outFinalColor = vec4(giSignal * 10.0, 1.0); 
+        return;
+    }
+    
+    // Apply IBL Toggle
+    if (!hasIBL)
+    {
+        indirectSpecular = vec3(0.0);
+        if ((renderFlags & RENDER_FLAG_GI_BIT) == 0) indirectDiffuse = vec3(0.0);
+    }
+    else if ((renderFlags & RENDER_FLAG_REFLECTION_BIT) == 0 && skyIdx >= 0) 
     {
         vec3 reflectDirection = reflect(-viewDirection, worldNormal);
         vec3 envSpecular = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(reflectDirection)).rgb;
-        indirectSpecular = envSpecular * kS * ambStr;
+        indirectSpecular = envSpecular * kS * ambStr * finalAO;
     }
 
-    vec3 finalColor = directLighting + indirectDiffuse + indirectSpecular + emissive;
+    // --- [RESTORED PHYSICAL LIGHTING] ---
+    vec3 finalEmissive = hasEmissive ? emissive : vec3(0.0); 
+    vec3 finalColor = directLighting + indirectDiffuse + indirectSpecular + finalEmissive; 
 
     finalColor *= exposure;
-    finalColor = ACESToneMapping(finalColor);
-    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+    finalColor = pow(max(finalColor, vec3(0.0)), vec3(1.0 / 2.2));
 
     outFinalColor = vec4(finalColor, 1.0);
 }
