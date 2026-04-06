@@ -7,27 +7,29 @@
 
 namespace Chimera
 {
-    class Scene;
+class Scene;
 
-    struct RTShadowPassData
-    {
-        RGResourceHandle normal;
-        RGResourceHandle depth;
-        RGResourceHandle output;
-    };
+struct RTShadowPassData
+{
+    RGResourceHandle normal;
+    RGResourceHandle depth;
+    RGResourceHandle output;
+};
 
-    class RTShadowPass : public RenderPass<RTShadowPassData>
-    {
-    public:
-        using PassData = RTShadowPassData;
-        static constexpr const char* Name = "RTShadowPass";
+class RTShadowPass : public RenderPass<RTShadowPassData>
+{
+public:
+    using PassData = RTShadowPassData;
+    static constexpr const char* Name = "RTShadowPass";
 
-        RTShadowPass(std::shared_ptr<Scene> scene);
+    RTShadowPass(std::shared_ptr<Scene> scene);
 
-        virtual void Setup(PassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+    virtual void Setup(PassData& data,
+                       RenderGraph::PassBuilder& builder) override;
+    virtual void Execute(const PassData& data, RenderGraphRegistry& reg,
+                         VkCommandBuffer cmd) override;
 
-    private:
-        std::shared_ptr<Scene> m_Scene;
-    };
-}
+private:
+    std::shared_ptr<Scene> m_Scene;
+};
+} // namespace Chimera

@@ -35,7 +35,7 @@
 
 // Standard third-party headers (without implementations)
 #include <stb_image.h>
-#include <vk_mem_alloc.h> 
+#include <vk_mem_alloc.h>
 
 #include "Core/Base.h"
 #include "Core/Log.h"

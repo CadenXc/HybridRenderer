@@ -6,9 +6,9 @@
 
 namespace Chimera
 {
-    class AssetImporter
-    {
-    public:
-        static std::shared_ptr<ImportedScene> ImportScene(const std::string &path);
-    };
-}
+class AssetImporter
+{
+public:
+    static std::shared_ptr<ImportedScene> ImportScene(const std::string& path);
+};
+} // namespace Chimera

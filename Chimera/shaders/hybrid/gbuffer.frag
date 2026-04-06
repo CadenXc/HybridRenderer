@@ -12,8 +12,14 @@ layout(location = 5) in vec4 inTangent;
 layout(location = 0) out vec4 outAlbedo;
 layout(location = 1) out vec4 outNormal;
 layout(location = 2) out vec4 outMaterial;
-layout(location = 3) out vec2 outMotion;
+layout(location = 3) out vec4 outMotion; 
 layout(location = 4) out vec4 outEmissive;
+
+float LinearizeDepth(float d) 
+{
+    vec4 target = camera.projInverse * vec4(0.0, 0.0, d, 1.0);
+    return abs(target.z / target.w);
+}
 
 void main() 
 {
@@ -41,17 +47,22 @@ void main()
     float ao = GetAmbientOcclusion(mat, inTexCoord);
     vec3 emissive = GetEmissive(mat, inTexCoord);
 
-    // [FIX] Safe perspective divide to prevent NaN/Infinity near the near plane
     float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
     float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;
 
     vec2 curUV  = (inCurPos.xy / safeCurW) * 0.5 + 0.5;
     vec2 prevUV = (inPrevPos.xy / safePrevW) * 0.5 + 0.5;
     
-    outMotion = curUV - prevUV;
+    // --- [PAPER ALIGNMENT] Directional Depth Derivatives ---
+    float linearDepth = LinearizeDepth(gl_FragCoord.z);
+    float dx = dFdx(linearDepth);
+    float dy = dFdy(linearDepth);
 
-    outAlbedo = vec4(baseColor, 1.0);
+    // outMotion.a stores dFdx, outAlbedo.a stores dFdy
+    outMotion = vec4(curUV - prevUV, linearDepth, dx);
+    outAlbedo = vec4(baseColor, dy); 
+
     outNormal = vec4(worldNormal, 1.0);
-    outMaterial = vec4(roughness, metallic, ao, 1.0);
+    outMaterial = vec4(roughness, metallic, ao, float(inObjectId)); 
     outEmissive = vec4(emissive, 1.0);
 }

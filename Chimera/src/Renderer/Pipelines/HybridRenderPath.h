@@ -4,19 +4,20 @@
 
 namespace Chimera
 {
-    class HybridRenderPath : public RenderPath
+class HybridRenderPath : public RenderPath
+{
+public:
+    HybridRenderPath(VulkanContext& context);
+    virtual ~HybridRenderPath() = default;
+
+    virtual RenderPathType GetType() const override
     {
-    public:
-        HybridRenderPath(VulkanContext& context);
-        virtual ~HybridRenderPath() = default;
+        return RenderPathType::Hybrid;
+    }
 
-        virtual RenderPathType GetType() const override
-        {
-            return RenderPathType::Hybrid;
-        }
-
-    protected:
-        virtual void BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene) override;
-        virtual void OnImGui() override;
-    };
-}
+protected:
+    virtual void BuildGraph(RenderGraph& graph,
+                            std::shared_ptr<Scene> scene) override;
+    virtual void OnImGui() override;
+};
+} // namespace Chimera

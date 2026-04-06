@@ -7,32 +7,34 @@
 
 namespace Chimera
 {
-    class Scene;
+class Scene;
 
-    struct GBufferPassData
-    {
-        RGResourceHandle albedo;
-        RGResourceHandle normal;
-        RGResourceHandle material;
-        RGResourceHandle motion;
-        RGResourceHandle emissive;
-        RGResourceHandle depth;
-    };
+struct GBufferPassData
+{
+    RGResourceHandle albedo;
+    RGResourceHandle normal;
+    RGResourceHandle material;
+    RGResourceHandle motion;
+    RGResourceHandle emissive;
+    RGResourceHandle depth;
+};
 
-    class GBufferPass : public RenderPass<GBufferPassData>
-    {
-    public:
-        using PassData = GBufferPassData;
-        static constexpr const char* Name = "GBufferPass";
+class GBufferPass : public RenderPass<GBufferPassData>
+{
+public:
+    using PassData = GBufferPassData;
+    static constexpr const char* Name = "GBufferPass";
 
-        using Data = PassData;
+    using Data = PassData;
 
-        GBufferPass(std::shared_ptr<Scene> scene);
+    GBufferPass(std::shared_ptr<Scene> scene);
 
-        virtual void Setup(PassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+    virtual void Setup(PassData& data,
+                       RenderGraph::PassBuilder& builder) override;
+    virtual void Execute(const PassData& data, RenderGraphRegistry& reg,
+                         VkCommandBuffer cmd) override;
 
-    private:
-        std::shared_ptr<Scene> m_Scene;
-    };
-}
+private:
+    std::shared_ptr<Scene> m_Scene;
+};
+} // namespace Chimera

@@ -5,49 +5,50 @@
 class ChimeraApp : public Chimera::Application
 {
 public:
-	ChimeraApp(const Chimera::ApplicationSpecification& spec)
-		: Chimera::Application(spec)
-	{
-		// Push the Editor Layer which contains the UI and logic
-		auto editorLayer = std::make_shared<Chimera::EditorLayer>();
-		PushLayer(editorLayer);
-		
-		CH_INFO("---------------------------------------------");
-		CH_INFO("Welcome to Chimera Hybrid Renderer!");
-		CH_INFO("App constructed successfully.");
-		CH_INFO("---------------------------------------------");
-	}
+    ChimeraApp(const Chimera::ApplicationSpecification& spec)
+        : Chimera::Application(spec)
+    {
+                // Push the Editor Layer which contains the UI and logic
+        auto editorLayer = std::make_shared<Chimera::EditorLayer>();
+        PushLayer(editorLayer);
 
-	~ChimeraApp()
-	{
-		CH_INFO("Chimera App shutting down...");
-	}
+        CH_INFO("---------------------------------------------");
+        CH_INFO("Welcome to Chimera Hybrid Renderer!");
+        CH_INFO("App constructed successfully.");
+        CH_INFO("---------------------------------------------");
+    }
+
+    ~ChimeraApp()
+    {
+        CH_INFO("Chimera App shutting down...");
+    }
 };
 
 Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
 {
-	Chimera::ApplicationSpecification spec;
-	spec.Name = "Chimera Hybrid Renderer";
-	spec.Width = 1600;
-	spec.Height = 900;
+    Chimera::ApplicationSpecification spec;
+    spec.Name = "Chimera Hybrid Renderer";
+    spec.Width = 1600;
+    spec.Height = 900;
 
-	ChimeraApp* app = new ChimeraApp(spec);
-	// If a scene path is provided on the command line, request loading it on startup
-	if (argc > 1 && argv[1])
-	{
-		try
-		{
-			auto editorLayer = app->GetLayer<Chimera::EditorLayer>();
-			if (editorLayer)
-			{
-				editorLayer->LoadScene(std::string(argv[1]));
-			}
-		}
-		catch (...)
-		{
-			// Ignore
-		}
-	}
+    ChimeraApp* app = new ChimeraApp(spec);
+        // If a scene path is provided on the command line, request loading it on
+        // startup
+    if (argc > 1 && argv[1])
+    {
+        try
+        {
+            auto editorLayer = app->GetLayer<Chimera::EditorLayer>();
+            if (editorLayer)
+            {
+                editorLayer->LoadScene(std::string(argv[1]));
+            }
+        }
+        catch (...)
+        {
+                        // Ignore
+        }
+    }
 
-	return app;
+    return app;
 }

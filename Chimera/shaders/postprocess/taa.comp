@@ -82,8 +82,7 @@ void main()
 
     // 1. Velocity Dilation (Find closest point to camera in 3x3)
     ivec2 closestOffset = ivec2(0);
-#if REVERSED_Z
-    float closestDepth = 0.0; 
+    float closestDepth = 0.0; // In Reversed-Z, 1.0 is near, 0.0 is far. We seek the maximum value.
     for (int y = -1; y <= 1; ++y)
     {
         for (int x = -1; x <= 1; ++x)
@@ -92,17 +91,6 @@ void main()
             if (d > closestDepth) { closestDepth = d; closestOffset = ivec2(x, y); }
         }
     }
-#else
-    float closestDepth = 1.0; 
-    for (int y = -1; y <= 1; ++y)
-    {
-        for (int x = -1; x <= 1; ++x)
-        {
-            float d = texelFetch(gDepth, pixel + ivec2(x, y), 0).r;
-            if (d < closestDepth) { closestDepth = d; closestOffset = ivec2(x, y); }
-        }
-    }
-#endif
 
     // 2. Sample Data
     vec2 curJitter = camera.jitterData.xy * 0.5; // NDC to UV space

@@ -6,14 +6,18 @@
 
 namespace Chimera
 {
-    std::unique_ptr<RenderPath> RenderPathFactory::Create(RenderPathType type, std::shared_ptr<VulkanContext> context)
+std::unique_ptr<RenderPath> RenderPathFactory::Create(
+    RenderPathType type, std::shared_ptr<VulkanContext> context)
+{
+    switch (type)
     {
-        switch (type)
-        {
-            case RenderPathType::Forward:   return std::make_unique<ForwardRenderPath>(*context);
-            case RenderPathType::Hybrid:    return std::make_unique<HybridRenderPath>(*context);
-            case RenderPathType::RayTracing: return std::make_unique<RayTracedRenderPath>(*context);
-        }
-        return nullptr;
+        case RenderPathType::Forward:
+            return std::make_unique<ForwardRenderPath>(*context);
+        case RenderPathType::Hybrid:
+            return std::make_unique<HybridRenderPath>(*context);
+        case RenderPathType::RayTracing:
+            return std::make_unique<RayTracedRenderPath>(*context);
     }
+    return nullptr;
 }
+} // namespace Chimera

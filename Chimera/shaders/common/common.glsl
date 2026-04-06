@@ -36,8 +36,28 @@ layout(buffer_reference, scalar) readonly buffer IndexBufferRef { uint i[]; };
 // --- 4. Utility Functions ---
 
 const float PI = 3.14159265359;
+const float COS_PI_4 = 0.70710678118; // cos(45 degrees) for normal validation
 
 // 4.0 Random & Sampling Utilities
+float Halton(uint index, uint base) 
+{
+    float result = 0.0;
+    float f = 1.0 / float(base);
+    uint i = index;
+    while (i > 0) 
+    {
+        result += f * float(i % base);
+        i /= base;
+        f /= float(base);
+    }
+    return result;
+}
+
+vec2 GetHaltonSample(uint index)
+{
+    return vec2(Halton(index, 2), Halton(index, 3));
+}
+
 uint InitRandomSeed(uint val0, uint val1) 
 {
     uint v0 = val0;

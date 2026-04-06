@@ -4,10 +4,10 @@
 
 namespace Chimera
 {
-    class Scene;
+class Scene;
 
-    namespace RayQueryPass
-    {
-        void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
-    }
+namespace RayQueryPass
+{
+void AddToGraph(RenderGraph& graph, std::shared_ptr<Scene> scene);
 }
+} // namespace Chimera

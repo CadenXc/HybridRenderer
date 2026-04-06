@@ -7,63 +7,67 @@
 namespace Chimera
 {
     /**
-     * @brief DeletionQueue manages deferred destruction of Vulkan resources.
-     * Upgraded to be frame-aware to support multi-buffering (triple buffering).
-     */
-    class DeletionQueue
+ * @brief DeletionQueue manages deferred destruction of Vulkan resources.
+ * Upgraded to be frame-aware to support multi-buffering (triple buffering).
+ */
+class DeletionQueue
+{
+public:
+    void Init(uint32_t maxFrames)
     {
-    public:
-        void Init(uint32_t maxFrames)
+        m_FrameDeletions.resize(maxFrames);
+    }
+
+    void PushFunction(uint32_t frameIndex, std::function<void()>&& function)
+    {
+        m_FrameDeletions[frameIndex].push_back(std::move(function));
+    }
+
+    void PushFunction(std::function<void()>&& function)
+    {
+        m_GlobalDeletions.push_back(std::move(function));
+    }
+
+    void FlushFrame(uint32_t frameIndex)
+    {
+        auto& deletors = m_FrameDeletions[frameIndex];
+        if (!deletors.empty())
         {
-            m_FrameDeletions.resize(maxFrames);
+            CH_CORE_TRACE("DeletionQueue: Flushing {0} tasks for frame {1}",
+                          deletors.size(), frameIndex);
+        }
+        for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
+        {
+            (*it)();
+        }
+        deletors.clear();
+    }
+
+    void FlushAll()
+    {
+        CH_CORE_INFO(
+            "DeletionQueue: Performing Mandatory Flush of ALL tasks...");
+        for (uint32_t i = 0; i < (uint32_t)m_FrameDeletions.size(); i++)
+        {
+            FlushFrame(i);
         }
 
-        void PushFunction(uint32_t frameIndex, std::function<void()>&& function)
+        if (!m_GlobalDeletions.empty())
         {
-            m_FrameDeletions[frameIndex].push_back(std::move(function));
+            CH_CORE_TRACE("DeletionQueue: Flushing {0} global tasks",
+                          m_GlobalDeletions.size());
         }
-
-        void PushFunction(std::function<void()>&& function)
+        for (auto it = m_GlobalDeletions.rbegin();
+             it != m_GlobalDeletions.rend(); ++it)
         {
-            m_GlobalDeletions.push_back(std::move(function));
+            (*it)();
         }
+        m_GlobalDeletions.clear();
+        CH_CORE_INFO("DeletionQueue: All tasks flushed.");
+    }
 
-        void FlushFrame(uint32_t frameIndex)
-        {
-            auto& deletors = m_FrameDeletions[frameIndex];
-            if (!deletors.empty())
-            {
-                CH_CORE_TRACE("DeletionQueue: Flushing {0} tasks for frame {1}", deletors.size(), frameIndex);
-            }
-            for (auto it = deletors.rbegin(); it != deletors.rend(); ++it)
-            {
-                (*it)();
-            }
-            deletors.clear();
-        }
-
-        void FlushAll()
-        {
-            CH_CORE_INFO("DeletionQueue: Performing Mandatory Flush of ALL tasks...");
-            for (uint32_t i = 0; i < (uint32_t)m_FrameDeletions.size(); i++)
-            {
-                FlushFrame(i);
-            }
-
-            if (!m_GlobalDeletions.empty())
-            {
-                CH_CORE_TRACE("DeletionQueue: Flushing {0} global tasks", m_GlobalDeletions.size());
-            }
-            for (auto it = m_GlobalDeletions.rbegin(); it != m_GlobalDeletions.rend(); ++it)
-            {
-                (*it)();
-            }
-            m_GlobalDeletions.clear();
-            CH_CORE_INFO("DeletionQueue: All tasks flushed.");
-        }
-
-    private:
-        std::vector<std::deque<std::function<void()>>> m_FrameDeletions;
-        std::deque<std::function<void()>> m_GlobalDeletions;
-    };
-}
+private:
+    std::vector<std::deque<std::function<void()>>> m_FrameDeletions;
+    std::deque<std::function<void()>> m_GlobalDeletions;
+};
+} // namespace Chimera

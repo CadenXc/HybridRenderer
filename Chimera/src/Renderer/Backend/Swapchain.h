@@ -3,72 +3,76 @@
 
 namespace Chimera
 {
-    struct SwapChainSupportDetails
+struct SwapChainSupportDetails
+{
+    VkSurfaceCapabilitiesKHR capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR> presentModes;
+};
+
+class Swapchain
+{
+public:
+    Swapchain(VkDevice device, VkPhysicalDevice physicalDevice,
+              VkSurfaceKHR surface, GLFWwindow* window);
+    ~Swapchain();
+
+    void Recreate();
+
+    VkSwapchainKHR GetHandle() const
     {
-        VkSurfaceCapabilitiesKHR capabilities;
-        std::vector<VkSurfaceFormatKHR> formats;
-        std::vector<VkPresentModeKHR> presentModes;
-    };
+        return m_SwapChain;
+    }
 
-    class Swapchain
+    VkFormat GetFormat() const
     {
-    public:
-        Swapchain(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, GLFWwindow* window);
-        ~Swapchain();
+        return m_SwapChainImageFormat;
+    }
 
-        void Recreate();
+    VkExtent2D GetExtent() const
+    {
+        return m_SwapChainExtent;
+    }
 
-        VkSwapchainKHR GetHandle() const
-        {
-            return m_SwapChain;
-        }
+    uint32_t GetImageCount() const
+    {
+        return static_cast<uint32_t>(m_SwapChainImages.size());
+    }
 
-        VkFormat GetFormat() const
-        {
-            return m_SwapChainImageFormat;
-        }
+    const std::vector<VkImage>& GetImages() const
+    {
+        return m_SwapChainImages;
+    }
 
-        VkExtent2D GetExtent() const
-        {
-            return m_SwapChainExtent;
-        }
+    const std::vector<VkImageView>& GetImageViews() const
+    {
+        return m_SwapChainImageViews;
+    }
 
-        uint32_t GetImageCount() const
-        {
-            return static_cast<uint32_t>(m_SwapChainImages.size());
-        }
+    static SwapChainSupportDetails QuerySwapChainSupport(
+        VkPhysicalDevice device, VkSurfaceKHR surface);
 
-        const std::vector<VkImage>& GetImages() const
-        {
-            return m_SwapChainImages;
-        }
+private:
+    void Create();
+    void Cleanup();
+    void CreateImageViews();
 
-        const std::vector<VkImageView>& GetImageViews() const
-        {
-            return m_SwapChainImageViews;
-        }
+    VkSurfaceFormatKHR ChooseSwapSurfaceFormat(
+        const std::vector<VkSurfaceFormatKHR>& availableFormats);
+    VkPresentModeKHR ChooseSwapPresentMode(
+        const std::vector<VkPresentModeKHR>& availablePresentModes);
+    VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
 
-        static SwapChainSupportDetails QuerySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
+private:
+    VkDevice m_Device;
+    VkPhysicalDevice m_PhysicalDevice;
+    VkSurfaceKHR m_Surface;
+    GLFWwindow* m_Window;
 
-    private:
-        void Create();
-        void Cleanup();
-        void CreateImageViews();
-
-        VkSurfaceFormatKHR ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats);
-        VkPresentModeKHR ChooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes);
-        VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
-
-    private:
-        VkDevice m_Device;
-        VkPhysicalDevice m_PhysicalDevice;
-        VkSurfaceKHR m_Surface;
-        GLFWwindow* m_Window;
-
-        VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
-        std::vector<VkImage> m_SwapChainImages;
-        VkFormat m_SwapChainImageFormat;
-        VkExtent2D m_SwapChainExtent;
-        std::vector<VkImageView> m_SwapChainImageViews;
-    };
-}
+    VkSwapchainKHR m_SwapChain = VK_NULL_HANDLE;
+    std::vector<VkImage> m_SwapChainImages;
+    VkFormat m_SwapChainImageFormat;
+    VkExtent2D m_SwapChainExtent;
+    std::vector<VkImageView> m_SwapChainImageViews;
+};
+} // namespace Chimera

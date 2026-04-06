@@ -22,89 +22,93 @@
 
 namespace Chimera
 {
-    HybridRenderPath::HybridRenderPath(VulkanContext &context)
-        : RenderPath(context.GetShared())
-    {
-    }
+HybridRenderPath::HybridRenderPath(VulkanContext& context)
+    : RenderPath(context.GetShared())
+{
+}
 
-    void HybridRenderPath::BuildGraph(RenderGraph &graph, std::shared_ptr<Scene> scene)
-    {
+void HybridRenderPath::BuildGraph(RenderGraph& graph,
+                                  std::shared_ptr<Scene> scene)
+{
         // 0. Depth Prepass (Early-Z Optimization)
-        graph.AddPass<DepthPrepass>(scene);
+    graph.AddPass<DepthPrepass>(scene);
 
         // 1. G-Buffer Pass (Uses EQUAL depth test)
-        graph.AddPass<GBufferPass>(scene);
+    graph.AddPass<GBufferPass>(scene);
 
-        bool rtSupported = m_Context->IsRayTracingSupported();
-        uint32_t renderFlags = Application::Get().GetFrameContext().RenderFlags;
-        
-        bool useSVGFMaster = (renderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-        bool doTemporal = (renderFlags & RENDER_FLAG_SVGF_TEMPORAL_BIT) != 0;
-        bool doSpatial = (renderFlags & RENDER_FLAG_SVGF_SPATIAL_BIT) != 0;
-        
-        // SVGF is active only if the master gate is open AND at least one stage is enabled
-        bool svgfActive = useSVGFMaster && (doTemporal || doSpatial);
+    bool rtSupported = m_Context->IsRayTracingSupported();
+    uint32_t renderFlags = Application::Get().GetFrameContext().RenderFlags;
 
-        // 2. Ray Tracing Passes (Shadows, AO, Reflections, GI)
-        bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
-        if (rtSupported && hasTLAS)
-        {
-            graph.AddPass<RTShadowPass>(scene);
-            graph.AddPass<RTAOPass>(scene);
-            graph.AddPass<RTReflectionPass>(scene);
-            graph.AddPass<RTDiffuseGIPass>(scene);
-        }
+    bool useSVGFMaster = (renderFlags & RENDER_FLAG_SVGF_BIT) != 0;
+    bool doTemporal = (renderFlags & RENDER_FLAG_SVGF_TEMPORAL_BIT) != 0;
+    bool doSpatial = (renderFlags & RENDER_FLAG_SVGF_SPATIAL_BIT) != 0;
 
-        // 3. SVGF Denoising Passes (Conditional)
-        if (rtSupported && scene && svgfActive)
-        {
-            SVGFPass::Config baseConfig;
-            baseConfig.temporalEnabled = doTemporal;
-            baseConfig.spatialEnabled = doSpatial;
+    // SVGF is active only if the master gate is open AND at least one stage is
+    // enabled
+    bool svgfActive = useSVGFMaster && (doTemporal || doSpatial);
 
-            SVGFPass::Config shadowConfig = baseConfig;
-            shadowConfig.inputName = "ShadowRaw";
-            shadowConfig.prefix = "Shadow";
-            shadowConfig.historyBaseName = "ShadowAccum";
-            graph.AddPass<SVGFPass>(scene, shadowConfig);
-
-            SVGFPass::Config aoConfig = baseConfig;
-            aoConfig.inputName = "AORaw";
-            aoConfig.prefix = "AO";
-            aoConfig.historyBaseName = "AOAccum";
-            graph.AddPass<SVGFPass>(scene, aoConfig);
-
-            SVGFPass::Config reflConfig = baseConfig;
-            reflConfig.inputName = "ReflectionRaw";
-            reflConfig.prefix = "Refl";
-            reflConfig.historyBaseName = "ReflAccum";
-            graph.AddPass<SVGFPass>(scene, reflConfig);
-
-            SVGFPass::Config giConfig = baseConfig;
-            giConfig.inputName = "GIRaw";
-            giConfig.prefix = "GI";
-            giConfig.historyBaseName = "GIAccum";
-            graph.AddPass<SVGFPass>(scene, giConfig);
-        }
-
-        // 4. Composition Pass (Connect either SVGF output or Raw RT output)
-        CompositionPass::Config compConfig;
-        compConfig.shadowName = svgfActive ? "Shadow_Filtered_Final" : "ShadowRaw";
-        compConfig.aoName     = svgfActive ? "AO_Filtered_Final"     : "AORaw";
-        compConfig.reflectionName = svgfActive ? "Refl_Filtered_Final" : "ReflectionRaw";
-        compConfig.giName = svgfActive ? "GI_Filtered_Final" : "GIRaw";
-
-        graph.AddPass<CompositionPass>(compConfig);
-
-        // 5. Post Processing (Bypassed for Debugging)
-        // graph.AddPass<TAAPass>();
-
-        // [DEBUG] Directly use Composition output, skipping TAA
-        graph.AddPass<PostProcessPass>(RS::FinalColor);
-    }
-
-    void HybridRenderPath::OnImGui()
+    // 2. Ray Tracing Passes (Shadows, AO, Reflections, GI)
+    bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
+    if (rtSupported && hasTLAS)
     {
-        // Control is handled by EditorLayer to prevent state conflicts
+        // RTShadowPass now handles both Shadows and AO (Packed into R and G
+        // channels)
+        graph.AddPass<RTShadowPass>(scene);
+
+        // RTReflectionPass and RTDiffuseGIPass still separate for now
+        graph.AddPass<RTReflectionPass>(scene);
+        graph.AddPass<RTDiffuseGIPass>(scene);
     }
+
+    // 3. SVGF Denoising Passes (Conditional)
+    if (rtSupported && scene && svgfActive)
+    {
+        SVGFPass::Config baseConfig;
+        baseConfig.temporalEnabled = doTemporal;
+        baseConfig.spatialEnabled = doSpatial;
+
+        // --- [PACKED] Shadow and AO SVGF ---
+        SVGFPass::Config shadowAOConfig = baseConfig;
+        shadowAOConfig.inputName = RS::ShadowAO; // Packed input
+        shadowAOConfig.prefix = "ShadowAO";
+        shadowAOConfig.historyBaseName = "ShadowAOAccum";
+        shadowAOConfig.useAlbedoDemod =
+            false; // No albedo for raw visibility signals
+        graph.AddPass<SVGFPass>(scene, shadowAOConfig);
+
+        // --- Reflection SVGF ---
+        SVGFPass::Config reflConfig = baseConfig;
+        reflConfig.inputName = "ReflectionRaw";
+        reflConfig.prefix = "Refl";
+        reflConfig.historyBaseName = "ReflAccum";
+        reflConfig.useAlbedoDemod = true;
+        graph.AddPass<SVGFPass>(scene, reflConfig);
+
+        // --- GI SVGF ---
+        SVGFPass::Config giConfig = baseConfig;
+        giConfig.inputName = "GIRaw";
+        giConfig.prefix = "GI";
+        giConfig.historyBaseName = "GIAccum";
+        giConfig.useAlbedoDemod = true;
+        graph.AddPass<SVGFPass>(scene, giConfig);
+    }
+
+    // 4. Composition Pass
+    CompositionPass::Config compConfig;
+    compConfig.shadowName =
+        svgfActive ? "ShadowAO_Filtered_Final" : RS::ShadowAO;
+    compConfig.aoName = svgfActive
+                            ? "ShadowAO_Filtered_Final"
+                            : RS::ShadowAO; // Uses G channel inside shader
+    compConfig.reflectionName =
+        svgfActive ? "Refl_Filtered_Final" : "ReflectionRaw";
+    compConfig.giName = svgfActive ? "GI_Filtered_Final" : "GIRaw";
+
+    graph.AddPass<CompositionPass>(compConfig);
+
+    // 5. Post Processing
+    graph.AddPass<PostProcessPass>(RS::FinalColor);
 }
+
+void HybridRenderPath::OnImGui() {}
+} // namespace Chimera

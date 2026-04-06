@@ -8,26 +8,28 @@
 
 namespace Chimera
 {
-    struct PostProcessPassData
-    {
-        RGResourceHandle input;
-        RGResourceHandle output;
-    };
+struct PostProcessPassData
+{
+    RGResourceHandle input;
+    RGResourceHandle output;
+};
 
-    class PostProcessPass : public RenderPass<PostProcessPassData>
-    {
-    public:
-        using PassData = PostProcessPassData;
-        static constexpr const char* Name = "PostProcessPass";
+class PostProcessPass : public RenderPass<PostProcessPassData>
+{
+public:
+    using PassData = PostProcessPassData;
+    static constexpr const char* Name = "PostProcessPass";
 
-        using Data = PassData;
+    using Data = PassData;
 
-        PostProcessPass(const std::string& inputName = "TAAOutput");
+    PostProcessPass(const std::string& inputName = "TAAOutput");
 
-        virtual void Setup(PassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+    virtual void Setup(PassData& data,
+                       RenderGraph::PassBuilder& builder) override;
+    virtual void Execute(const PassData& data, RenderGraphRegistry& reg,
+                         VkCommandBuffer cmd) override;
 
-    private:
-        std::string m_InputName;
-    };
-}
+private:
+    std::string m_InputName;
+};
+} // namespace Chimera

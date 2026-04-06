@@ -7,30 +7,32 @@
 
 namespace Chimera
 {
-    class Scene;
+class Scene;
 
-    struct RTDiffuseGIPassData
-    {
-        RGResourceHandle normal;
-        RGResourceHandle depth;
-        RGResourceHandle material;
-        RGResourceHandle output;
-    };
+struct RTDiffuseGIPassData
+{
+    RGResourceHandle normal;
+    RGResourceHandle depth;
+    RGResourceHandle material;
+    RGResourceHandle output;
+};
 
-    class RTDiffuseGIPass : public RenderPass<RTDiffuseGIPassData>
-    {
-    public:
-        using PassData = RTDiffuseGIPassData;
-        static constexpr const char* Name = "RTDiffuseGIPass";
+class RTDiffuseGIPass : public RenderPass<RTDiffuseGIPassData>
+{
+public:
+    using PassData = RTDiffuseGIPassData;
+    static constexpr const char* Name = "RTDiffuseGIPass";
 
-        using Data = PassData;
+    using Data = PassData;
 
-        RTDiffuseGIPass(std::shared_ptr<Scene> scene);
+    RTDiffuseGIPass(std::shared_ptr<Scene> scene);
 
-        virtual void Setup(PassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+    virtual void Setup(PassData& data,
+                       RenderGraph::PassBuilder& builder) override;
+    virtual void Execute(const PassData& data, RenderGraphRegistry& reg,
+                         VkCommandBuffer cmd) override;
 
-    private:
-        std::shared_ptr<Scene> m_Scene;
-    };
-}
+private:
+    std::shared_ptr<Scene> m_Scene;
+};
+} // namespace Chimera

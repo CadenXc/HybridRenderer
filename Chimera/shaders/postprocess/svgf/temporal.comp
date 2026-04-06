@@ -4,106 +4,128 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-// Set 2 is pass-specific inputs for Temporal accumulation
-layout(set = 2, binding = 0) uniform sampler2D gCurColor;    
-layout(set = 2, binding = 1) uniform sampler2D gMotion;      
-layout(set = 2, binding = 2) uniform sampler2D gHistoryColor; 
-layout(set = 2, binding = 3) uniform sampler2D gHistoryMoments; 
+layout(push_constant) uniform PushConstants 
+{ 
+    int useAlbedoDemod; 
+} pc;
 
-layout(set = 2, binding = 4, rgba16f) uniform image2D outColor;   
-layout(set = 2, binding = 5, rgba16f) uniform image2D outMoments; 
+layout(set = 2, binding = 0) uniform sampler2D gCurSignal;
+layout(set = 2, binding = 1) uniform sampler2D gMotion;
+layout(set = 2, binding = 2) uniform sampler2D gHistorySignal;
+layout(set = 2, binding = 3) uniform sampler2D gHistoryMoments;
 
-layout(set = 2, binding = 6) uniform sampler2D gCurDepth;
+layout(set = 2, binding = 4, rgba16f) uniform image2D outSignal;
+layout(set = 2, binding = 5, rgba16f) uniform image2D outMoments;
+
+layout(set = 2, binding = 6) uniform sampler2D gCurDepth;  
 layout(set = 2, binding = 7) uniform sampler2D gCurNormal;
-layout(set = 2, binding = 8) uniform sampler2D gPrevDepth;
+layout(set = 2, binding = 8) uniform sampler2D gPrevDepth; 
 layout(set = 2, binding = 9) uniform sampler2D gPrevNormal;
+layout(set = 2, binding = 10) uniform sampler2D gCurMaterial; 
+layout(set = 2, binding = 11) uniform sampler2D gPrevMaterial;
+layout(set = 2, binding = 12) uniform sampler2D gPrevMotion; 
+layout(set = 2, binding = 13) uniform sampler2D gAlbedo; 
 
-float LinearizeDepth(float d) 
+float sanitize(float v) { return (isnan(v) || isinf(v)) ? 0.0 : v; }
+vec4  sanitize4(vec4 v) { return (any(isnan(v)) || any(isinf(v))) ? vec4(0.0) : v; }
+
+bool is_valid_reprojection(vec2 prevUV, vec3 curNormal, float curDepth, int curID) 
 {
-    // Reversed-Z aware linearization
-    vec4 target = camera.projInverse * vec4(0.0, 0.0, d, 1.0);
-    return abs(target.z / target.w);
+    if (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) return false;
+
+    int preID = int(texture(gPrevMaterial, prevUV).w);
+    if (curID != preID) return false;
+
+    vec3 worldNormal = curNormal;
+    vec3 viewNormal = (camera.view * vec4(worldNormal, 0.0)).xyz;
+    float nz = abs(viewNormal.z);
+    float epsilon = 0.003 + 0.017 * (1.0 - nz);
+
+    vec3 preNormal = texture(gPrevNormal, prevUV).xyz * 2.0 - 1.0;
+    if (dot(curNormal, preNormal) < 0.9) return false; 
+
+    float preDepth = texture(gPrevMotion, prevUV).z;
+    if (abs(1.0 - (preDepth / max(1e-4, curDepth))) > epsilon) return false; 
+
+    return true;
+}
+
+float GetLuma(vec4 signal) { 
+    if (pc.useAlbedoDemod == 1)
+        return dot(signal.rgb, vec3(0.299, 0.587, 0.114)); 
+    else
+        return signal.r;
 }
 
 void main() 
 {
     ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
-    vec2 displaySize = displayData.xy;
-
-    if (ipos.x >= int(displaySize.x) || ipos.y >= int(displaySize.y)) 
-    {
-        return;
-    }
+    if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
 
     vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
     vec2 curJitter = camera.jitterData.xy * 0.5;
     vec2 preJitter = camera.jitterData.zw * 0.5;
 
-    vec2 motion = texture(gMotion, uv).xy;
+    vec4 motionSample = texture(gMotion, uv);
+    vec2 motion = motionSample.xy;
+    float curDepth = motionSample.z;
     
-    // [FIX] Reprojection with TAA Jitter compensation
     vec2 prevUV = uv - motion - curJitter + preJitter;
 
-    vec3 curColor = texture(gCurColor, uv).rgb;
-    float curLuma = dot(curColor, vec3(0.299, 0.587, 0.114));
-    
-    // --- 1. Reprojection Validation ---
-    bool historyValid = prevUV.x >= 0.0 && prevUV.x <= 1.0 && prevUV.y >= 0.0 && prevUV.y <= 1.0;
-    
-    if (historyValid)
+    vec4 curSignal = sanitize4(texture(gCurSignal, uv));
+    if (pc.useAlbedoDemod == 1)
     {
-        float curDepth = texture(gCurDepth, uv).r;
-        float prevDepth = texture(gPrevDepth, prevUV).r;
-        
-        // [FIX] Normal is already in SFLOAT [-1, 1] range, do not remap
-        vec3 curNormal = normalize(texture(gCurNormal, uv).rgb);
-        vec3 prevNormal = normalize(texture(gPrevNormal, prevUV).rgb);
+        vec3 albedo = sanitize4(texture(gAlbedo, uv)).rgb;
+        curSignal.rgb /= max(vec3(0.01), albedo);
+    }
 
-        // [FIX] Convert non-linear Depth to Linear Distance for relative error check
-        float curLinearZ = LinearizeDepth(curDepth);
-        float prevLinearZ = LinearizeDepth(prevDepth);
+    vec3  curNormal = texture(gCurNormal, uv).xyz * 2.0 - 1.0;
+    int   curID     = int(texture(gCurMaterial, uv).w); 
+    float curLuma   = GetLuma(curSignal);
 
-        // Validation A: Relative Depth Check (more robust than absolute)
-        if (abs(curLinearZ - prevLinearZ) / max(curLinearZ, 0.001) > 0.1) 
+    vec2 prevPixelPos = prevUV * displayData.xy - vec2(0.5);
+    ivec2 prevCoordBase = ivec2(floor(prevPixelPos));
+    vec2 f = fract(prevPixelPos);
+
+    float weights[4] = { (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y };
+    ivec2 offsets[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
+
+    vec4  historySignal  = vec4(0.0);
+    vec2  historyMoments = vec2(0.0);
+    float historyLen     = 0.0;
+    float weightSum      = 0.0;
+
+    for (int i = 0; i < 4; i++) 
+    {
+        vec2 sampleUV = (vec2(prevCoordBase + offsets[i]) + 0.5) / displayData.xy;
+        if (is_valid_reprojection(sampleUV, curNormal, curDepth, curID)) 
         {
-            historyValid = false;
-        }
-        
-        // Validation B: Normal Check
-        if (dot(curNormal, prevNormal) < 0.85) 
-        {
-            historyValid = false;
+            historySignal  += weights[i] * sanitize4(texture(gHistorySignal, sampleUV));
+            vec4 hM = texture(gHistoryMoments, sampleUV);
+            historyMoments += weights[i] * hM.rg;
+            historyLen     += weights[i] * hM.a;
+            weightSum      += weights[i];
         }
     }
 
-    vec3 accumColor = curColor;
-    float moment1 = curLuma;
-    float moment2 = curLuma * curLuma;
-    float historyLen = 0.0;
+    bool valid = (weightSum > 0.01);
+    vec4  accumSignal = curSignal;
+    float m1 = curLuma, m2 = curLuma * curLuma;
+    float outHLen = 1.0;
 
-    if (historyValid) 
+    if (valid) 
     {
-        vec3 hColor = texture(gHistoryColor, prevUV).rgb;
-        vec4 hMoments = texture(gHistoryMoments, prevUV);
-        historyLen = hMoments.a;
-
-        float alphaColor = svgfAlpha.x;
-        float alphaMoments = svgfAlpha.y;
-
-        // Dynamic alpha based on history length to speed up convergence
-        // Use UBO values as floor
-        float successAlpha = max(1.0 / (historyLen + 1.0), alphaColor); 
-        float momentsAlpha = max(1.0 / (historyLen + 1.0), alphaMoments); 
+        historySignal /= weightSum; historyMoments /= weightSum; historyLen /= weightSum;
+        outHLen = min(historyLen + 1.0, 32.0); 
+        float alpha = max(svgfAlpha.x, 1.0 / outHLen);
+        float alphaM = max(svgfAlpha.y, 1.0 / outHLen);
         
-        accumColor = mix(hColor, curColor, successAlpha);
-        moment1 = mix(hMoments.r, curLuma, momentsAlpha);
-        moment2 = mix(hMoments.g, curLuma * curLuma, momentsAlpha);
-        historyLen = min(historyLen + 1.0, 32.0); // Reduced from 64.0 for faster response
+        accumSignal = mix(historySignal, curSignal, alpha);
+        m1 = mix(historyMoments.r, curLuma, alphaM);
+        m2 = mix(historyMoments.g, curLuma * curLuma, alphaM);
     }
 
-    // Variance calculation (using luminance moments)
-    float variance = max(0.0, moment2 - moment1 * moment1);
-
-    imageStore(outColor, ipos, vec4(accumColor, 1.0));
-    imageStore(outMoments, ipos, vec4(moment1, moment2, variance, historyLen));
+    float var = max(0.0, m2 - m1 * m1);
+    imageStore(outSignal, ipos, sanitize4(accumSignal));
+    imageStore(outMoments, ipos, vec4(sanitize(m1), sanitize(m2), sanitize(var), outHLen));
 }

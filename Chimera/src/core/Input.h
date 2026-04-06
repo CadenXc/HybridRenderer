@@ -5,17 +5,17 @@
 
 namespace Chimera
 {
-    class Input
-    {
-    public:
-        static bool IsKeyDown(KeyCode key);
-        static bool IsKeyPressed(KeyCode key);
-        static bool IsMouseButtonDown(MouseButton button);
+class Input
+{
+public:
+    static bool IsKeyDown(KeyCode key);
+    static bool IsKeyPressed(KeyCode key);
+    static bool IsMouseButtonDown(MouseButton button);
 
-        static glm::vec2 GetMousePosition();
-        static float GetMouseX();
-        static float GetMouseY();
+    static glm::vec2 GetMousePosition();
+    static float GetMouseX();
+    static float GetMouseY();
 
-        static void SetCursorMode(CursorMode mode);
-    };
-}
+    static void SetCursorMode(CursorMode mode);
+};
+} // namespace Chimera

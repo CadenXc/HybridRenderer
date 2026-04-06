@@ -94,14 +94,12 @@ void main()
     vec2 motion = (clipPos.xy / clipPos.w * 0.5 + 0.5) - (prevClipPos.xy / prevClipPos.w * 0.5 + 0.5);
 
     // 6. Final Payload Assignment
-    // [DEMODULATION] Return Irradiance (Radiance divided by local Albedo)
-    // This allows the denoiser to smooth the light field without blurring texture details.
-    vec3 localAlbedo = max(albedoSample.rgb, vec3(0.01)); 
+    // Return Raw Radiance. 
+    // Demodulation (dividing by Albedo) will be handled by the SVGF pipeline 
+    // at the primary hit level to ensure consistency.
     vec3 totalRadiance = directLighting + ambient + emissive;
     
-    // For primary rays or specific debug modes, we might want full radiance.
-    // But for our SVGF path, we output demodulated irradiance.
-    payload.color_dist = vec4(totalRadiance / localAlbedo, gl_HitTEXT);
+    payload.color_dist = vec4(totalRadiance, gl_HitTEXT);
     payload.normal_rough = vec4(worldNormal, roughness);
     payload.motion_hit = vec4(motion, 1.0, 0.0);
 }

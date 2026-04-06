@@ -8,103 +8,126 @@
 
 namespace Chimera
 {
-    class VulkanContext;
-    class Model;
+class VulkanContext;
+class Model;
 
-    class Scene
-    {
-    public:
-        Scene(std::shared_ptr<VulkanContext> context);
-        ~Scene();
+class Scene
+{
+public:
+    Scene(std::shared_ptr<VulkanContext> context);
+    ~Scene();
 
         // Scene Management
-        void LoadModel(const std::string &path);
-        void FinalizeAsyncModelLoad(std::shared_ptr<Model> model, std::shared_ptr<ImportedScene> imported, const std::string& path);
-        void UpdateEntityTRS(uint32_t index, const glm::vec3 &pos, const glm::vec3 &rot, const glm::vec3 &scale);
-        void RemoveEntity(uint32_t index);
-        void OnUpdate(float ts);
-        void ClearScene();
+    void LoadModel(const std::string& path);
+    void FinalizeAsyncModelLoad(std::shared_ptr<Model> model,
+                                std::shared_ptr<ImportedScene> imported,
+                                const std::string& path);
+    void UpdateEntityTRS(uint32_t index, const glm::vec3& pos,
+                         const glm::vec3& rot, const glm::vec3& scale);
+    void RemoveEntity(uint32_t index);
+    void OnUpdate(float ts);
+    void ClearScene();
 
         // Skybox
-        void LoadSkybox(const std::string &path);
-        void LoadHDRSkybox(const std::string &path);
-        void ClearSkybox();
+    void LoadSkybox(const std::string& path);
+    void LoadHDRSkybox(const std::string& path);
+    void ClearSkybox();
 
-        void SetSkyboxTextureIndex(uint32_t index)
-        {
-            m_SkyboxTexture = TextureHandle(index);
-        }
+    void SetSkyboxTextureIndex(uint32_t index)
+    {
+        m_SkyboxTexture = TextureHandle(index);
+    }
 
-        uint32_t GetSkyboxTextureIndex() const
-        {
-            return m_SkyboxTexture.IsValid() ? m_SkyboxTexture.id : 0xFFFFFFFF;
-        }
+    uint32_t GetSkyboxTextureIndex() const
+    {
+        return m_SkyboxTexture.IsValid() ? m_SkyboxTexture.id : 0xFFFFFFFF;
+    }
 
         // Lights
-        void AddLight(const Light &light) { m_Lights.push_back(light); }
-        std::vector<Light> &GetLights() { return m_Lights; }
-        const std::vector<Light> &GetLights() const { return m_Lights; }
+    void AddLight(const Light& light)
+    {
+        m_Lights.push_back(light);
+    }
+    std::vector<Light>& GetLights()
+    {
+        return m_Lights;
+    }
+    const std::vector<Light>& GetLights() const
+    {
+        return m_Lights;
+    }
 
         // [COMPAT] Return first light as main light for old passes
-        Light &GetMainLight()
+    Light& GetMainLight()
+    {
+        if (m_Lights.empty())
         {
-            if (m_Lights.empty())
-            {
-                Light defaultLight;
-                defaultLight.position.w = (float)LightType::Directional;
-                defaultLight.direction = glm::vec4(glm::normalize(glm::vec3(0.1f, -1.0f, 0.1f)), 0.0f);
-                defaultLight.color = glm::vec4(1.0f, 1.0f, 1.0f, 5.0f); // Intensity in Alpha
-                m_Lights.push_back(defaultLight);
-            }
-            return m_Lights[0];
+            Light defaultLight;
+            defaultLight.position.w = (float)LightType::Directional;
+            defaultLight.direction =
+                glm::vec4(glm::normalize(glm::vec3(0.1f, -1.0f, 0.1f)), 0.0f);
+            defaultLight.color =
+                glm::vec4(1.0f, 1.0f, 1.0f, 5.0f); // Intensity in Alpha
+            m_Lights.push_back(defaultLight);
         }
+        return m_Lights[0];
+    }
 
         // Acceleration Structures
-        void UpdateTLAS();
+    void UpdateTLAS();
 
-        VkAccelerationStructureKHR GetTLAS() const
-        {
-            return m_TopLevelAS;
-        }
+    VkAccelerationStructureKHR GetTLAS() const
+    {
+        return m_TopLevelAS;
+    }
 
-        const std::vector<Entity> &GetEntities() const
-        {
-            return m_Entities;
-        }
+    const std::vector<Entity>& GetEntities() const
+    {
+        return m_Entities;
+    }
 
-        void MarkDirty() { m_NeedsTLASRebuild = true; }
-        void MarkMaterialDirty() { m_NeedsMaterialSync = true; }
+    void MarkDirty()
+    {
+        m_NeedsTLASRebuild = true;
+    }
+    void MarkMaterialDirty()
+    {
+        m_NeedsMaterialSync = true;
+    }
 
         // Hierarchy Management
-        void UpdateWorldTransforms();
-        
+    void UpdateWorldTransforms();
+
         // Octree
-        void BuildOctree();
-        void GetVisibleEntities(const Frustum& frustum, std::vector<uint32_t>& outVisibleIndices) const;
+    void BuildOctree();
+    void GetVisibleEntities(const Frustum& frustum,
+                            std::vector<uint32_t>& outVisibleIndices) const;
 
-    private:
-        void ComputeWorldTransform(uint32_t nodeIndex, const glm::mat4 &parentTransform);
-        void SubdivideOctree(OctreeNode* node, uint32_t depth);
-        void TraverseOctree(const OctreeNode* node, const Frustum& frustum, std::vector<uint32_t>& outVisibleIndices) const;
+private:
+    void ComputeWorldTransform(uint32_t nodeIndex,
+                               const glm::mat4& parentTransform);
+    void SubdivideOctree(OctreeNode* node, uint32_t depth);
+    void TraverseOctree(const OctreeNode* node, const Frustum& frustum,
+                        std::vector<uint32_t>& outVisibleIndices) const;
 
-    private:
-        VulkanContext *m_Context;
-        std::vector<Entity> m_Entities;
-        std::vector<Node> m_Nodes;
-        std::vector<glm::mat4> m_WorldTransforms; // Cached global matrices
+private:
+    VulkanContext* m_Context;
+    std::vector<Entity> m_Entities;
+    std::vector<Node> m_Nodes;
+    std::vector<glm::mat4> m_WorldTransforms; // Cached global matrices
 
-        std::unique_ptr<OctreeNode> m_OctreeRoot;
+    std::unique_ptr<OctreeNode> m_OctreeRoot;
 
-        std::vector<Light> m_Lights;
-        TextureHandle m_SkyboxTexture;
+    std::vector<Light> m_Lights;
+    TextureHandle m_SkyboxTexture;
 
-        bool m_NeedsTLASRebuild = false;
-        bool m_NeedsMaterialSync = false;
+    bool m_NeedsTLASRebuild = false;
+    bool m_NeedsMaterialSync = false;
 
-        VkAccelerationStructureKHR m_TopLevelAS = VK_NULL_HANDLE;
-        std::unique_ptr<Buffer> m_TLASBuffer;
-        std::unique_ptr<Buffer> m_ASInstanceBuffer;
-        
-        std::vector<uint32_t> m_EntitiesToRemove;
-    };
-}
+    VkAccelerationStructureKHR m_TopLevelAS = VK_NULL_HANDLE;
+    std::unique_ptr<Buffer> m_TLASBuffer;
+    std::unique_ptr<Buffer> m_ASInstanceBuffer;
+
+    std::vector<uint32_t> m_EntitiesToRemove;
+};
+} // namespace Chimera

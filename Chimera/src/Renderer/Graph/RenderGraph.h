@@ -11,271 +11,343 @@
 
 namespace Chimera
 {
-    class VulkanContext;
+class VulkanContext;
 
-    struct PhysicalResource
-    {
-        std::string name; 
-        std::string historyName;
-        ImageDescription desc;
-        GraphImage image;
-        ResourceState currentState;
-        uint32_t firstPass = 0xFFFFFFFF;
-        uint32_t lastPass = 0;
-    };
+struct PhysicalResource
+{
+    std::string name;
+    std::string historyName;
+    ImageDescription desc;
+    GraphImage image;
+    ResourceState currentState;
+    uint32_t firstPass = 0xFFFFFFFF;
+    uint32_t lastPass = 0;
+};
 
-    struct HistoryResource
-    {
-        GraphImage image;
-        ResourceState state;
-    };
+struct HistoryResource
+{
+    GraphImage image;
+    ResourceState state;
+};
 
-    class RenderGraph
+class RenderGraph
+{
+public:
+    struct PassBuilder
     {
-    public:
-        struct PassBuilder
+        RenderGraph& graph;
+        struct RenderGraphPass& pass;
+        PassBuilder(RenderGraph& g, struct RenderGraphPass& p)
+            : graph(g), pass(p)
         {
-            RenderGraph& graph;
-            struct RenderGraphPass& pass;
-            PassBuilder(RenderGraph& g, struct RenderGraphPass& p) : graph(g), pass(p) {}
-
-            RGResourceHandle Read(const std::string& name);
-            RGResourceHandle ReadCompute(const std::string& name);
-            RGResourceHandle ReadHistory(const std::string& name);
-            
-            ResourceHandleProxy Write(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
-            ResourceHandleProxy WriteStorage(const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
-        };
-
-        RenderGraph(VulkanContext& context, uint32_t w, uint32_t h);
-        ~RenderGraph();
-
-        /**
-         * @brief Raw Lambda-based AddPass.
-         */
-        template<typename PassData>
-        void AddPassRaw(const std::string& name,
-                       std::function<void(PassData&, PassBuilder&)> setup,
-                       std::function<void(const PassData&, RenderGraphRegistry&, VkCommandBuffer)> execute)
-        {
-            auto& pass = m_PassStack.emplace_back();
-            pass.name = name;
-            pass.width = m_Width;
-            pass.height = m_Height;
-            auto data = std::make_shared<PassData>();
-            PassBuilder builder(*this, pass);
-            setup(*data, builder);
-            pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) { execute(*data, reg, cmd); };
         }
 
-        /**
-         * @brief Class-based AddPass. Supports both atomic RenderPass subclasses 
-         * and Compound Pass types (which define their own static Add() method).
-         */
-        template<typename T, typename... Args>
-        void AddPass(Args&&... args)
-        {
-            if constexpr (HasPassData<T>::value)
-            {
-                auto passInstance = std::make_shared<T>(std::forward<Args>(args)...);
-                using Data = typename T::PassData;
+        RGResourceHandle Read(const std::string& name);
+        RGResourceHandle ReadCompute(const std::string& name);
+        RGResourceHandle ReadHistory(const std::string& name);
 
-                if constexpr (HasExecuteGraphics<T, Data>::value)
-                {
-                    this->AddGraphicsPass<Data>(
-                        T::Name,
-                        [passInstance](Data& data, PassBuilder& builder) {
-                            passInstance->Setup(data, builder);
-                        },
-                        [passInstance](const Data& data, class GraphicsExecutionContext& ctx) {
-                            passInstance->Execute(data, ctx);
-                        }
-                    );
-                }
-                else if constexpr (HasExecuteCompute<T, Data>::value)
-                {
-                    this->AddComputePass<Data>(
-                        T::Name,
-                        [passInstance](Data& data, PassBuilder& builder) {
-                            passInstance->Setup(data, builder);
-                        },
-                        [passInstance](const Data& data, class ComputeExecutionContext& ctx) {
-                            passInstance->Execute(data, ctx);
-                        }
-                    );
-                }
-                else if constexpr (HasExecuteRaytracing<T, Data>::value)
-                {
-                    this->AddRaytracingPass<Data>(
-                        T::Name,
-                        [passInstance](Data& data, PassBuilder& builder) {
-                            passInstance->Setup(data, builder);
-                        },
-                        [passInstance](const Data& data, class RaytracingExecutionContext& ctx) {
-                            passInstance->Execute(data, ctx);
-                        }
-                    );
-                }
-                else
-                {
-                    // Fallback to generic RenderPass
-                    this->AddPassRaw<Data>(
-                        T::Name,
-                        [passInstance](Data& data, PassBuilder& builder) {
-                            passInstance->Setup(data, builder);
-                        },
-                        [passInstance](const Data& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) {
-                            passInstance->Execute(data, reg, cmd);
-                        }
-                    );
-                }
+            /**
+         * @brief [NEW] Read history resource safely.
+         * If history is not available (e.g. first frame), falls back to reading
+         * the current frame's resource.
+         */
+        RGResourceHandle ReadHistorySafe(const std::string& name,
+                                         const std::string& fallbackName);
+
+        ResourceHandleProxy Write(const std::string& name,
+                                  VkFormat format = VK_FORMAT_UNDEFINED);
+        ResourceHandleProxy WriteStorage(const std::string& name,
+                                         VkFormat format = VK_FORMAT_UNDEFINED);
+    };
+
+    RenderGraph(VulkanContext& context, uint32_t w, uint32_t h);
+    ~RenderGraph();
+
+        /**
+     * @brief Raw Lambda-based AddPass. Returns the PassBuilder for further
+     * chaining.
+     */
+    template <typename PassData>
+    PassBuilder AddPassRaw(
+        const std::string& name,
+        std::function<void(PassData&, PassBuilder&)> setup,
+        std::function<void(const PassData&, RenderGraphRegistry&,
+                           VkCommandBuffer)>
+            execute)
+    {
+        auto& pass = m_PassStack.emplace_back();
+        pass.name = name;
+        pass.width = m_Width;
+        pass.height = m_Height;
+        auto data = std::make_shared<PassData>();
+        PassBuilder builder(*this, pass);
+        setup(*data, builder);
+        pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd)
+        { execute(*data, reg, cmd); };
+        return builder;
+    }
+
+        /**
+     * @brief Class-based AddPass. Returns the PassBuilder if a single pass was
+     * added.
+     */
+    template <typename T, typename... Args>
+    auto AddPass(Args&&... args)
+    {
+        if constexpr (HasPassData<T>::value)
+        {
+            auto passInstance =
+                std::make_shared<T>(std::forward<Args>(args)...);
+            using Data = typename T::PassData;
+
+            if constexpr (HasExecuteGraphics<T, Data>::value)
+            {
+                return this->AddGraphicsPass<Data>(
+                    T::Name, [passInstance](Data& data, PassBuilder& builder)
+                    { passInstance->Setup(data, builder); },
+                    [passInstance](const Data& data,
+                                   class GraphicsExecutionContext& ctx)
+                    { passInstance->Execute(data, ctx); });
+            }
+            else if constexpr (HasExecuteCompute<T, Data>::value)
+            {
+                return this->AddComputePass<Data>(
+                    T::Name, [passInstance](Data& data, PassBuilder& builder)
+                    { passInstance->Setup(data, builder); },
+                    [passInstance](const Data& data,
+                                   class ComputeExecutionContext& ctx)
+                    { passInstance->Execute(data, ctx); });
+            }
+            else if constexpr (HasExecuteRaytracing<T, Data>::value)
+            {
+                return this->AddRaytracingPass<Data>(
+                    T::Name, [passInstance](Data& data, PassBuilder& builder)
+                    { passInstance->Setup(data, builder); },
+                    [passInstance](const Data& data,
+                                   class RaytracingExecutionContext& ctx)
+                    { passInstance->Execute(data, ctx); });
             }
             else
             {
-                T::Add(*this, std::forward<Args>(args)...);
+                    // Fallback to generic RenderPass
+                return this->AddPassRaw<Data>(
+                    T::Name, [passInstance](Data& data, PassBuilder& builder)
+                    { passInstance->Setup(data, builder); },
+                    [passInstance](const Data& data, RenderGraphRegistry& reg,
+                                   VkCommandBuffer cmd)
+                    { passInstance->Execute(data, reg, cmd); });
             }
         }
-
-        template<typename PassData>
-        void AddGraphicsPass(const std::string& name,
-                           std::function<void(PassData&, PassBuilder&)> setup,
-                           std::function<void(const PassData&, class GraphicsExecutionContext&)> execute)
+        else
         {
-            auto& pass = m_PassStack.emplace_back();
-            pass.name = name;
-            pass.width = m_Width;
-            pass.height = m_Height;
-            auto data = std::make_shared<PassData>();
-            PassBuilder builder(*this, pass);
-            setup(*data, builder);
-            
-            pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) {
-                GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
-                execute(*data, ctx);
-            };
+            T::Add(*this, std::forward<Args>(args)...);
+            // Return a dummy/empty builder for compound passes (or we could
+            // return the last one) For now, return a builder tied to a "dummy"
+            // pass if needed, but void is safer for logic.
+            return PassBuilder(*this, m_PassStack.back());
         }
+    }
 
-        template<typename PassData>
-        void AddComputePass(const std::string& name,
-                           std::function<void(PassData&, PassBuilder&)> setup,
-                           std::function<void(const PassData&, class ComputeExecutionContext&)> execute)
+    template <typename PassData>
+    PassBuilder AddGraphicsPass(
+        const std::string& name,
+        std::function<void(PassData&, PassBuilder&)> setup,
+        std::function<void(const PassData&, class GraphicsExecutionContext&)>
+            execute)
+    {
+        auto& pass = m_PassStack.emplace_back();
+        pass.name = name;
+        pass.width = m_Width;
+        pass.height = m_Height;
+        auto data = std::make_shared<PassData>();
+        PassBuilder builder(*this, pass);
+        setup(*data, builder);
+
+        pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd)
         {
-            auto& pass = m_PassStack.emplace_back();
-            pass.name = name;
-            pass.isCompute = true;
-            pass.width = m_Width;
-            pass.height = m_Height;
-            auto data = std::make_shared<PassData>();
-            PassBuilder builder(*this, pass);
-            setup(*data, builder);
-            
-            pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) {
-                ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
-                execute(*data, ctx);
-            };
-        }
+            GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
+            execute(*data, ctx);
+        };
+        return builder;
+    }
 
-        template<typename PassData>
-        void AddRaytracingPass(const std::string& name,
-                           std::function<void(PassData&, PassBuilder&)> setup,
-                           std::function<void(const PassData&, class RaytracingExecutionContext&)> execute)
+    template <typename PassData>
+    PassBuilder AddComputePass(
+        const std::string& name,
+        std::function<void(PassData&, PassBuilder&)> setup,
+        std::function<void(const PassData&, class ComputeExecutionContext&)>
+            execute)
+    {
+        auto& pass = m_PassStack.emplace_back();
+        pass.name = name;
+        pass.isCompute = true;
+        pass.width = m_Width;
+        pass.height = m_Height;
+        auto data = std::make_shared<PassData>();
+        PassBuilder builder(*this, pass);
+        setup(*data, builder);
+
+        pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd)
         {
-            auto& pass = m_PassStack.emplace_back();
-            pass.name = name;
-            pass.width = m_Width;
-            pass.height = m_Height;
-            auto data = std::make_shared<PassData>();
-            PassBuilder builder(*this, pass);
-            setup(*data, builder);
-            
-            pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd) {
-                RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
-                execute(*data, ctx);
-            };
-        }
+            ComputeExecutionContext ctx(reg.graph, reg.pass, cmd);
+            execute(*data, ctx);
+        };
+        return builder;
+    }
 
-        void Reset();
-        void Compile();
-        VkSemaphore Execute(VkCommandBuffer cmd);
-        void DestroyResources(bool all = false);
+    template <typename PassData>
+    PassBuilder AddRaytracingPass(
+        const std::string& name,
+        std::function<void(PassData&, PassBuilder&)> setup,
+        std::function<void(const PassData&, class RaytracingExecutionContext&)>
+            execute)
+    {
+        auto& pass = m_PassStack.emplace_back();
+        pass.name = name;
+        pass.width = m_Width;
+        pass.height = m_Height;
+        auto data = std::make_shared<PassData>();
+        PassBuilder builder(*this, pass);
+        setup(*data, builder);
 
-        void SetExternalResource(const std::string& name, VkImage image, VkImageView view, VkImageLayout layout, const ImageDescription& desc);
+        pass.executeFunc = [=](RenderGraphRegistry& reg, VkCommandBuffer cmd)
+        {
+            RaytracingExecutionContext ctx(reg.graph, reg.pass, cmd);
+            execute(*data, ctx);
+        };
+        return builder;
+    }
 
-        RGResourceHandle GetResourceHandle(const std::string& name);
-        uint32_t GetWidth() const { return m_Width; }
-        uint32_t GetHeight() const { return m_Height; }
-        
-        bool ContainsImage(const std::string& name);
-        bool HasHistory(const std::string& name) const;
-        const GraphImage& GetImage(const std::string& name) const;
-        
-        std::vector<std::string> GetDebuggableResources() const;
-        const std::vector<PassTiming>& GetLatestTimings() const { return m_LatestTimings; }
-        
-        void DrawPerformanceStatistics();
-        std::string ExportToMermaid() const;
+    void Reset();
+    void Compile();
+    VkSemaphore Execute(VkCommandBuffer cmd);
+    void DestroyResources(bool all = false);
 
-        // --- Multi-threaded Extension ---
-        void BuildDependencyGraph();
-        const std::vector<std::vector<uint32_t>>& GetParallelLayers() const { return m_ParallelLayers; }
+    void SetExternalResource(const std::string& name, VkImage image,
+                             VkImageView view, VkImageLayout layout,
+                             const ImageDescription& desc);
 
-    private:
-        // Parallel execution layers: each inner vector contains indices of passes that can run concurrently
-        std::vector<std::vector<uint32_t>> m_ParallelLayers; 
+    RGResourceHandle GetResourceHandle(const std::string& name);
+    uint32_t GetWidth() const
+    {
+        return m_Width;
+    }
+    uint32_t GetHeight() const
+    {
+        return m_Height;
+    }
 
-        template<typename T, typename = void>
-        struct HasPassData : std::false_type {};
-        template<typename T>
-        struct HasPassData<T, std::void_t<typename T::PassData>> : std::true_type {};
+    bool ContainsImage(const std::string& name);
+    bool HasHistory(const std::string& name) const;
+    const GraphImage& GetImage(const std::string& name) const;
 
-        template<typename T, typename Data, typename = void>
-        struct HasExecuteGraphics : std::false_type {};
-        template<typename T, typename Data>
-        struct HasExecuteGraphics<T, Data, std::void_t<decltype(std::declval<T>().Execute(std::declval<const Data&>(), std::declval<class GraphicsExecutionContext&>()))>> : std::true_type {};
+    std::vector<std::string> GetDebuggableResources() const;
+    const std::vector<PassTiming>& GetLatestTimings() const
+    {
+        return m_LatestTimings;
+    }
 
-        template<typename T, typename Data, typename = void>
-        struct HasExecuteCompute : std::false_type {};
-        template<typename T, typename Data>
-        struct HasExecuteCompute<T, Data, std::void_t<decltype(std::declval<T>().Execute(std::declval<const Data&>(), std::declval<class ComputeExecutionContext&>()))>> : std::true_type {};
+    void DrawPerformanceStatistics();
+    std::string ExportToMermaid() const;
 
-        template<typename T, typename Data, typename = void>
-        struct HasExecuteRaytracing : std::false_type {};
-        template<typename T, typename Data>
-        struct HasExecuteRaytracing<T, Data, std::void_t<decltype(std::declval<T>().Execute(std::declval<const Data&>(), std::declval<class RaytracingExecutionContext&>()))>> : std::true_type {};
+    // --- Multi-threaded Extension ---
+    void BuildDependencyGraph();
+    const std::vector<std::vector<uint32_t>>& GetParallelLayers() const
+    {
+        return m_ParallelLayers;
+    }
 
-        void BuildBarriers(VkCommandBuffer cmd, struct RenderGraphPass& pass, uint32_t passIdx);
-        void BeginPassDebugLabel(VkCommandBuffer cmd, const struct RenderGraphPass& pass);
-        void EndPassDebugLabel(VkCommandBuffer cmd);
-        void WriteTimestamp(VkCommandBuffer cmd, uint32_t queryIdx, VkPipelineStageFlags2 stage);
-        bool BeginDynamicRendering(VkCommandBuffer cmd, const struct RenderGraphPass& pass);
-        void UpdatePersistentResources(VkCommandBuffer cmd);
+private:
+    // Parallel execution layers: each inner vector contains indices of passes
+    // that can run concurrently
+    std::vector<std::vector<uint32_t>> m_ParallelLayers;
 
-    private:
-        VulkanContext& m_Context;
-        uint32_t m_Width, m_Height;
-        std::vector<struct RenderGraphPass> m_PassStack;
-        std::vector<PhysicalResource> m_Resources;
-        std::unordered_map<std::string, RGResourceHandle> m_ResourceMap;
-        std::unordered_map<std::string, HistoryResource> m_HistoryResources;
-        std::unordered_map<VkImage, ResourceState> m_ExternalImageStates;
-        std::unordered_map<VkImage, ResourceState> m_PhysicalImageStates;
-
-        VkCommandPool m_ComputeCommandPool = VK_NULL_HANDLE;
-        VkCommandBuffer m_ComputeCommandBuffer = VK_NULL_HANDLE;
-        VkSemaphore m_ComputeFinishedSemaphore = VK_NULL_HANDLE;
-        VkSemaphore m_GraphicsWaitSemaphore = VK_NULL_HANDLE;
-
-        VkQueryPool m_TimestampQueryPool = VK_NULL_HANDLE;
-        std::vector<PassTiming> m_LatestTimings;
-        std::vector<std::string> m_LastPassNames;
-        uint32_t m_PreviousPassCount = 0;
-
-        std::vector<PooledImage> m_ImagePool;
-
-        friend class GraphicsExecutionContext;
-        friend class ComputeExecutionContext;
-        friend class RaytracingExecutionContext;
-        friend struct RenderGraphRegistry;
-        friend class ResourceHandleProxy;
+    template <typename T, typename = void>
+    struct HasPassData : std::false_type
+    {
     };
-}
+    template <typename T>
+    struct HasPassData<T, std::void_t<typename T::PassData>> : std::true_type
+    {
+    };
+
+    template <typename T, typename Data, typename = void>
+    struct HasExecuteGraphics : std::false_type
+    {
+    };
+    template <typename T, typename Data>
+    struct HasExecuteGraphics<
+        T, Data,
+        std::void_t<decltype(std::declval<T>().Execute(
+            std::declval<const Data&>(),
+            std::declval<class GraphicsExecutionContext&>()))>> : std::true_type
+    {
+    };
+
+    template <typename T, typename Data, typename = void>
+    struct HasExecuteCompute : std::false_type
+    {
+    };
+    template <typename T, typename Data>
+    struct HasExecuteCompute<
+        T, Data,
+        std::void_t<decltype(std::declval<T>().Execute(
+            std::declval<const Data&>(),
+            std::declval<class ComputeExecutionContext&>()))>> : std::true_type
+    {
+    };
+
+    template <typename T, typename Data, typename = void>
+    struct HasExecuteRaytracing : std::false_type
+    {
+    };
+    template <typename T, typename Data>
+    struct HasExecuteRaytracing<
+        T, Data,
+        std::void_t<decltype(std::declval<T>().Execute(
+            std::declval<const Data&>(),
+            std::declval<class RaytracingExecutionContext&>()))>>
+        : std::true_type
+    {
+    };
+
+    void BuildBarriers(VkCommandBuffer cmd, struct RenderGraphPass& pass,
+                       uint32_t passIdx);
+    void BeginPassDebugLabel(VkCommandBuffer cmd,
+                             const struct RenderGraphPass& pass);
+    void EndPassDebugLabel(VkCommandBuffer cmd);
+    void WriteTimestamp(VkCommandBuffer cmd, uint32_t queryIdx,
+                        VkPipelineStageFlags2 stage);
+    bool BeginDynamicRendering(VkCommandBuffer cmd,
+                               const struct RenderGraphPass& pass);
+    void UpdatePersistentResources(VkCommandBuffer cmd);
+
+private:
+    VulkanContext& m_Context;
+    uint32_t m_Width, m_Height;
+    std::vector<struct RenderGraphPass> m_PassStack;
+    std::vector<PhysicalResource> m_Resources;
+    std::unordered_map<std::string, RGResourceHandle> m_ResourceMap;
+    std::unordered_map<std::string, HistoryResource> m_HistoryResources;
+    std::unordered_map<VkImage, ResourceState> m_ExternalImageStates;
+    std::unordered_map<VkImage, ResourceState> m_PhysicalImageStates;
+
+    VkCommandPool m_ComputeCommandPool = VK_NULL_HANDLE;
+    VkCommandBuffer m_ComputeCommandBuffer = VK_NULL_HANDLE;
+    VkSemaphore m_ComputeFinishedSemaphore = VK_NULL_HANDLE;
+    VkSemaphore m_GraphicsWaitSemaphore = VK_NULL_HANDLE;
+
+    VkQueryPool m_TimestampQueryPool = VK_NULL_HANDLE;
+    std::vector<PassTiming> m_LatestTimings;
+    std::vector<std::string> m_LastPassNames;
+    uint32_t m_PreviousPassCount = 0;
+
+    std::vector<PooledImage> m_ImagePool;
+
+    friend class GraphicsExecutionContext;
+    friend class ComputeExecutionContext;
+    friend class RaytracingExecutionContext;
+    friend struct RenderGraphRegistry;
+    friend class ResourceHandleProxy;
+};
+} // namespace Chimera

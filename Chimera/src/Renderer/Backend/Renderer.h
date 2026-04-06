@@ -6,92 +6,95 @@
 namespace Chimera
 {
     // Frame resource structure forward declaration
-    struct FrameResource;
+struct FrameResource;
 
-    class Renderer
-    {
-    public:
+class Renderer
+{
+public:
         // Constants
-        static constexpr uint32_t MaxFramesInFlight = 3;
+    static constexpr uint32_t MaxFramesInFlight = 3;
 
-        Renderer();
-        ~Renderer();
+    Renderer();
+    ~Renderer();
 
         // Disable copying
-        Renderer(const Renderer&) = delete;
-        Renderer& operator=(const Renderer&) = delete;
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
 
-        static Renderer& Get()
+    static Renderer& Get()
+    {
+        if (!s_Instance)
         {
-            if (!s_Instance)
-            {
-                s_Instance = new Renderer();
-            }
-            return *s_Instance;
+            s_Instance = new Renderer();
         }
+        return *s_Instance;
+    }
 
         // Core rendering loop: begin frame
-        // Returns command buffer for recording. Returns VK_NULL_HANDLE if swapchain is out of date
-        VkCommandBuffer BeginFrame();
+    // Returns command buffer for recording. Returns VK_NULL_HANDLE if swapchain
+    // is out of date
+    VkCommandBuffer BeginFrame();
 
-        // Core rendering loop: end frame
-        // Submits command buffer and requests present
-        void EndFrame();
+    // Core rendering loop: end frame
+    // Submits command buffer and requests present
+    void EndFrame();
 
-        // Resets internal frame state in case of exception
-        void ResetFrameState()
-        {
-            m_IsFrameInProgress = false;
-            m_ActiveCommandBuffer = VK_NULL_HANDLE;
-        }
+    // Resets internal frame state in case of exception
+    void ResetFrameState()
+    {
+        m_IsFrameInProgress = false;
+        m_ActiveCommandBuffer = VK_NULL_HANDLE;
+    }
 
-        // Called when window is resized
-        void OnResize(uint32_t width, uint32_t height);
-        void ResetSwapchainLayouts(); // [STABILITY] Fix for path switching layout mismatches
-        void WaitForAllFrames(); // [NEW] Ensure all frames in flight are finished correctly
+    // Called when window is resized
+    void OnResize(uint32_t width, uint32_t height);
+    void ResetSwapchainLayouts(); // [STABILITY] Fix for path switching layout
+                                  // mismatches
+    void WaitForAllFrames(); // [NEW] Ensure all frames in flight are finished
+                             // correctly
 
-        // Getters
-        uint32_t GetCurrentFrameIndex() const
-        {
-            return m_CurrentFrameIndex;
-        }
+    // Getters
+    uint32_t GetCurrentFrameIndex() const
+    {
+        return m_CurrentFrameIndex;
+    }
 
-        uint32_t GetCurrentImageIndex() const
-        {
-            return m_CurrentImageIndex;
-        }
+    uint32_t GetCurrentImageIndex() const
+    {
+        return m_CurrentImageIndex;
+    }
 
-        VkCommandBuffer GetActiveCommandBuffer() const
-        {
-            return m_ActiveCommandBuffer;
-        }
+    VkCommandBuffer GetActiveCommandBuffer() const
+    {
+        return m_ActiveCommandBuffer;
+    }
 
-        bool IsFrameInProgress() const
-        {
-            return m_IsFrameInProgress;
-        }
+    bool IsFrameInProgress() const
+    {
+        return m_IsFrameInProgress;
+    }
 
-        void SetComputeWaitSemaphore(VkSemaphore sem)
-        {
-            m_ComputeWaitSemaphore = sem;
-        }
+    void SetComputeWaitSemaphore(VkSemaphore sem)
+    {
+        m_ComputeWaitSemaphore = sem;
+    }
 
-    private:
-        void CreateFrameResources();
-        void FreeFrameResources();
-        void RecreateSwapchain();
+private:
+    void CreateFrameResources();
+    void FreeFrameResources();
+    void RecreateSwapchain();
 
-    private:
-        static Renderer* s_Instance;
-        VkCommandPool m_CommandPool = VK_NULL_HANDLE;
-        std::vector<FrameResource> m_FrameResources;
-        VkCommandBuffer m_ActiveCommandBuffer = VK_NULL_HANDLE;
-        VkSemaphore m_ComputeWaitSemaphore = VK_NULL_HANDLE;
+private:
+    static Renderer* s_Instance;
+    VkCommandPool m_CommandPool = VK_NULL_HANDLE;
+    std::vector<FrameResource> m_FrameResources;
+    VkCommandBuffer m_ActiveCommandBuffer = VK_NULL_HANDLE;
+    VkSemaphore m_ComputeWaitSemaphore = VK_NULL_HANDLE;
 
-        uint32_t m_CurrentFrameIndex = 0;
-        uint32_t m_CurrentImageIndex = 0;
+    uint32_t m_CurrentFrameIndex = 0;
+    uint32_t m_CurrentImageIndex = 0;
 
-        bool m_IsFrameInProgress = false;
-        bool m_NeedResize = false;
-    };
-}
+    bool m_IsFrameInProgress = false;
+    bool m_NeedResize = false;
+};
+} // namespace Chimera

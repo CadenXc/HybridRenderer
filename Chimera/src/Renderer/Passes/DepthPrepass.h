@@ -7,27 +7,29 @@
 
 namespace Chimera
 {
-    class Scene;
+class Scene;
 
-    struct DepthPrepassData
-    {
-        RGResourceHandle depth;
-    };
+struct DepthPrepassData
+{
+    RGResourceHandle depth;
+};
 
-    class DepthPrepass : public RenderPass<DepthPrepassData>
-    {
-    public:
-        using PassData = DepthPrepassData;
-        static constexpr const char* Name = "DepthPrepass";
+class DepthPrepass : public RenderPass<DepthPrepassData>
+{
+public:
+    using PassData = DepthPrepassData;
+    static constexpr const char* Name = "DepthPrepass";
 
-        using Data = PassData;
+    using Data = PassData;
 
-        DepthPrepass(std::shared_ptr<Scene> scene);
+    DepthPrepass(std::shared_ptr<Scene> scene);
 
-        virtual void Setup(PassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const PassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+    virtual void Setup(PassData& data,
+                       RenderGraph::PassBuilder& builder) override;
+    virtual void Execute(const PassData& data, RenderGraphRegistry& reg,
+                         VkCommandBuffer cmd) override;
 
-    private:
-        std::shared_ptr<Scene> m_Scene;
-    };
-}
+private:
+    std::shared_ptr<Scene> m_Scene;
+};
+} // namespace Chimera

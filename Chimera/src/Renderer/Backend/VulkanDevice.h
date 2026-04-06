@@ -3,102 +3,108 @@
 
 namespace Chimera
 {
-    struct QueueFamilyIndices
+struct QueueFamilyIndices
+{
+    std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> computeFamily;
+    std::optional<uint32_t> presentFamily;
+    bool isComplete()
     {
-        std::optional<uint32_t> graphicsFamily;
-        std::optional<uint32_t> computeFamily;
-        std::optional<uint32_t> presentFamily;
-        bool isComplete()
-        {
-            return graphicsFamily.has_value() && computeFamily.has_value() && presentFamily.has_value();
-        }
-    };
+        return graphicsFamily.has_value() && computeFamily.has_value() &&
+               presentFamily.has_value();
+    }
+};
 
-    class VulkanDevice
+class VulkanDevice
+{
+public:
+    VulkanDevice(VkInstance instance, VkSurfaceKHR surface);
+    ~VulkanDevice();
+
+    VkDevice GetHandle() const
     {
-    public:
-        VulkanDevice(VkInstance instance, VkSurfaceKHR surface);
-        ~VulkanDevice();
+        return m_LogicalDevice;
+    }
+    VkPhysicalDevice GetPhysicalDevice() const
+    {
+        return m_PhysicalDevice;
+    }
+    VkQueue GetGraphicsQueue() const
+    {
+        return m_GraphicsQueue;
+    }
+    VkQueue GetComputeQueue() const
+    {
+        return m_ComputeQueue;
+    }
+    uint32_t GetGraphicsQueueFamily() const
+    {
+        return m_GraphicsQueueFamily;
+    }
+    uint32_t GetComputeQueueFamily() const
+    {
+        return m_ComputeQueueFamily;
+    }
+    VkQueue GetPresentQueue() const
+    {
+        return m_PresentQueue;
+    }
 
-        VkDevice GetHandle() const
-        {
-            return m_LogicalDevice;
-        }
-        VkPhysicalDevice GetPhysicalDevice() const
-        {
-            return m_PhysicalDevice;
-        }
-        VkQueue GetGraphicsQueue() const
-        {
-            return m_GraphicsQueue;
-        }
-        VkQueue GetComputeQueue() const
-        {
-            return m_ComputeQueue;
-        }
-        uint32_t GetGraphicsQueueFamily() const
-        {
-            return m_GraphicsQueueFamily;
-        }
-        uint32_t GetComputeQueueFamily() const
-        {
-            return m_ComputeQueueFamily;
-        }
-        VkQueue GetPresentQueue() const
-        {
-            return m_PresentQueue;
-        }
+    VmaAllocator GetAllocator() const
+    {
+        return m_Allocator;
+    }
 
-        VmaAllocator GetAllocator() const
-        {
-            return m_Allocator;
-        }
+    bool IsRayTracingSupported() const
+    {
+        return m_RayTracingSupported;
+    }
 
-        bool IsRayTracingSupported() const
-        {
-            return m_RayTracingSupported;
-        }
+    const VkPhysicalDeviceProperties& GetProperties() const
+    {
+        return m_DeviceProperties;
+    }
 
-        const VkPhysicalDeviceProperties& GetProperties() const
-        {
-            return m_DeviceProperties;
-        }
+    const VkPhysicalDeviceRayTracingPipelinePropertiesKHR& GetRTProperties()
+        const
+    {
+        return m_RayTracingProperties;
+    }
 
-        const VkPhysicalDeviceRayTracingPipelinePropertiesKHR& GetRTProperties() const
-        {
-            return m_RayTracingProperties;
-        }
+    VkSampleCountFlagBits GetMaxUsableSampleCount() const
+    {
+        return VK_SAMPLE_COUNT_1_BIT;
+    }
 
-        VkSampleCountFlagBits GetMaxUsableSampleCount() const
-        {
-            return VK_SAMPLE_COUNT_1_BIT;
-        }
+    QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device,
+                                         VkSurfaceKHR surface);
+    uint32_t FindMemoryType(uint32_t typeFilter,
+                            VkMemoryPropertyFlags properties);
+    VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates,
+                                 VkImageTiling tiling,
+                                 VkFormatFeatureFlags features);
 
-        QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
-        uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-        VkFormat FindSupportedFormat(const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features);
+private:
+    void PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface);
+    void CreateLogicalDevice(VkSurfaceKHR surface);
+    void CreateAllocator(VkInstance instance);
 
-    private:
-        void PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface);
-        void CreateLogicalDevice(VkSurfaceKHR surface);
-        void CreateAllocator(VkInstance instance);
+    int RateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface);
+    bool CheckDeviceExtensionSupport(VkPhysicalDevice device);
 
-        int RateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface);
-        bool CheckDeviceExtensionSupport(VkPhysicalDevice device);
+private:
+    VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
+    VkDevice m_LogicalDevice = VK_NULL_HANDLE;
+    VkPhysicalDeviceProperties m_DeviceProperties{};
+    VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RayTracingProperties{};
 
-    private:
-        VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
-        VkDevice m_LogicalDevice = VK_NULL_HANDLE;
-        VkPhysicalDeviceProperties m_DeviceProperties{};
-        VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RayTracingProperties{};
+    VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
+    VkQueue m_ComputeQueue = VK_NULL_HANDLE;
+    VkQueue m_PresentQueue = VK_NULL_HANDLE;
+    uint32_t m_GraphicsQueueFamily = 0;
+    uint32_t m_ComputeQueueFamily = 0;
 
-        VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
-        VkQueue m_ComputeQueue = VK_NULL_HANDLE;
-        VkQueue m_PresentQueue = VK_NULL_HANDLE;
-        uint32_t m_GraphicsQueueFamily = 0;
-        uint32_t m_ComputeQueueFamily = 0;
-
-        VmaAllocator m_Allocator = VK_NULL_HANDLE;
-        bool m_RayTracingSupported = false;
-    };
-}
+    VmaAllocator m_Allocator = VK_NULL_HANDLE;
+    bool m_RayTracingSupported = false;
+};
+} // namespace Chimera

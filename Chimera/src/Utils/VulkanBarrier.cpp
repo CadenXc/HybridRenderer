@@ -7,218 +7,254 @@
 
 namespace Chimera::VulkanUtils
 {
-    VkImageMemoryBarrier CreateImageBarrier(
-        VkImage image,
-        VkImageLayout oldLayout,
-        VkImageLayout newLayout,
-        VkAccessFlags srcAccess,
-        VkAccessFlags dstAccess,
-        VkImageAspectFlags aspectMask)
+VkImageMemoryBarrier CreateImageBarrier(VkImage image, VkImageLayout oldLayout,
+                                        VkImageLayout newLayout,
+                                        VkAccessFlags srcAccess,
+                                        VkAccessFlags dstAccess,
+                                        VkImageAspectFlags aspectMask)
+{
+    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.aspectMask = aspectMask;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = srcAccess;
+    barrier.dstAccessMask = dstAccess;
+    return barrier;
+}
+
+void TransitionImage(VkCommandBuffer commandBuffer, VkImage image,
+                     VkImageLayout oldLayout, VkImageLayout newLayout,
+                     VkImageAspectFlags aspectMask, uint32_t mipLevels)
+{
+    VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.image = image;
+    barrier.subresourceRange = {aspectMask, 0, mipLevels, 0, 1};
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+    switch (oldLayout)
     {
-        VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-        barrier.oldLayout = oldLayout;
-        barrier.newLayout = newLayout;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = image;
-        barrier.subresourceRange.aspectMask = aspectMask;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = srcAccess;
-        barrier.dstAccessMask = dstAccess;
-        return barrier;
+        case VK_IMAGE_LAYOUT_UNDEFINED:
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            barrier.srcAccessMask = 0;
+            break;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            barrier.srcStageMask =
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+            barrier.srcStageMask =
+                VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            barrier.srcAccessMask =
+                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            barrier.srcAccessMask = 0;
+            break;
+        case VK_IMAGE_LAYOUT_GENERAL:
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            barrier.srcAccessMask =
+                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            break;
+        default:
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            barrier.srcAccessMask =
+                VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+            break;
     }
 
-    void TransitionImage(
-        VkCommandBuffer commandBuffer,
-        VkImage image,
-        VkImageLayout oldLayout,
-        VkImageLayout newLayout,
-        VkImageAspectFlags aspectMask,
-        uint32_t mipLevels)
+    switch (newLayout)
     {
-        VkImageMemoryBarrier2 barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-        barrier.oldLayout = oldLayout;
-        barrier.newLayout = newLayout;
-        barrier.image = image;
-        barrier.subresourceRange = { aspectMask, 0, mipLevels, 0, 1 };
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-
-        switch (oldLayout)
-        {
-            case VK_IMAGE_LAYOUT_UNDEFINED:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-                barrier.srcAccessMask = 0;
-                break;
-            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-                barrier.srcAccessMask = 0;
-                break;
-            case VK_IMAGE_LAYOUT_GENERAL:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-                break;
-            default:
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-                break;
-        }
-
-        switch (newLayout)
-        {
-            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-                barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
-                barrier.dstAccessMask = 0;
-                break;
-            case VK_IMAGE_LAYOUT_GENERAL:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-                break;
-            default:
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-                break;
-        }
-
-        VkDependencyInfo dependencyInfo{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-        dependencyInfo.imageMemoryBarrierCount = 1;
-        dependencyInfo.pImageMemoryBarriers = &barrier;
-
-        vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            barrier.dstStageMask =
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+                                    VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+            barrier.dstStageMask =
+                VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+            barrier.dstAccessMask =
+                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            barrier.dstStageMask =
+                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            break;
+        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+            barrier.dstAccessMask = 0;
+            break;
+        case VK_IMAGE_LAYOUT_GENERAL:
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            barrier.dstAccessMask =
+                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            break;
+        default:
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            barrier.dstAccessMask =
+                VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+            break;
     }
 
-    void TransitionImageLayout(VkCommandBuffer cmd, VkImage img, VkFormat fmt, VkImageLayout oldL, VkImageLayout newL, uint32_t mip)
-    {
-        VkImageAspectFlags aspect = IsDepthFormat(fmt) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-        TransitionImage(cmd, img, oldL, newL, aspect, mip);
-    }
+    VkDependencyInfo dependencyInfo{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.imageMemoryBarrierCount = 1;
+    dependencyInfo.pImageMemoryBarriers = &barrier;
 
-    void TransitionImageLayout(VkImage img, VkFormat fmt, VkImageLayout oldL, VkImageLayout newL, uint32_t mip)
-    {
-        ScopedCommandBuffer cmd;
-        TransitionImageLayout(cmd, img, fmt, oldL, newL, mip);
-    }
+    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+}
 
-    bool IsDepthFormat(VkFormat format)
-    {
-        static const std::vector<VkFormat> depthFormats = { VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT, VK_FORMAT_D16_UNORM };
-        return std::find(depthFormats.begin(), depthFormats.end(), format) != depthFormats.end();
-    }
+void TransitionImageLayout(VkCommandBuffer cmd, VkImage img, VkFormat fmt,
+                           VkImageLayout oldL, VkImageLayout newL, uint32_t mip)
+{
+    VkImageAspectFlags aspect = IsDepthFormat(fmt) ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                                   : VK_IMAGE_ASPECT_COLOR_BIT;
+    TransitionImage(cmd, img, oldL, newL, aspect, mip);
+}
 
-    bool IsSRGBFormat(VkFormat format)
-    {
-        static const std::vector<VkFormat> srgbFormats = { VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8_SRGB, VK_FORMAT_R8G8B8_SRGB, VK_FORMAT_B8G8R8_SRGB };
-        return std::find(srgbFormats.begin(), srgbFormats.end(), format) != srgbFormats.end();
-    }
+void TransitionImageLayout(VkImage img, VkFormat fmt, VkImageLayout oldL,
+                           VkImageLayout newL, uint32_t mip)
+{
+    ScopedCommandBuffer cmd;
+    TransitionImageLayout(cmd, img, fmt, oldL, newL, mip);
+}
 
-    uint32_t AlignUp(uint32_t value, uint32_t alignment)
-    {
-        return (value + alignment - 1) & ~(alignment - 1);
-    }
+bool IsDepthFormat(VkFormat format)
+{
+    static const std::vector<VkFormat> depthFormats = {
+        VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT,
+        VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT,
+        VK_FORMAT_D16_UNORM};
+    return std::find(depthFormats.begin(), depthFormats.end(), format) !=
+           depthFormats.end();
+}
 
-    std::unique_ptr<Buffer> CreateSBT(VkPipeline pipeline, uint32_t raygenCount, uint32_t missCount, uint32_t hitCount, VkStridedDeviceAddressRegionKHR& outRaygen, VkStridedDeviceAddressRegionKHR& outMiss, VkStridedDeviceAddressRegionKHR& outHit)
-    {
-        VkDevice device = VulkanContext::Get().GetDevice();
-        auto rayTracingProperties = VulkanContext::Get().GetRayTracingProperties();
+bool IsSRGBFormat(VkFormat format)
+{
+    static const std::vector<VkFormat> srgbFormats = {
+        VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8_SRGB, VK_FORMAT_R8G8B8_SRGB,
+        VK_FORMAT_B8G8R8_SRGB};
+    return std::find(srgbFormats.begin(), srgbFormats.end(), format) !=
+           srgbFormats.end();
+}
 
-        uint32_t handleSize = rayTracingProperties.shaderGroupHandleSize;
-        uint32_t handleSizeAligned = AlignUp(handleSize, rayTracingProperties.shaderGroupHandleAlignment);
+uint32_t AlignUp(uint32_t value, uint32_t alignment)
+{
+    return (value + alignment - 1) & ~(alignment - 1);
+}
 
-        uint32_t groupCount = raygenCount + missCount + hitCount;
-        uint32_t sbtSize = groupCount * handleSizeAligned;
+std::unique_ptr<Buffer> CreateSBT(VkPipeline pipeline, uint32_t raygenCount,
+                                  uint32_t missCount, uint32_t hitCount,
+                                  VkStridedDeviceAddressRegionKHR& outRaygen,
+                                  VkStridedDeviceAddressRegionKHR& outMiss,
+                                  VkStridedDeviceAddressRegionKHR& outHit)
+{
+    VkDevice device = VulkanContext::Get().GetDevice();
+    auto rayTracingProperties = VulkanContext::Get().GetRayTracingProperties();
 
-        std::vector<uint8_t> shaderHandleStorage(sbtSize);
-        vkGetRayTracingShaderGroupHandlesKHR(device, pipeline, 0, groupCount, sbtSize, shaderHandleStorage.data());
+    uint32_t handleSize = rayTracingProperties.shaderGroupHandleSize;
+    uint32_t handleSizeAligned =
+        AlignUp(handleSize, rayTracingProperties.shaderGroupHandleAlignment);
+
+    uint32_t groupCount = raygenCount + missCount + hitCount;
+    uint32_t sbtSize = groupCount * handleSizeAligned;
+
+    std::vector<uint8_t> shaderHandleStorage(sbtSize);
+    vkGetRayTracingShaderGroupHandlesKHR(device, pipeline, 0, groupCount,
+                                         sbtSize, shaderHandleStorage.data());
 
         // Aligned offsets for each section
-        uint32_t raygenSize = AlignUp(raygenCount * handleSizeAligned, rayTracingProperties.shaderGroupBaseAlignment);
-        uint32_t missSize   = AlignUp(missCount   * handleSizeAligned, rayTracingProperties.shaderGroupBaseAlignment);
-        uint32_t hitSize    = AlignUp(hitCount    * handleSizeAligned, rayTracingProperties.shaderGroupBaseAlignment);
+    uint32_t raygenSize =
+        AlignUp(raygenCount * handleSizeAligned,
+                rayTracingProperties.shaderGroupBaseAlignment);
+    uint32_t missSize = AlignUp(missCount * handleSizeAligned,
+                                rayTracingProperties.shaderGroupBaseAlignment);
+    uint32_t hitSize = AlignUp(hitCount * handleSizeAligned,
+                               rayTracingProperties.shaderGroupBaseAlignment);
 
-        uint32_t totalSBTSize = raygenSize + missSize + hitSize;
+    uint32_t totalSBTSize = raygenSize + missSize + hitSize;
 
-        auto sbtBuffer = std::make_unique<Buffer>(
-            totalSBTSize,
-            VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU
-        );
+    auto sbtBuffer =
+        std::make_unique<Buffer>(totalSBTSize,
+                                 VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
+                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-        uint8_t* pData = (uint8_t*)sbtBuffer->Map();
-        memset(pData, 0, totalSBTSize);
+    uint8_t* pData = (uint8_t*)sbtBuffer->Map();
+    memset(pData, 0, totalSBTSize);
 
-        VkDeviceAddress baseAddr = sbtBuffer->GetDeviceAddress();
+    VkDeviceAddress baseAddr = sbtBuffer->GetDeviceAddress();
 
         // 1. Raygen
-        if (raygenCount > 0)
-        {
-            memcpy(pData, shaderHandleStorage.data(), raygenCount * handleSize);
-            outRaygen.deviceAddress = baseAddr;
-            outRaygen.stride = handleSizeAligned;
-            outRaygen.size   = handleSizeAligned; // Raygen size MUST equal stride
-        }
+    if (raygenCount > 0)
+    {
+        memcpy(pData, shaderHandleStorage.data(), raygenCount * handleSize);
+        outRaygen.deviceAddress = baseAddr;
+        outRaygen.stride = handleSizeAligned;
+        outRaygen.size = handleSizeAligned; // Raygen size MUST equal stride
+    }
 
         // 2. Miss
-        if (missCount > 0)
-        {
-            memcpy(pData + raygenSize, shaderHandleStorage.data() + raygenCount * handleSize, missCount * handleSize);
-            outMiss.deviceAddress = baseAddr + raygenSize;
-            outMiss.stride = handleSizeAligned;
-            outMiss.size   = missSize;
-        }
+    if (missCount > 0)
+    {
+        memcpy(pData + raygenSize,
+               shaderHandleStorage.data() + raygenCount * handleSize,
+               missCount * handleSize);
+        outMiss.deviceAddress = baseAddr + raygenSize;
+        outMiss.stride = handleSizeAligned;
+        outMiss.size = missSize;
+    }
 
         // 3. Hit
-        if (hitCount > 0)
-        {
-            memcpy(pData + raygenSize + missSize, shaderHandleStorage.data() + (raygenCount + missCount) * handleSize, hitCount * handleSize);
-            outHit.deviceAddress = baseAddr + raygenSize + missSize;
-            outHit.stride = handleSizeAligned;
-            outHit.size   = hitSize;
-        }
-
-        sbtBuffer->Unmap();
-        return sbtBuffer;
+    if (hitCount > 0)
+    {
+        memcpy(
+            pData + raygenSize + missSize,
+            shaderHandleStorage.data() + (raygenCount + missCount) * handleSize,
+            hitCount * handleSize);
+        outHit.deviceAddress = baseAddr + raygenSize + missSize;
+        outHit.stride = handleSizeAligned;
+        outHit.size = hitSize;
     }
+
+    sbtBuffer->Unmap();
+    return sbtBuffer;
 }
+} // namespace Chimera::VulkanUtils

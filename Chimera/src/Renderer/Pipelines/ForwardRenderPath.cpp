@@ -10,20 +10,21 @@
 
 namespace Chimera
 {
-    ForwardRenderPath::ForwardRenderPath(VulkanContext &context)
-        : RenderPath(context.GetShared())
-    {
-    }
+ForwardRenderPath::ForwardRenderPath(VulkanContext& context)
+    : RenderPath(context.GetShared())
+{
+}
 
-    void ForwardRenderPath::BuildGraph(RenderGraph &graph, std::shared_ptr<Scene> scene)
-    {
+void ForwardRenderPath::BuildGraph(RenderGraph& graph,
+                                   std::shared_ptr<Scene> scene)
+{
         // 2. Scene Rendering (Outputs RS::FinalColor, uses depth testing)
-        graph.AddPass<ForwardPass>(scene);
+    graph.AddPass<ForwardPass>(scene);
 
         // 3. Resolve Temporal Aliasing (Outputs TAAOutput)
-        graph.AddPass<TAAPass>();
+    graph.AddPass<TAAPass>();
 
         // 4. Final Composition & Tone Mapping (Outputs RS::RENDER_OUTPUT)
-        graph.AddPass<PostProcessPass>("TAAOutput");
-    }
+    graph.AddPass<PostProcessPass>("TAAOutput");
 }
+} // namespace Chimera

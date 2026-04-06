@@ -7,25 +7,27 @@
 
 namespace Chimera
 {
-    class Scene;
+class Scene;
 
-    struct ForwardPassData
-    {
-        RGResourceHandle color;
-        RGResourceHandle depth;
-    };
+struct ForwardPassData
+{
+    RGResourceHandle color;
+    RGResourceHandle depth;
+};
 
-    class ForwardPass : public RenderPass<ForwardPassData>
-    {
-    public:
-        static constexpr const char* Name = "ForwardPass";
+class ForwardPass : public RenderPass<ForwardPassData>
+{
+public:
+    static constexpr const char* Name = "ForwardPass";
 
-        ForwardPass(std::shared_ptr<Scene> scene);
+    ForwardPass(std::shared_ptr<Scene> scene);
 
-        virtual void Setup(ForwardPassData& data, RenderGraph::PassBuilder& builder) override;
-        virtual void Execute(const ForwardPassData& data, RenderGraphRegistry& reg, VkCommandBuffer cmd) override;
+    virtual void Setup(ForwardPassData& data,
+                       RenderGraph::PassBuilder& builder) override;
+    virtual void Execute(const ForwardPassData& data, RenderGraphRegistry& reg,
+                         VkCommandBuffer cmd) override;
 
-    private:
-        std::shared_ptr<Scene> m_Scene;
-    };
-}
+private:
+    std::shared_ptr<Scene> m_Scene;
+};
+} // namespace Chimera

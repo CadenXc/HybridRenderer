@@ -7,20 +7,40 @@ layout(local_size_x = 16, local_size_y = 16) in;
 layout(push_constant) uniform PushConstants 
 { 
     int step; 
+    int useAlbedoDemod; 
 } pc;
 
+// --- Standard SVGF Bindings (Single Signal) ---
 layout(set = 2, binding = 0) uniform sampler2D gInputColor;
 layout(set = 2, binding = 1) uniform sampler2D gInputMoments;
 layout(set = 2, binding = 2) uniform sampler2D gNormal;
-layout(set = 2, binding = 3) uniform sampler2D gDepth;
+layout(set = 2, binding = 3) uniform sampler2D gMotion;       
+layout(set = 2, binding = 4) uniform sampler2D gMaterial;     
+layout(set = 2, binding = 5, rgba16f) uniform image2D outFiltered;
+layout(set = 2, binding = 13) uniform sampler2D gAlbedo; // Still needed for Demodulation check
 
-layout(set = 2, binding = 4, rgba16f) uniform image2D outFiltered;
+float sanitize(float v) { return (isnan(v) || isinf(v)) ? 0.0 : v; }
+vec4  sanitize4(vec4 v) { return (any(isnan(v)) || any(isinf(v))) ? vec4(0.0) : v; }
 
-// [FIX] Convert non-linear Depth to Linear View Distance for robust edge-stopping
-float LinearizeDepth(float d) 
+float get_filtered_variance(ivec2 coords) 
 {
-    vec4 target = camera.projInverse * vec4(0.0, 0.0, d, 1.0);
-    return abs(target.z / target.w);
+    float gauss_weights[9] = { 1./16., 1./8., 1./16., 1./8., 1./4., 1./8., 1./16., 1./8., 1./16. };
+    float filtered_var = 0.0;
+    for(int y = -1; y <= 1; ++y) {
+        for(int x = -1; x <= 1; ++x) {
+            ivec2 p = clamp(coords + ivec2(x, y), ivec2(0), ivec2(displayData.xy) - 1);
+            filtered_var += gauss_weights[3*(y+1)+(x+1)] * sanitize(texture(gInputMoments, (vec2(p)+0.5)/displayData.xy).b);
+        }
+    }
+    return filtered_var;
+}
+
+float GetLuma(vec4 signal) 
+{ 
+    if (pc.useAlbedoDemod == 1)
+        return dot(signal.rgb, vec3(0.299, 0.587, 0.114)); 
+    else
+        return signal.r; // For ShadowAO, R is Shadow
 }
 
 void main()
@@ -30,79 +50,74 @@ void main()
 
     vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
     
-    // 1. Center Pixel Data
-    vec3  centerColor   = texture(gInputColor, uv).rgb;
-    vec4  centerMoments = texture(gInputMoments, uv);
+    // 1. Center Data
+    vec4  centerSignal   = sanitize4(texture(gInputColor, uv));
+    vec3  worldNormal    = normalize(texture(gNormal, uv).xyz);
+    vec3  viewNormal     = (camera.view * vec4(worldNormal, 0.0)).xyz;
+    float nz             = abs(viewNormal.z);
     
-    // [FIX] Normal is already in [-1, 1] range in SFLOAT G-Buffer
-    vec3  centerNormal  = normalize(texture(gNormal, uv).xyz);
+    vec4  centerMotion   = texture(gMotion, uv);
+    float centerDepth    = centerMotion.z;
+    int   centerID       = int(texture(gMaterial, uv).w);
+
+    float var = get_filtered_variance(ipos);
     
-    float centerDepth   = texture(gDepth, uv).r;
-    float centerLinearZ = LinearizeDepth(centerDepth);
-    float centerLuma    = dot(centerColor, vec3(0.299, 0.587, 0.114));
+    // [COPY] Reference PhiLuma scaling.
+    float phiL = (pc.useAlbedoDemod == 1 ? svgfPhi.x : 0.5) * sqrt(max(0.0, var)) + 1e-6;
+    
+    // [GEMS] Equation 7 Adaptive Threshold
+    float epsilon = 0.003 + 0.017 * (1.0 - nz);
 
-    // Variance-guided filtering
-    float centerVariance = centerMoments.b;
+    float atrous_weights[25] = {
+        1./256., 1./64., 3./128., 1./64., 1./256.,
+        1./64. , 1./16., 3./32.,  1./16., 1./64.,
+        3./128., 3./32., 9./64.,  3./32., 3./128.,
+        1./64. , 1./16., 3./32.,  1./16., 1./64.,
+        1./256., 1./64., 3./128., 1./64., 1./256.
+    };
 
-    // 2. Edge-Stopping Thresholds (Phi) from UBO
-    float phiColor  = svgfPhi.x; 
-    float phiNormal = svgfPhi.y;
-    float phiDepth  = svgfPhi.z; 
+    float sumW = 1.0;
+    vec4  sumSignal = centerSignal;
+    float sumVar = sanitize(texture(gInputMoments, uv).b);
 
-    // Standard 5x5 A-Trous Gaussian Kernel Weights
-    const float kernel[3] = { 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0 };
+    float lumaCenter = GetLuma(centerSignal);
 
-    float sumWeight = kernel[0] * kernel[0]; // Center weight
-    vec3  sumColor  = centerColor * sumWeight;
-    float sumVariance = centerVariance * sumWeight * sumWeight; // Note: variance uses squared weight
-
-    // 3. A-Trous 5x5 Sparse Kernel
     for (int y = -2; y <= 2; y++)
     {
         for (int x = -2; x <= 2; x++)
         {
             if (x == 0 && y == 0) continue;
 
-            // [FIX] Clamp neighbor position to ensure we stay within screen bounds
-            ivec2 neighborPos = clamp(ipos + ivec2(x, y) * pc.step, ivec2(0), ivec2(displayData.xy) - 1);
+            ivec2 offset = ivec2(x, y) * pc.step;
+            ivec2 nPos = clamp(ipos + offset, ivec2(0), ivec2(displayData.xy) - 1);
+            vec2  nUV  = (vec2(nPos) + 0.5) / displayData.xy;
+            
+            // --- [GEMS] Hard Geometry Checks ---
+            vec3 nNormal = normalize(texture(gNormal, nUV).xyz);
+            if (dot(worldNormal, nNormal) < 0.9) continue;
 
-            vec2  neighborUV     = (vec2(neighborPos) + 0.5) / displayData.xy;
-            vec3  neighborColor  = texture(gInputColor, neighborUV).rgb;
+            float nDepth = texture(gMotion, nUV).z;
+            if (abs(1.0 - (nDepth / max(1e-4, centerDepth))) > epsilon) continue;
 
-            // [FIX] Correct normal fetch
-            vec3  neighborNormal = normalize(texture(gNormal, neighborUV).xyz);
+            int nID = int(texture(gMaterial, nUV).w);
+            if (centerID != nID) continue;
 
-            float neighborDepth  = texture(gDepth, neighborUV).r;
-            float neighborLinearZ = LinearizeDepth(neighborDepth);
-            float neighborLuma   = dot(neighborColor, vec3(0.299, 0.587, 0.114));
-            float neighborVariance = texture(gInputMoments, neighborUV).b;
-
-            // Spatial Kernel Weight
-            float wSpatial = kernel[abs(x)] * kernel[abs(y)];
-
-            // Compute Edge-Stopping Weights
-            // [MOD] Incorporate Variance more strongly into Luminance weight
-            float wL = exp(-abs(centerLuma - neighborLuma) / (phiColor * sqrt(max(0.0, centerVariance)) + 1e-6));
-
-            // B. Normal Weight
-            float wN = pow(max(0.0, dot(centerNormal, neighborNormal)), phiNormal);
-
-            // C. Depth Weight 
-            // [MOD] Ensure depth weight is robust even for very close geometry
-            float wD = exp(-abs(centerLinearZ - neighborLinearZ) / (phiDepth + 1e-6));
-
-            float weight = wSpatial * wL * wN * wD;
-            sumWeight += weight;
-            sumColor  += weight * neighborColor;
-
-            // Variance filtering (weighted squared average)
-            sumVariance += (weight * weight) * neighborVariance;
+            // --- Luma Weights ---
+            float kernel  = atrous_weights[5 * (y + 2) + (x + 2)];
+            vec4  nSignal = sanitize4(texture(gInputColor, nUV));
+            float nLuma   = GetLuma(nSignal);
+            float wL      = exp(-abs(lumaCenter - nLuma) / phiL);
+            
+            float weight = wL * kernel;
+            
+            sumW      += weight;
+            sumSignal += weight * nSignal;
+            sumVar    += weight * weight * sanitize(texture(gInputMoments, nUV).b);
         }
     }
 
-    vec3  finalColor    = sumColor / sumWeight;
-    float finalVariance = sumVariance / (sumWeight * sumWeight);
+    vec4 res = sumSignal / sumW;
+    res.a = sumVar / (sumW * sumW);
 
-    // [MOD] Store filtered color in RGB, and filtered variance in A for the next A-Trous pass
-    imageStore(outFiltered, ipos, vec4(finalColor, finalVariance));
+    imageStore(outFiltered, ipos, sanitize4(res));
 }

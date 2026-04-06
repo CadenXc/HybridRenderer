@@ -15,103 +15,104 @@
 namespace Chimera
 {
 
-	class EditorLayer : public Layer
-	{
-	public:
-		EditorLayer();
-		~EditorLayer() = default;
+class EditorLayer : public Layer
+{
+public:
+    EditorLayer();
+    ~EditorLayer() = default;
 
-		virtual void OnAttach() override;
-		virtual void OnDetach() override;
-		virtual void OnUpdate(Timestep ts) override;
-		virtual void OnImGuiRender() override;
-		virtual void OnEvent(Event &e) override;
+    virtual void OnAttach() override;
+    virtual void OnDetach() override;
+    virtual void OnUpdate(Timestep ts) override;
+    virtual void OnImGuiRender() override;
+    virtual void OnEvent(Event& e) override;
 
-		void SwitchRenderPath(RenderPathType type);
-		void LoadScene(const std::string &path);
-		void ClearScene();
+    void SwitchRenderPath(RenderPathType type);
+    void LoadScene(const std::string& path);
+    void ClearScene();
 
-		std::shared_ptr<Scene> GetActiveScene()
-		{
-			return ResourceManager::Get().GetActiveSceneShared();
-		}
-		Scene *GetActiveSceneRaw()
-		{
-			return ResourceManager::Get().GetActiveScene();
-		}
-		RenderPath *GetRenderPath()
-		{
-			return Application::Get().GetActiveRenderPath();
-		}
+    std::shared_ptr<Scene> GetActiveScene()
+    {
+        return ResourceManager::Get().GetActiveSceneShared();
+    }
+    Scene* GetActiveSceneRaw()
+    {
+        return ResourceManager::Get().GetActiveScene();
+    }
+    RenderPath* GetRenderPath()
+    {
+        return Application::Get().GetActiveRenderPath();
+    }
 
-	private:
-		void RefreshModelList();
-		void LoadModel(const std::string &relativePath);
-		
-		void RefreshHDRList();
-		void LoadHDR(const std::string &relativePath);
+private:
+    void RefreshModelList();
+    void LoadModel(const std::string& relativePath);
 
-		// UI Panels (Accept active path as parameter)
-		void DrawMenuBar();
-		void DrawRenderPathPanel(RenderPath *activePath);
-		void DrawFeatureToggles(RenderPath *activePath);
-		void DrawControlPanelContent(RenderPath *activePath);
-		void DrawSceneHierarchy();
-		void DrawPropertiesPanel(RenderPath *activePath);
-		void DrawLightSettings(RenderPath *activePath);
-		void DrawGeneralSettings();
+    void RefreshHDRList();
+    void LoadHDR(const std::string& relativePath);
 
-	private:
-		EditorCamera m_EditorCamera;
+                // UI Panels (Accept active path as parameter)
+    void DrawMenuBar();
+    void DrawRenderPathPanel(RenderPath* activePath);
+    void DrawFeatureToggles(RenderPath* activePath);
+    void DrawControlPanelContent(RenderPath* activePath);
+    void DrawSceneHierarchy();
+    void DrawPropertiesPanel(RenderPath* activePath);
+    void DrawLightSettings(RenderPath* activePath);
+    void DrawGeneralSettings();
 
-		// Interaction & Debugging
-		glm::vec2 m_ViewportSize = {0, 0};
+private:
+    EditorCamera m_EditorCamera;
 
-		// UI Visibility
-		bool m_ShowControlPanel = true;
-		uint32_t m_DisplayMode = 0; // 0: Final Output
-		uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
+                // Interaction & Debugging
+    glm::vec2 m_ViewportSize = {0, 0};
 
-		float m_Exposure = 1.0f;
-		float m_AmbientStrength = 1.0f;
-		glm::vec4 m_ClearColor = {0.1f, 0.1f, 0.1f, 1.0f}; // [NEW] Global Background Color
+                // UI Visibility
+    bool m_ShowControlPanel = true;
+    uint32_t m_DisplayMode = 0; // 0: Final Output
+    uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
 
-		// --- Light Parameters ---
-		float m_LightRadius = 0.05f;
+    float m_Exposure = 1.0f;
+    float m_AmbientStrength = 1.0f;
+    glm::vec4 m_ClearColor = {0.1f, 0.1f, 0.1f,
+                              1.0f}; // [NEW] Global Background Color
 
-		// Model/Scene Management
-		struct ModelAsset
-		{
-			std::string Name;
-			std::string Path;
-		};
-		std::vector<ModelAsset> m_AvailableModels;
-		char m_AssetSearchFilter[256] = {0}; // [NEW] Search filter for models
-		std::string m_ActiveModelPath = "";
-		int m_SelectedModelIndex = -1;
+                // --- Light Parameters ---
+    float m_LightRadius = 0.05f;
 
-		// HDR/Environment Management
-		struct HdrAsset
-		{
-			std::string Name;
-			std::string Path;
-		};
-		std::vector<HdrAsset> m_AvailableHDRs;
-		char m_HdrSearchFilter[256] = {0};
-		std::string m_ActiveHdrPath = "";
-		int m_SelectedHdrIndex = -1;
+                // Model/Scene Management
+    struct ModelAsset
+    {
+        std::string Name;
+        std::string Path;
+    };
+    std::vector<ModelAsset> m_AvailableModels;
+    char m_AssetSearchFilter[256] = {0}; // [NEW] Search filter for models
+    std::string m_ActiveModelPath = "";
+    int m_SelectedModelIndex = -1;
 
-		int m_SelectedInstanceIndex = -1;
+                // HDR/Environment Management
+    struct HdrAsset
+    {
+        std::string Name;
+        std::string Path;
+    };
+    std::vector<HdrAsset> m_AvailableHDRs;
+    char m_HdrSearchFilter[256] = {0};
+    std::string m_ActiveHdrPath = "";
+    int m_SelectedHdrIndex = -1;
 
-		// Performance Metrics
-		float m_AverageFrameTime = 0.0f;
-		float m_AverageFPS = 0.0f;
+    int m_SelectedInstanceIndex = -1;
 
-		// Resize debounce
-		float m_ResizeTimer = 0.0f;
-		bool m_ViewportResizing = false;
-		bool m_ResizePending = false;
-		glm::vec2 m_NextViewportSize{0.0f};
-	};
+                // Performance Metrics
+    float m_AverageFrameTime = 0.0f;
+    float m_AverageFPS = 0.0f;
 
-}
+                // Resize debounce
+    float m_ResizeTimer = 0.0f;
+    bool m_ViewportResizing = false;
+    bool m_ResizePending = false;
+    glm::vec2 m_NextViewportSize{0.0f};
+};
+
+} // namespace Chimera

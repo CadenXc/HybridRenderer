@@ -1,0 +1,99 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "../../common/common.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant) uniform PushConstants 
+{ 
+    int useAlbedoDemod; 
+} pc;
+
+layout(set = 2, binding = 0) uniform sampler2D gInputSignal;  
+layout(set = 2, binding = 1) uniform sampler2D gInputMoments; 
+layout(set = 2, binding = 2) uniform sampler2D gNormal;
+layout(set = 2, binding = 3) uniform sampler2D gMotion;       
+layout(set = 2, binding = 4) uniform sampler2D gMaterial;     
+layout(set = 2, binding = 5, rgba16f) uniform image2D outSignal;
+layout(set = 2, binding = 6, rgba16f) uniform image2D outMoments;
+
+float CalculateLuminance(vec4 signal) 
+{ 
+    if (pc.useAlbedoDemod == 1)
+        return dot(signal.rgb, vec3(0.299, 0.587, 0.114)); 
+    else
+        return signal.r; // Use R channel for Shadow guide
+}
+
+void main()
+{
+    ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
+
+    vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
+    vec4 centerMoments = texture(gInputMoments, uv);
+    float hLen = centerMoments.a;
+
+    if (hLen >= 4.0)
+    {
+        imageStore(outSignal, ipos, texture(gInputSignal, uv));
+        imageStore(outMoments, ipos, centerMoments);
+        return;
+    }
+
+    vec3  nCenter    = texture(gNormal, uv).xyz * 2.0 - 1.0;
+    vec4  mM         = texture(gMotion, uv);
+    float zCenter    = mM.z;
+    float gradCenter = mM.w;
+    int   idCenter   = int(texture(gMaterial, uv).w);
+    vec4  signalCenter= texture(gInputSignal, uv);
+    float lumaCenter = CalculateLuminance(signalCenter);
+
+    float sumW = 0.0;
+    vec4  sumSignal = vec4(0.0);
+    vec2  sumMoments = vec2(0.0);
+
+    // [COPY] Reference weights from SVGF/Filter.cuh
+    float phiL = (pc.useAlbedoDemod == 1 ? svgfPhi.x : 0.2); // Tighter for initial shadow pass
+    float phiZ = max(gradCenter, 1e-8);
+
+    int radius = 3;
+    for (int y = -radius; y <= radius; y++)
+    {
+        for (int x = -radius; x <= radius; x++)
+        {
+            ivec2 p = ipos + ivec2(x, y);
+            if (p.x < 0 || p.x >= int(displayData.x) || p.y < 0 || p.y >= int(displayData.y)) continue;
+
+            vec2  pUV     = (vec2(p) + 0.5) / displayData.xy;
+            vec3  nSample = texture(gNormal, pUV).xyz * 2.0 - 1.0;
+            float zSample = texture(gMotion, pUV).z;
+            int   idSample= int(texture(gMaterial, pUV).w);
+            vec4  sSample = texture(gInputSignal, pUV);
+            vec2  mSample = texture(gInputMoments, pUV).rg;
+            float lSample = CalculateLuminance(sSample);
+
+            // [COPY] Reference weight formula
+            float wN = pow(max(0.0, dot(nCenter, nSample)), 64.0);
+            float distZ = abs(zCenter - zSample) / (phiZ * length(vec2(x, y)) + 1e-6);
+            float distL = abs(lumaCenter - lSample) / phiL;
+            int   wID = (idCenter == idSample) ? 1 : 0;
+
+            float weight = exp(-distL - distZ) * wN * float(wID);
+            
+            sumW += weight;
+            sumSignal += sSample * weight;
+            sumMoments += mSample * weight;
+        }
+    }
+
+    sumW = max(sumW, 1e-6);
+    sumSignal /= sumW;
+    sumMoments /= sumW;
+
+    float variance = max(0.0, sumMoments.y - sumMoments.x * sumMoments.x);
+    variance *= (4.0 / max(1.0, hLen));
+
+    imageStore(outSignal, ipos, sumSignal);
+    imageStore(outMoments, ipos, vec4(sumMoments, variance, hLen));
+}

@@ -4,23 +4,24 @@
 
 namespace Chimera
 {
-    class RayTracedRenderPath : public RenderPath
+class RayTracedRenderPath : public RenderPath
+{
+public:
+    RayTracedRenderPath(VulkanContext& context);
+    virtual ~RayTracedRenderPath() = default;
+
+    virtual RenderPathType GetType() const override
     {
-    public:
-        RayTracedRenderPath(VulkanContext& context);
-        virtual ~RayTracedRenderPath() = default;
+        return RenderPathType::RayTracing;
+    }
 
-        virtual RenderPathType GetType() const override
-        {
-            return RenderPathType::RayTracing;
-        }
+    virtual void OnImGui() override;
 
-        virtual void OnImGui() override;
+protected:
+    virtual void BuildGraph(RenderGraph& graph,
+                            std::shared_ptr<Scene> scene) override;
 
-    protected:
-        virtual void BuildGraph(RenderGraph& graph, std::shared_ptr<Scene> scene) override;
-
-    private:
-        bool m_UseAlphaTest = true;
-    };
-}
+private:
+    bool m_UseAlphaTest = true;
+};
+} // namespace Chimera

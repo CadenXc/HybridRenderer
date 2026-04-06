@@ -1,0 +1,49 @@
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "../../common/common.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 2, binding = 0) uniform sampler2D gInputMoments;
+layout(set = 2, binding = 1, rgba16f) uniform image2D outBlurredMoments;
+
+void main()
+{
+    ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
+
+    vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
+
+    // --- [GEMS LIFT] Section 13.4.2: Maximum filter on Variation ---
+    // Instead of pure Gaussian, we use a hybrid approach to "smear" high variance
+    // around noisy areas, providing a safety margin for spatial filtering.
+    
+    float kernel[3] = { 1.0, 2.0, 1.0 };
+    float blurredVariance = 0.0;
+    float maxVariance = 0.0;
+    float weightSum = 0.0;
+
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            ivec2 neighborPos = clamp(ipos + ivec2(x, y), ivec2(0), ivec2(displayData.xy) - 1);
+            vec2 neighborUV = (vec2(neighborPos) + 0.5) / displayData.xy;
+            
+            float weight = kernel[x + 1] * kernel[y + 1];
+            float var = texture(gInputMoments, neighborUV).b;
+            
+            blurredVariance += var * weight;
+            maxVariance = max(maxVariance, var);
+            weightSum += weight;
+        }
+    }
+
+    vec4 moments = texture(gInputMoments, uv);
+    
+    // Combine blurred and max variance to inflate the edge-stopping threshold 
+    // where noise is likely to be high.
+    moments.b = mix(blurredVariance / weightSum, maxVariance, 0.5);
+
+    imageStore(outBlurredMoments, ipos, moments);
+}
