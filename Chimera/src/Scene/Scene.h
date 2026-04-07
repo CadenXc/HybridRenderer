@@ -17,18 +17,16 @@ public:
     Scene(std::shared_ptr<VulkanContext> context);
     ~Scene();
 
-        // Scene Management
     void LoadModel(const std::string& path);
     void FinalizeAsyncModelLoad(std::shared_ptr<Model> model,
-                                std::shared_ptr<ImportedScene> imported,
-                                const std::string& path);
+                               std::shared_ptr<ImportedScene> imported,
+                               const std::string& path);
     void UpdateEntityTRS(uint32_t index, const glm::vec3& pos,
                          const glm::vec3& rot, const glm::vec3& scale);
     void RemoveEntity(uint32_t index);
     void OnUpdate(float ts);
     void ClearScene();
 
-        // Skybox
     void LoadSkybox(const std::string& path);
     void LoadHDRSkybox(const std::string& path);
     void ClearSkybox();
@@ -43,7 +41,6 @@ public:
         return m_SkyboxTexture.IsValid() ? m_SkyboxTexture.id : 0xFFFFFFFF;
     }
 
-        // Lights
     void AddLight(const Light& light)
     {
         m_Lights.push_back(light);
@@ -57,23 +54,21 @@ public:
         return m_Lights;
     }
 
-        // [COMPAT] Return first light as main light for old passes
     Light& GetMainLight()
     {
         if (m_Lights.empty())
         {
-            Light defaultLight;
-            defaultLight.position.w = (float)LightType::Directional;
+            Light defaultLight{};
+            defaultLight.position = glm::vec4(0.0f, 10.0f, 0.0f, (float)LightType::Directional);
             defaultLight.direction =
                 glm::vec4(glm::normalize(glm::vec3(0.1f, -1.0f, 0.1f)), 0.0f);
             defaultLight.color =
-                glm::vec4(1.0f, 1.0f, 1.0f, 5.0f); // Intensity in Alpha
+                glm::vec4(1.0f, 1.0f, 1.0f, 5.0f); 
             m_Lights.push_back(defaultLight);
         }
         return m_Lights[0];
     }
 
-        // Acceleration Structures
     void UpdateTLAS();
 
     VkAccelerationStructureKHR GetTLAS() const
@@ -95,10 +90,8 @@ public:
         m_NeedsMaterialSync = true;
     }
 
-        // Hierarchy Management
     void UpdateWorldTransforms();
 
-        // Octree
     void BuildOctree();
     void GetVisibleEntities(const Frustum& frustum,
                             std::vector<uint32_t>& outVisibleIndices) const;
@@ -114,7 +107,7 @@ private:
     VulkanContext* m_Context;
     std::vector<Entity> m_Entities;
     std::vector<Node> m_Nodes;
-    std::vector<glm::mat4> m_WorldTransforms; // Cached global matrices
+    std::vector<glm::mat4> m_WorldTransforms; 
 
     std::unique_ptr<OctreeNode> m_OctreeRoot;
 

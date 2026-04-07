@@ -9,22 +9,16 @@ class Material
 {
 public:
     Material(const std::string& name = "New Material");
-    Material(const std::string& name, const GpuMaterial& data); // [NEW]
+    Material(const std::string& name, const GpuMaterial& data);
     ~Material() = default;
 
-    void SetAlbedo(const glm::vec4& color)
+    void SetColour(const glm::vec3& color)
     {
-        m_Data.albedo = color;
+        m_Data.colour = color;
         m_Dirty = true;
     }
 
     void SetEmission(const glm::vec3& color)
-    {
-        m_Data.emission = glm::vec4(color, 1.0f);
-        m_Dirty = true;
-    }
-
-    void SetEmission(const glm::vec4& color)
     {
         m_Data.emission = color;
         m_Dirty = true;
@@ -48,29 +42,29 @@ public:
         m_Dirty = true;
     }
 
-    void SetTextureIndices(int albedo, int normal, int metalRough)
+    void SetTextureIndices(int colour, int normal, int roughness)
     {
-        m_Data.albedoTex = albedo;
-        m_Data.normalTex = normal;
-        m_Data.metalRoughTex = metalRough;
+        m_Data.colourTexture = colour;
+        m_Data.normalTexture = normal;
+        m_Data.roughnessTexture = roughness;
         m_Dirty = true;
     }
 
-    void SetAlbedoTexture(TextureHandle handle)
+    void SetColourTexture(TextureHandle handle)
     {
-        m_Data.albedoTex = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
+        m_Data.colourTexture = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
         m_Dirty = true;
     }
 
     void SetNormalTexture(TextureHandle handle)
     {
-        m_Data.normalTex = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
+        m_Data.normalTexture = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
         m_Dirty = true;
     }
 
-    void SetMetalRoughTexture(TextureHandle handle)
+    void SetRoughnessTexture(TextureHandle handle)
     {
-        m_Data.metalRoughTex = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
+        m_Data.roughnessTexture = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
         m_Dirty = true;
     }
 

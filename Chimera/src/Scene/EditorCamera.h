@@ -117,6 +117,16 @@ public:
     {
         return m_Yaw;
     }
+    void SetPitch(float pitch)
+    {
+        m_Pitch = pitch;
+        UpdateView();
+    }
+    void SetYaw(float yaw)
+    {
+        m_Yaw = yaw;
+        UpdateView();
+    }
     float GetFOV() const
     {
         return m_FOV;

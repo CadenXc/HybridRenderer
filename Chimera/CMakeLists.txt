@@ -62,6 +62,7 @@ target_link_libraries(Chimera PUBLIC
     VulkanMemoryAllocator
     stb_lib
     cgltf
+    assimp
     spirv-reflect
     spdlog::spdlog
     imgui

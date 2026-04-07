@@ -7,17 +7,17 @@ hitAttributeEXT vec2 attribs;
 void main()
 {
     uint objId = gl_InstanceCustomIndexEXT;
-    GpuPrimitive prim = primitives[objId];
-    GpuMaterial mat = materials[prim.materialIndex];
+    GpuInstance inst = instances[objId];
+    GpuMaterial mat = materials[inst.material];
     
-    if (mat.albedoTex >= 0)
+    if (mat.colourTexture >= 0)
     {
-        IndexBufferRef indices = IndexBufferRef(prim.indexAddress);
+        IndexBufferRef indices = IndexBufferRef(inst.indexAddress);
         uint i0 = indices.i[3 * gl_PrimitiveID];
         uint i1 = indices.i[3 * gl_PrimitiveID + 1];
         uint i2 = indices.i[3 * gl_PrimitiveID + 2];
 
-        VertexBufferRef vertices = VertexBufferRef(prim.vertexAddress);
+        VertexBufferRef vertices = VertexBufferRef(inst.vertexAddress);
         vec2 uv0 = vertices.v[i0].texCoord;
         vec2 uv1 = vertices.v[i1].texCoord;
         vec2 uv2 = vertices.v[i2].texCoord;
@@ -25,7 +25,7 @@ void main()
         vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
         vec2 uv = uv0 * barycentrics.x + uv1 * barycentrics.y + uv2 * barycentrics.z;
 
-        float alpha = texture(textureArray[nonuniformEXT(mat.albedoTex)], uv).a;
+        float alpha = texture(textureArray[nonuniformEXT(mat.colourTexture)], uv).a;
 
         if (alpha < 0.5)
         {

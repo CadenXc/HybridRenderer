@@ -69,7 +69,7 @@ void ForwardPass::Execute(const ForwardPassData& data, RenderGraphRegistry& reg,
             for (const auto& mesh : meshes)
             {
                 // Frustum Culling
-                AABB worldBounds = mesh.localBounds.Transform(entityTransform *
+                ChimeraAABB worldBounds = mesh.localBounds.Transform(entityTransform *
                                                               mesh.transform);
                 if (!frustum.Intersects(worldBounds))
                 {

@@ -25,13 +25,19 @@ using uint64 = uint64_t;
 #define BINDING_GLOBAL_UBO            0
 #define BINDING_AS                    0
 #define BINDING_MATERIALS             1
-#define BINDING_PRIMITIVES            2
+#define BINDING_INSTANCES             2
 #define BINDING_TEXTURES              3
 #define BINDING_RT_OUTPUT             0
 #define BINDING_RT_MOTION             1
 
 // --- 1. Shared Constants ---
-#define REVERSED_Z                    1
+#define INVALID_ID -1
+
+#define MATERIAL_TYPE_MATTE 0
+#define MATERIAL_TYPE_PBR   1
+#define MATERIAL_TYPE_VOLUMETRIC   2
+#define MATERIAL_TYPE_GLASS   3
+#define MATERIAL_TYPE_SUBSURFACE   4
 
 #define DISPLAY_MODE_FINAL            0
 #define DISPLAY_MODE_ALBEDO           1
@@ -56,36 +62,75 @@ using uint64 = uint64_t;
 #define RENDER_FLAG_SVGF_BIT          (1 << 7)
 #define RENDER_FLAG_SVGF_TEMPORAL_BIT (1 << 8)
 #define RENDER_FLAG_SVGF_SPATIAL_BIT  (1 << 9)
-#define RENDER_FLAG_IBL_BIT      (1 << 10) // [NEW] Toggle for Environment IBL
-#define RENDER_FLAG_EMISSIVE_BIT (1 << 11) // [NEW] Toggle for Material Emission
+#define RENDER_FLAG_IBL_BIT           (1 << 10)
+#define RENDER_FLAG_EMISSIVE_BIT      (1 << 11)
 
 // --- 2. Data Structures ---
 
 struct GpuMaterial
 {
-    vec4 albedo;
-    vec4 emission;
+    vec3 emission;
     float roughness;
+    
+    vec3 colour;
     float metallic;
+    
+    float padding;
+    float anisotropy;
+    float materialType;
+    float opacity;
 
-    int albedoTex;
-    int normalTex;
-    int metalRoughTex;
-    int emissiveTex;
-    int aoTex;
+    vec3 scatteringColour;
+    float transmissionDepth;
 
-    int padding[5]; // Total: 16+16+4+4+4*5 + 4*5 = 80 bytes (16-byte aligned)
+    int emissionTexture;
+    int colourTexture;
+    int roughnessTexture;
+    int normalTexture;
 };
 
-struct GpuPrimitive
+struct GpuAABB
+{
+    vec3 min;
+    float pad0;
+    vec3 max;
+    float pad1;
+};
+
+struct GpuInstance
 {
     mat4 transform;
-    mat4 normalMatrix;
-    mat4 prevTransform;
+    mat4 inverseTransform;
+    mat4 normalTransform;
+    GpuAABB bounds;
+
+    uint shape;
+    uint index;
+    uint material;
+    uint selected;
+
+    // Chimera extensions for buffer addresses
     uint64 vertexAddress;
     uint64 indexAddress;
-    int materialIndex;
-    int padding[3];
+    mat4 prevTransform;
+};
+
+struct GpuTriangle
+{
+    vec4 positionUvX0;
+    vec4 positionUvX1;
+    vec4 positionUvX2;
+    
+    vec4 normalUvY0; 
+    vec4 normalUvY1; 
+    vec4 normalUvY2;
+    
+    vec4 tangent0;
+    vec4 tangent1;  
+    vec4 tangent2;
+    
+    vec3 triCenter;
+    float padding3; 
 };
 
 struct GpuVertex
@@ -94,6 +139,14 @@ struct GpuVertex
     vec3 normal;
     vec4 tangent;
     vec2 texCoord;
+};
+
+struct GpuLight
+{
+    int instance;
+    int cdfCount;
+    int environment;
+    int cdfStart;
 };
 
 // --- 3. UBO & Ray Tracing Payload ---
@@ -124,20 +177,10 @@ struct UniformBufferObject
     CameraData camera;
     LightData sunLight;
 
-    // Block 1: Sizes & Frame Info
     vec4 displayData; // x: width, y: height, z: 1/width, w: 1/height
-
-    // Block 2: Indices & Flags
-    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w:
-                     // renderFlags
-
-    // Block 3: Lighting & Post Parameters
+    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w: renderFlags
     vec4 postData; // x: exposure, y: ambientStrength, zw: blueNoiseTextureIndex
-                   // and padding
-
-    // Block 4: Environment & Other
     vec4 envData; // x: skyboxTextureIndex, yzw: padding
-
     vec4 svgfAlpha; // x: alphaColor, y: alphaMoments, zw: padding
     vec4 svgfPhi; // x: phiColor, y: phiNormal, z: phiDepth, w: padding
     vec4 gpuClearColor;
@@ -148,32 +191,21 @@ layout(set = 0, binding = BINDING_GLOBAL_UBO) uniform GlobalUBO
 {
     CameraData camera;
     LightData sunLight;
-
-    // Block 1: Sizes & Frame Info
-    vec4 displayData; // x: width, y: height, z: 1/width, w: 1/height
-
-    // Block 2: Indices & Flags
-    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w:
-                     // renderFlags
-
-    // Block 3: Lighting & Post Parameters
-    vec4 postData; // x: exposure, y: ambientStrength, zw: blueNoiseTextureIndex
-                   // and padding
-
-    // Block 4: Environment & Other
-    vec4 envData; // x: skyboxTextureIndex, yzw: padding
-
-    vec4 svgfAlpha; // x: alphaColor, y: alphaMoments, zw: padding
-    vec4 svgfPhi; // x: phiColor, y: phiNormal, z: phiDepth, w: padding
+    vec4 displayData;
+    uvec4 frameData;
+    vec4 postData;
+    vec4 envData;
+    vec4 svgfAlpha;
+    vec4 svgfPhi;
     vec4 gpuClearColor;
 };
 #endif
 
 struct HitPayload
 {
-    vec4 color_dist; // rgb: color, a: distance
-    vec4 normal_rough; // rgb: normal, a: roughness
-    vec4 motion_hit; // rg: motion, b: hit (bool as float), a: padding
+    vec4 color_dist;
+    vec4 normal_rough;
+    vec4 motion_hit;
 };
 
 struct ScenePushConstants
@@ -182,8 +214,10 @@ struct ScenePushConstants
 };
 
 #ifdef __cplusplus
-static_assert(sizeof(GpuPrimitive) == 224, "GpuPrimitive size mismatch");
+// Alignment and size checks
 static_assert(sizeof(GpuMaterial) == 80, "GpuMaterial size mismatch");
+static_assert(sizeof(GpuTriangle) == 160, "GpuTriangle size mismatch");
+static_assert(sizeof(GpuLight) == 16, "GpuLight size mismatch");
 static_assert(sizeof(UniformBufferObject) % 16 == 0, "UBO alignment mismatch");
 } // namespace Chimera
 #endif

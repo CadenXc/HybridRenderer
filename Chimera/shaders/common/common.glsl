@@ -22,9 +22,9 @@ layout(set = 1, binding = BINDING_MATERIALS, scalar) readonly buffer MaterialBuf
     GpuMaterial materials[]; 
 };
 
-layout(set = 1, binding = BINDING_PRIMITIVES, scalar) readonly buffer PrimitiveBuffer 
+layout(set = 1, binding = BINDING_INSTANCES, scalar) readonly buffer InstanceBuffer 
 {
-    GpuPrimitive primitives[];
+    GpuInstance instances[];
 };
 
 layout(set = 1, binding = BINDING_TEXTURES) uniform sampler2D textureArray[];
@@ -102,39 +102,20 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 
 vec2 SampleEquirectangular(vec3 v)
 {
-    // Equirectangular mapping:
-    // phi = atan2(z, x), theta = asin(y)
+    // Equirectangular mapping
     float phi = atan(v.z, v.x);
     float theta = asin(v.y);
-    
     vec2 uv;
     uv.x = (phi / (2.0 * PI)) + 0.5;
     uv.y = (theta / PI) + 0.5;
-    
-    // Most HDRs need V to be 0 at the top (theta = PI/2)
-    // and 1 at the bottom (theta = -PI/2)
     uv.y = 1.0 - uv.y; 
-    
     return uv;
 }
 
-// 4.1 Vertex Transformation Utilities
-vec4 LocalToWorld(vec3 pos, mat4 transform)
-{
-    return transform * vec4(pos, 1.0);
-}
+vec4 LocalToWorld(vec3 pos, mat4 transform) { return transform * vec4(pos, 1.0); }
+vec4 WorldToClip(vec4 worldPos) { return camera.proj * camera.view * worldPos; }
+vec4 PrevWorldToClip(vec4 prevWorldPos) { return camera.prevProj * camera.prevView * prevWorldPos; }
 
-vec4 WorldToClip(vec4 worldPos)
-{
-    return camera.proj * camera.view * worldPos;
-}
-
-vec4 PrevWorldToClip(vec4 prevWorldPos)
-{
-    return camera.prevProj * camera.prevView * prevWorldPos;
-}
-
-// 4.2 Ray Tracing Utilities
 struct Ray { vec3 origin; vec3 dir; };
 
 float CalculateRayQueryShadow(vec3 origin, vec3 L, float maxDist) 
@@ -148,17 +129,17 @@ float CalculateRayQueryShadow(vec3 origin, vec3 L, float maxDist)
             uint objId = rayQueryGetIntersectionInstanceCustomIndexEXT(rq, false);
             uint primIdx = rayQueryGetIntersectionPrimitiveIndexEXT(rq, false);
             vec2 bary = rayQueryGetIntersectionBarycentricsEXT(rq, false);
-            GpuPrimitive prim = primitives[objId];
-            GpuMaterial mat = materials[prim.materialIndex];
-            if (mat.albedoTex >= 0) 
+            GpuInstance inst = instances[objId];
+            GpuMaterial mat = materials[inst.material];
+            if (mat.colourTexture >= 0) 
             {
-                VertexBufferRef vBuf = VertexBufferRef(prim.vertexAddress);
-                IndexBufferRef iBuf = IndexBufferRef(prim.indexAddress);
+                VertexBufferRef vBuf = VertexBufferRef(inst.vertexAddress);
+                IndexBufferRef iBuf = IndexBufferRef(inst.indexAddress);
                 uint i0 = iBuf.i[primIdx * 3 + 0];
                 uint i1 = iBuf.i[primIdx * 3 + 1];
                 uint i2 = iBuf.i[primIdx * 3 + 2];
                 vec2 uv = vBuf.v[i0].texCoord * (1.0 - bary.x - bary.y) + vBuf.v[i1].texCoord * bary.x + vBuf.v[i2].texCoord * bary.y;
-                if (texture(textureArray[nonuniformEXT(mat.albedoTex)], uv).a < 0.5) continue;
+                if (texture(textureArray[nonuniformEXT(mat.colourTexture)], uv).a < 0.5) continue;
             }
             return 0.0;
         }
@@ -183,15 +164,11 @@ vec3 OffsetRay(vec3 p, vec3 n)
 // 4.2 Material & PBR Utilities
 vec4 GetAlbedo(GpuMaterial mat, vec2 uv) 
 {
-    vec4 base = mat.albedo;
-    if (mat.albedoTex >= 0) 
-    {
-        base *= texture(textureArray[nonuniformEXT(mat.albedoTex)], uv);
-    }
+    vec4 base = vec4(mat.colour, mat.opacity);
+    if (mat.colourTexture >= 0) base *= texture(textureArray[nonuniformEXT(mat.colourTexture)], uv);
     return base;
 }
 
-// 4.2 Sampling & Noise Utilities
 vec4 GetBlueNoise(ivec2 coord)
 {
     int blueNoiseIdx = int(postData.w);
@@ -210,76 +187,38 @@ vec3 SquareToUniformCone(vec2 u, float cosThetaMax)
 
 vec3 CalculateNormal(GpuMaterial mat, vec3 N, vec4 tangent, vec2 uv) 
 {
-    if (mat.normalTex < 0) return normalize(N);
-    
-    // Guard against zero-length tangents which cause NaN
+    if (mat.normalTexture < 0) return normalize(N);
     vec3 T = normalize(tangent.xyz);
-    if (length(tangent.xyz) < 0.001) {
-        return normalize(N);
-    }
-
+    if (length(tangent.xyz) < 0.001) return normalize(N);
     vec3 B = cross(N, T) * (abs(tangent.w) < 0.001 ? 1.0 : tangent.w);
     mat3 TBN = mat3(T, B, N);
-    vec3 nm = texture(textureArray[nonuniformEXT(mat.normalTex)], uv).xyz * 2.0 - 1.0;
+    vec3 nm = texture(textureArray[nonuniformEXT(mat.normalTexture)], uv).xyz * 2.0 - 1.0;
     return normalize(TBN * nm);
 }
 
 float GetAmbientOcclusion(GpuMaterial mat, vec2 uv) 
 {
-    if (mat.aoTex < 0)
-    {
-        return 1.0;
-    }
-
-    return texture(textureArray[nonuniformEXT(mat.aoTex)], uv).r;
+    // SVGF structure doesn't have AO texture explicitly, often packed in Roughness/Metal
+    return 1.0; 
 }
 
 vec3 GetEmissive(GpuMaterial mat, vec2 uv) 
 {
-    vec3 e = mat.emission.rgb;
-    if (mat.emissiveTex >= 0)
-    {
-        e *= texture(textureArray[nonuniformEXT(mat.emissiveTex)], uv).rgb;
-    }
-    
+    vec3 e = mat.emission;
+    if (mat.emissionTexture >= 0) e *= texture(textureArray[nonuniformEXT(mat.emissionTexture)], uv).rgb;
     return e;
 }
 
 vec3 ACESToneMapping(vec3 color) 
 {
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
+    const float a = 2.51; const float b = 0.03; const float c = 2.43; const float d = 0.59; const float e = 0.14;
     return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
 }
 
-vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) 
-{
-    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) { return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0); }
+float DistributionGGX(float NoH, float roughness) { float a = roughness * roughness; float a2 = a * a; float NoH2 = NoH * NoH; float denom = (NoH2 * (a2 - 1.0) + 1.0); return a2 / (PI * denom * denom); }
+float GeometrySchlickGGX(float NoV, float NoL, float roughness) { float r = (roughness + 1.0); float k = (r * r) / 8.0; float g1 = NoV / (NoV * (1.0 - k) + k); float g2 = NoL / (NoL * (1.0 - k) + k); return g1 * g2; }
 
-float DistributionGGX(float NoH, float roughness) 
-{
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NoH2 = NoH * NoH;
-    float denom = (NoH2 * (a2 - 1.0) + 1.0);
-    return a2 / (PI * denom * denom);
-}
-
-float GeometrySchlickGGX(float NoV, float NoL, float roughness) 
-{
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
-    float g1 = NoV / (NoV * (1.0 - k) + k);
-    float g2 = NoL / (NoL * (1.0 - k) + k);
-    return g1 * g2;
-}
-
-// 4.3 Kulla-Conty Multi-Scattering Compensation
-// Analytical approximation of the integrated BRDF (Directional Albedo)
 float DirectionalAlbedo(float NoV, float roughness)
 {
     const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
@@ -296,30 +235,18 @@ vec3 EvaluateDirectPBR(vec3 worldNormal, vec3 viewDirection, vec3 lightDirection
     float NoL = max(dot(worldNormal, lightDirection), 0.0);
     float NoH = max(dot(worldNormal, halfVector), 0.0);
     float HoV = max(dot(halfVector, viewDirection), 0.0);
-    
-    if (NoL <= 0.0) return vec3(0.0); // Early out for back-lit surfaces
-
+    if (NoL <= 0.0) return vec3(0.0);
     vec3 F0 = mix(vec3(0.04), baseColor, metallic);
-    
-    // 1. Single Scattering (Standard Cook-Torrance)
     float D = DistributionGGX(NoH, roughness);
     float G = GeometrySchlickGGX(NoV, NoL, roughness);
     vec3 F = FresnelSchlickRoughness(HoV, F0, roughness);
-    
-    // Use an epsilon to prevent division by zero and resulting NaNs
     vec3 f_single = (D * G * F) / max(4.0 * NoV * NoL, 0.0001);
-    
-    // 2. Multi-Scattering Compensation (Kulla-Conty)
     float Ess = DirectionalAlbedo(NoV, roughness);
     float Esl = DirectionalAlbedo(NoL, roughness);
     float Eavg = 0.6; 
-    
     vec3 f_add = F0 * (1.0 - Ess) * (1.0 - Esl) / max(PI * (1.0 - Eavg), 0.0001);
-    
-    // 3. Combined Reflectance
     vec3 kS = F + f_add * Ess; 
     vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-    
     return (kD * baseColor / PI + f_single + f_add) * lightIntensity * NoL;
 }
 

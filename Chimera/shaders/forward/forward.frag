@@ -15,8 +15,8 @@ layout(location = 1) out vec2 outMotionVector;
 
 void main() 
 {
-    GpuPrimitive prim = primitives[inObjectId];
-    GpuMaterial mat = materials[prim.materialIndex];
+    GpuInstance inst = instances[inObjectId];
+    GpuMaterial mat = materials[inst.material];
     
     vec4 albedo = GetAlbedo(mat, inUV);
     vec3 baseColor = albedo.rgb;
@@ -25,9 +25,9 @@ void main()
     
     float roughness = mat.roughness;
     float metallic = mat.metallic;
-    if (mat.metalRoughTex >= 0)
+    if (mat.roughnessTexture >= 0)
     {
-        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.metalRoughTex)], inUV);
+        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.roughnessTexture)], inUV);
         roughness *= mrSample.g;
         metallic *= mrSample.b;
     }
@@ -35,57 +35,44 @@ void main()
     float ao = GetAmbientOcclusion(mat, inUV);
     vec3 emissive = GetEmissive(mat, inUV);
 
-    // 4. 计算直接光 (Sunlight)
     uint renderFlags = frameData.w;
     bool lightEnabled = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
     vec3 lightDirection = normalize(-sunLight.direction.xyz);
     vec3 lightIntensity = lightEnabled ? (sunLight.color.rgb * sunLight.intensity.x) : vec3(0.0);
 
-    // Ray Query Shadows
     vec3 ddx = dFdx(inWorldPos);
     vec3 ddy = dFdy(inWorldPos);
     vec3 faceNormal = normalize(cross(ddx, ddy));
-    if (dot(faceNormal, viewDirection) < 0.0) 
-    {
-        faceNormal = -faceNormal;
-    }
+    if (dot(faceNormal, viewDirection) < 0.0) faceNormal = -faceNormal;
     
     vec3 shadowOrigin = OffsetRay(inWorldPos, faceNormal);
     float shadow = CalculateRayQueryShadow(shadowOrigin, lightDirection, 1000.0);
 
     vec3 directLighting = EvaluateDirectPBR(worldNormal, viewDirection, lightDirection, baseColor, roughness, metallic, lightIntensity) * shadow;
     
-    // 5. Basic IBL fallback
     float ambStr = postData.y;
     int skyIdx = int(envData.x);
-
     vec3 ambient = ambStr * baseColor * ao;
     if (skyIdx >= 0)
     {
         vec3 reflectDirection = reflect(-viewDirection, worldNormal);
         vec3 envSpecular = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(reflectDirection)).rgb;
         vec3 envDiffuse = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(worldNormal)).rgb;
-        
         vec3 F0 = mix(vec3(0.04), baseColor, metallic);
         vec3 fresnelTerm = FresnelSchlickRoughness(max(dot(worldNormal, viewDirection), 0.0), F0, roughness);
         vec3 kS = fresnelTerm;
         vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-        
         ambient = (kD * envDiffuse * baseColor + kS * envSpecular) * ao * ambStr;
     }
     
-    // [FIX] Since inCurPos/inPrevPos are unjittered, the difference is pure geometric motion.
     float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
     float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;
-
     vec2 curPos = (inCurPos.xy / safeCurW) * 0.5 + 0.5;
     vec2 prevPos = (inPrevPos.xy / safePrevW) * 0.5 + 0.5;
-    
     outMotionVector = (curPos - prevPos);
 
     vec3 color = ambient + directLighting + emissive;
     
-    // --- Display Mode Debugging ---
     uint displayMode = frameData.z;
     if (displayMode == DISPLAY_MODE_ALBEDO)   { outColor = vec4(baseColor, 1.0); return; }
     if (displayMode == DISPLAY_MODE_NORMAL)   { outColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }

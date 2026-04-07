@@ -21,27 +21,21 @@ layout(push_constant) uniform PushConstants
 
 void main()
 {
-    GpuPrimitive prim = primitives[pc.objectId];
+    GpuInstance inst = instances[pc.objectId];
     
-    // 1. 统一位置变换
-    vec4 worldPos = LocalToWorld(inPos, prim.transform);
-    vec4 prevWorldPos = LocalToWorld(inPos, prim.prevTransform);
+    vec4 worldPos = LocalToWorld(inPos, inst.transform);
+    vec4 prevWorldPos = LocalToWorld(inPos, inst.prevTransform);
 
-    // 计算非抖动的投影坐标 (用于运动矢量)
     outCurPos = WorldToClip(worldPos);
     outPrevPos = PrevWorldToClip(prevWorldPos);
     
-    // 2. 最终渲染坐标 (应用 TAA 抖动)
-    // 抖动是在 NDC 空间应用的：pos.xy += jitter * pos.w
     gl_Position = outCurPos;
     gl_Position.xy += camera.jitterData.xy * gl_Position.w;
     
-    // 3. 法线与切线变换
-    mat3 normalMat = mat3(prim.normalMatrix);
+    mat3 normalMat = mat3(inst.normalTransform);
     outNormal = normalize(normalMat * inNormal);
     outTangent = vec4(normalize(normalMat * inTangent.xyz), inTangent.w);
     
-    // 4. 通用输出
     outTexCoord = inTexCoord;
     outObjectId = pc.objectId;
 }

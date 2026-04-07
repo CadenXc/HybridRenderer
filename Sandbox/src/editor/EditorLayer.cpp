@@ -31,8 +31,11 @@ EditorLayer::EditorLayer()
                       (float)app.GetWindow().GetHeight()};
 
     m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-    m_EditorCamera.SetFocalPoint({0.0f, 1.0f, 0.0f});
-    m_EditorCamera.SetDistance(5.0f);
+    m_EditorCamera.SetFocalPoint({-0.373f, -0.385f, -2.113f});
+    m_EditorCamera.SetDistance(12.426f);
+    m_EditorCamera.SetPitch(0.338f);
+    m_EditorCamera.SetYaw(-1.334f);
+    m_EditorCamera.SetFOV(45.0f);
 
     // [DEBUG DEFAULT] Minimal Shadow Test Mode: Sun ON, Shadows ON, others OFF
     m_RenderFlags = RENDER_FLAG_LIGHT_BIT | RENDER_FLAG_SHADOW_BIT |
@@ -48,7 +51,7 @@ EditorLayer::EditorLayer()
     // Setup initial light for Sponza (High-angle slanting down)
     auto& light = scene->GetMainLight();
     light.direction =
-        glm::vec4(glm::normalize(glm::vec3(0.385f, -0.678f, 0.626f)),
+        glm::vec4(glm::normalize(glm::vec3(0.085f, -0.987f, 0.139f)),
                   0.5f); // direction.w is radius
     light.color = glm::vec4(1.0f, 0.95f, 0.8f, 5.0f); // RGB + Intensity (A)
 
@@ -62,7 +65,8 @@ void EditorLayer::OnAttach()
     RefreshModelList();
     RefreshHDRList();
     LoadScene(Application::Get().GetSpecification().AssetDir +
-              "models/pica_pica_-_machines/scene.gltf");
+              //"models/pica_pica_-_machines/scene.gltf");
+              "models/Sponza/scene.gltf");
 }
 
 void EditorLayer::RefreshHDRList()
@@ -566,6 +570,27 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             ImGui::TreePop();
         }
     }
+    if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        glm::vec3 pos = m_EditorCamera.GetPosition();
+        glm::vec3 focal = m_EditorCamera.GetFocalPoint();
+        float distance = m_EditorCamera.GetDistance();
+        float pitch = m_EditorCamera.GetPitch();
+        float yaw = m_EditorCamera.GetYaw();
+        float fov = m_EditorCamera.GetFOV();
+
+        ImGui::Text("Position: %.3f, %.3f, %.3f", pos.x, pos.y, pos.z);
+        ImGui::Text("Focal Point: %.3f, %.3f, %.3f", focal.x, focal.y, focal.z);
+        ImGui::Text("Distance: %.3f", distance);
+        ImGui::Text("Pitch: %.3f, Yaw: %.3f", pitch, yaw);
+        ImGui::Text("FOV: %.3f", fov);
+
+        if (ImGui::Button("Reset Camera"))
+        {
+            m_EditorCamera.Reset();
+        }
+    }
+
     ImGui::Separator();
     ImGui::TextColored(ImVec4(0, 1, 0, 1), "Performance: %.3f ms (%.1f FPS)",
                        m_AverageFrameTime, m_AverageFPS);

@@ -23,23 +23,20 @@ float LinearizeDepth(float d)
 
 void main() 
 {
-    GpuPrimitive prim = primitives[inObjectId];
-    GpuMaterial mat = materials[prim.materialIndex];
+    GpuInstance inst = instances[inObjectId];
+    GpuMaterial mat = materials[inst.material];
     
     vec4 albedoSample = GetAlbedo(mat, inTexCoord);
     vec3 baseColor = albedoSample.rgb;
-    if (albedoSample.a < 0.1) 
-    {
-        discard;
-    }
+    if (albedoSample.a < 0.1) discard;
 
     vec3 worldNormal = CalculateNormal(mat, normalize(inNormal), inTangent, inTexCoord);
 
     float metallic = mat.metallic;
     float roughness = mat.roughness;
-    if (mat.metalRoughTex >= 0) 
+    if (mat.roughnessTexture >= 0) 
     {
-        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.metalRoughTex)], inTexCoord);
+        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.roughnessTexture)], inTexCoord);
         roughness *= mrSample.g;
         metallic *= mrSample.b;
     }
@@ -49,16 +46,13 @@ void main()
 
     float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
     float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;
-
     vec2 curUV  = (inCurPos.xy / safeCurW) * 0.5 + 0.5;
     vec2 prevUV = (inPrevPos.xy / safePrevW) * 0.5 + 0.5;
     
-    // --- [PAPER ALIGNMENT] Directional Depth Derivatives ---
     float linearDepth = LinearizeDepth(gl_FragCoord.z);
     float dx = dFdx(linearDepth);
     float dy = dFdy(linearDepth);
 
-    // outMotion.a stores dFdx, outAlbedo.a stores dFdy
     outMotion = vec4(curUV - prevUV, linearDepth, dx);
     outAlbedo = vec4(baseColor, dy); 
 

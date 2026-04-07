@@ -113,13 +113,12 @@ public:
     }
 
     void SyncMaterialsToGPU();
-    void SyncPrimitivesToGPU(class Scene* scene);
+    void SyncInstancesToGPU(class Scene* scene);
 
-        // [NEW] Async Model Loading
     std::shared_ptr<class Model> LoadModelAsync(
         const std::string& path,
         std::shared_ptr<class Scene> targetScene = nullptr);
-    void UpdateLoadingTasks(); // Must be called every frame
+    void UpdateLoadingTasks();
 
     void UpdateMaterial(uint32_t materialIndex, const GpuMaterial& material);
 
@@ -205,7 +204,7 @@ private:
     std::unordered_map<std::string, MaterialHandle> m_MaterialMap;
     std::vector<uint32_t> m_MaterialRefCount;
     std::unique_ptr<Buffer> m_MaterialBuffer;
-    std::unique_ptr<Buffer> m_PrimitiveBuffer;
+    std::unique_ptr<Buffer> m_InstanceBuffer;
 
     std::vector<std::shared_ptr<Buffer>> m_Buffers;
     std::vector<uint32_t> m_BufferRefCount;

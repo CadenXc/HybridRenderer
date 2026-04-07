@@ -20,68 +20,36 @@ enum class LoadingStatus
 class Model
 {
 public:
-        // Regular constructor for immediate loading
     Model(std::shared_ptr<VulkanContext> context,
           const ImportedScene& importedScene);
-
-        // Constructor for async loading: creates a placeholder
     Model(std::shared_ptr<VulkanContext> context);
-
     ~Model();
 
-    LoadingStatus GetStatus() const
-    {
-        return m_Status;
-    }
-    bool IsReady() const
-    {
-        return m_Status == LoadingStatus::Ready;
-    }
+    LoadingStatus GetStatus() const { return m_Status; }
+    bool IsReady() const { return m_Status == LoadingStatus::Ready; }
 
-        // Called by main thread when CPU parsing is done to upload to GPU
     void UploadToGPU(const ImportedScene& sceneData);
 
-    const std::vector<Mesh>& GetMeshes() const
-    {
-        return m_Meshes;
-    }
+    const std::vector<Mesh>& GetMeshes() const { return m_Meshes; }
+    Buffer* GetVertexBuffer() const { return m_VertexBuffer.get(); }
+    Buffer* GetIndexBuffer() const { return m_IndexBuffer.get(); }
+    Buffer* GetTriangleBuffer() const { return m_TriangleBuffer.get(); }
 
-    Buffer* GetVertexBuffer() const
-    {
-        return m_VertexBuffer.get();
-    }
+    VkDeviceAddress GetVertexBufferAddress() const { return m_VertexBuffer->GetDeviceAddress(); }
+    VkDeviceAddress GetIndexBufferAddress() const { return m_IndexBuffer->GetDeviceAddress(); }
+    VkDeviceAddress GetTriangleBufferAddress() const { return m_TriangleBuffer ? m_TriangleBuffer->GetDeviceAddress() : 0; }
 
-    Buffer* GetIndexBuffer() const
-    {
-        return m_IndexBuffer.get();
-    }
+    const std::vector<VkAccelerationStructureKHR>& GetBLASHandles() const { return m_BLASHandles; }
 
-    VkDeviceAddress GetVertexBufferAddress() const
-    {
-        return m_VertexBuffer->GetDeviceAddress();
-    }
-
-    VkDeviceAddress GetIndexBufferAddress() const
-    {
-        return m_IndexBuffer->GetDeviceAddress();
-    }
-
-    const std::vector<VkAccelerationStructureKHR>& GetBLASHandles() const
-    {
-        return m_BLASHandles;
-    }
-
-    uint32_t GetVertexCount() const
-    {
-        return m_VertexCount;
-    }
-
-    uint32_t GetIndexCount() const
-    {
-        return m_IndexCount;
-    }
+    uint32_t GetVertexCount() const { return m_VertexCount; }
+    uint32_t GetIndexCount() const { return m_IndexCount; }
 
     void Draw(class GraphicsExecutionContext& ctx);
+
+    void UpdateMeshes(const std::vector<Mesh>& meshes)
+    {
+        m_Meshes = meshes;
+    }
 
 private:
     void BuildBLAS();
@@ -90,6 +58,7 @@ private:
     std::shared_ptr<VulkanContext> m_Context;
     std::unique_ptr<Buffer> m_VertexBuffer;
     std::unique_ptr<Buffer> m_IndexBuffer;
+    std::unique_ptr<Buffer> m_TriangleBuffer;
     std::vector<Mesh> m_Meshes;
 
     std::vector<std::unique_ptr<Buffer>> m_BLASBuffers;

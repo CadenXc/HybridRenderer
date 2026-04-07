@@ -59,7 +59,7 @@ void DepthPrepass::Execute(const PassData& data, RenderGraphRegistry& reg,
 
             for (const auto& mesh : meshes)
             {
-                AABB worldBounds = mesh.localBounds.Transform(entityTransform *
+                ChimeraAABB worldBounds = mesh.localBounds.Transform(entityTransform *
                                                               mesh.transform);
                 if (!frustum.Intersects(worldBounds))
                 {

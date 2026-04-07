@@ -109,7 +109,7 @@ void GBufferPass::Execute(const PassData& data, RenderGraphRegistry& reg,
             for (const auto& mesh : meshes)
             {
                 // Secondary culling at mesh level
-                AABB worldBounds = mesh.localBounds.Transform(entityTransform *
+                ChimeraAABB worldBounds = mesh.localBounds.Transform(entityTransform *
                                                               mesh.transform);
                 if (!frustum.Intersects(worldBounds))
                 {

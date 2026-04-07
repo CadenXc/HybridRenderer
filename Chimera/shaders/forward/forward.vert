@@ -22,10 +22,10 @@ layout(push_constant) uniform PushConstants
 
 void main() 
 {
-    GpuPrimitive prim = primitives[pc.objectId];
+    GpuInstance inst = instances[pc.objectId];
     
-    vec4 worldPos = LocalToWorld(inPosition, prim.transform);
-    vec4 prevWorldPos = LocalToWorld(inPosition, prim.prevTransform);
+    vec4 worldPos = LocalToWorld(inPosition, inst.transform);
+    vec4 prevWorldPos = LocalToWorld(inPosition, inst.prevTransform);
     
     outWorldPos = worldPos.xyz;
     outCurPos = WorldToClip(worldPos);
@@ -38,7 +38,7 @@ void main()
         gl_Position.xy += camera.jitterData.xy * gl_Position.w;
     }
     
-    mat3 normalMat = mat3(prim.normalMatrix);
+    mat3 normalMat = mat3(inst.normalTransform);
     outNormal = normalize(normalMat * inNormal);
     outTangent = vec4(normalize(normalMat * inTangent.xyz), inTangent.w);
     

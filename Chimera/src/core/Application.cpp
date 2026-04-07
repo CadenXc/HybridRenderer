@@ -373,7 +373,7 @@ void Application::UpdateGlobalUBO(uint32_t frameIndex)
 
     if (m_ResourceManager->HasActiveScene())
     {
-        m_ResourceManager->SyncPrimitivesToGPU(
+        m_ResourceManager->SyncInstancesToGPU(
             m_ResourceManager->GetActiveScene());
         m_ResourceManager->UpdateSceneDescriptorSet(
             m_ResourceManager->GetActiveScene(), frameIndex);
