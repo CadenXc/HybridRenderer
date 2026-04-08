@@ -19,8 +19,8 @@ public:
 
     void LoadModel(const std::string& path);
     void FinalizeAsyncModelLoad(std::shared_ptr<Model> model,
-                               std::shared_ptr<ImportedScene> imported,
-                               const std::string& path);
+                                std::shared_ptr<ImportedScene> imported,
+                                const std::string& path);
     void UpdateEntityTRS(uint32_t index, const glm::vec3& pos,
                          const glm::vec3& rot, const glm::vec3& scale);
     void RemoveEntity(uint32_t index);
@@ -59,11 +59,11 @@ public:
         if (m_Lights.empty())
         {
             Light defaultLight{};
-            defaultLight.position = glm::vec4(0.0f, 10.0f, 0.0f, (float)LightType::Directional);
+            defaultLight.position =
+                glm::vec4(0.0f, 10.0f, 0.0f, (float)LightType::Directional);
             defaultLight.direction =
                 glm::vec4(glm::normalize(glm::vec3(0.1f, -1.0f, 0.1f)), 0.0f);
-            defaultLight.color =
-                glm::vec4(1.0f, 1.0f, 1.0f, 5.0f); 
+            defaultLight.color = glm::vec4(1.0f, 1.0f, 1.0f, 5.0f);
             m_Lights.push_back(defaultLight);
         }
         return m_Lights[0];
@@ -107,7 +107,7 @@ private:
     VulkanContext* m_Context;
     std::vector<Entity> m_Entities;
     std::vector<Node> m_Nodes;
-    std::vector<glm::mat4> m_WorldTransforms; 
+    std::vector<glm::mat4> m_WorldTransforms;
 
     std::unique_ptr<OctreeNode> m_OctreeRoot;
 

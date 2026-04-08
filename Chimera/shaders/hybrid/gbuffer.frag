@@ -24,25 +24,13 @@ float LinearizeDepth(float d)
 void main() 
 {
     GpuInstance inst = instances[inObjectId];
-    GpuMaterial mat = materials[inst.material];
+    GpuMaterial rawMat = materials[inst.material];
     
-    vec4 albedoSample = GetAlbedo(mat, inTexCoord);
-    vec3 baseColor = albedoSample.rgb;
-    if (albedoSample.a < 0.1) discard;
+    // --- [PLAGIARISM] SVGF Material Point ---
+    MaterialPoint mat = GetMaterialPoint(rawMat, inTexCoord);
+    if (mat.Opacity < 0.1) discard;
 
-    vec3 worldNormal = CalculateNormal(mat, normalize(inNormal), inTangent, inTexCoord);
-
-    float metallic = mat.metallic;
-    float roughness = mat.roughness;
-    if (mat.roughnessTexture >= 0) 
-    {
-        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.roughnessTexture)], inTexCoord);
-        roughness *= mrSample.g;
-        metallic *= mrSample.b;
-    }
-
-    float ao = GetAmbientOcclusion(mat, inTexCoord);
-    vec3 emissive = GetEmissive(mat, inTexCoord);
+    vec3 worldNormal = CalculateNormal(rawMat, normalize(inNormal), inTangent, inTexCoord);
 
     float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
     float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;
@@ -54,9 +42,9 @@ void main()
     float dy = dFdy(linearDepth);
 
     outMotion = vec4(curUV - prevUV, linearDepth, dx);
-    outAlbedo = vec4(baseColor, dy); 
+    outAlbedo = vec4(mat.Colour, dy); 
 
     outNormal = vec4(worldNormal, 1.0);
-    outMaterial = vec4(roughness, metallic, ao, float(inObjectId)); 
-    outEmissive = vec4(emissive, 1.0);
+    outMaterial = vec4(mat.Roughness, mat.Metallic, 1.0, float(inObjectId)); // AO defaulted to 1.0
+    outEmissive = vec4(mat.Emission, 1.0);
 }

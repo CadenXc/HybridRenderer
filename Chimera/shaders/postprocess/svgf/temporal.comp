@@ -26,35 +26,27 @@ layout(set = 2, binding = 11) uniform sampler2D gPrevMaterial;
 layout(set = 2, binding = 12) uniform sampler2D gPrevMotion; 
 layout(set = 2, binding = 13) uniform sampler2D gAlbedo; 
 
-float sanitize(float v) { return (isnan(v) || isinf(v)) ? 0.0 : v; }
-vec4  sanitize4(vec4 v) { return (any(isnan(v)) || any(isinf(v))) ? vec4(0.0) : v; }
+float CalculateLuminance(vec3 color) {
+    return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+}
 
 bool is_valid_reprojection(vec2 prevUV, vec3 curNormal, float curDepth, int curID) 
 {
     if (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) return false;
 
+    // 1. Mesh ID Check (Most reliable)
     int preID = int(texture(gPrevMaterial, prevUV).w);
     if (curID != preID) return false;
 
-    vec3 worldNormal = curNormal;
-    vec3 viewNormal = (camera.view * vec4(worldNormal, 0.0)).xyz;
-    float nz = abs(viewNormal.z);
-    float epsilon = 0.003 + 0.017 * (1.0 - nz);
+    // 2. Normal Check (SVGF uses exponential dot product)
+    vec3 preNormal = texture(gPrevNormal, prevUV).xyz; 
+    if (dot(curNormal, preNormal) < 0.95) return false; 
 
-    vec3 preNormal = texture(gPrevNormal, prevUV).xyz * 2.0 - 1.0;
-    if (dot(curNormal, preNormal) < 0.9) return false; 
-
+    // 3. Depth Check (Relative difference is better than absolute 0.7)
     float preDepth = texture(gPrevMotion, prevUV).z;
-    if (abs(1.0 - (preDepth / max(1e-4, curDepth))) > epsilon) return false; 
+    if (abs(curDepth - preDepth) / (curDepth + 1e-6) > 0.05) return false; 
 
     return true;
-}
-
-float GetLuma(vec4 signal) { 
-    if (pc.useAlbedoDemod == 1)
-        return dot(signal.rgb, vec3(0.299, 0.587, 0.114)); 
-    else
-        return signal.r;
 }
 
 void main() 
@@ -63,26 +55,34 @@ void main()
     if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
 
     vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
-    vec2 curJitter = camera.jitterData.xy * 0.5;
-    vec2 preJitter = camera.jitterData.zw * 0.5;
-
+    
+    // SVGF uses Motion Vector from G-Buffer directly
     vec4 motionSample = texture(gMotion, uv);
     vec2 motion = motionSample.xy;
     float curDepth = motionSample.z;
     
-    vec2 prevUV = uv - motion - curJitter + preJitter;
+    // Reproject to previous frame
+    vec2 prevUV = uv - motion;
 
-    vec4 curSignal = sanitize4(texture(gCurSignal, uv));
+    vec4 curSignal = texture(gCurSignal, uv);
     if (pc.useAlbedoDemod == 1)
     {
-        vec3 albedo = sanitize4(texture(gAlbedo, uv)).rgb;
+        vec3 albedo = texture(gAlbedo, uv).rgb;
         curSignal.rgb /= max(vec3(0.01), albedo);
     }
 
-    vec3  curNormal = texture(gCurNormal, uv).xyz * 2.0 - 1.0;
-    int   curID     = int(texture(gCurMaterial, uv).w); 
-    float curLuma   = GetLuma(curSignal);
+    vec3 curNormal = texture(gCurNormal, uv).xyz;
+    int  curID     = int(texture(gCurMaterial, uv).w); 
+    float curLuma  = CalculateLuminance(curSignal.rgb);
 
+    // --- SVGF Temporal Integration with Bilinear History Validation ---
+    
+    vec4  historySignal  = vec4(0.0);
+    vec2  historyMoments = vec2(0.0);
+    float historyLen     = 0.0;
+    float weightSum      = 0.0;
+
+    // Calculate bilinear weights for the reprojected pixel
     vec2 prevPixelPos = prevUV * displayData.xy - vec2(0.5);
     ivec2 prevCoordBase = ivec2(floor(prevPixelPos));
     vec2 f = fract(prevPixelPos);
@@ -90,17 +90,15 @@ void main()
     float weights[4] = { (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y };
     ivec2 offsets[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
 
-    vec4  historySignal  = vec4(0.0);
-    vec2  historyMoments = vec2(0.0);
-    float historyLen     = 0.0;
-    float weightSum      = 0.0;
-
     for (int i = 0; i < 4; i++) 
     {
-        vec2 sampleUV = (vec2(prevCoordBase + offsets[i]) + 0.5) / displayData.xy;
+        ivec2 sampleCoord = prevCoordBase + offsets[i];
+        vec2 sampleUV = (vec2(sampleCoord) + 0.5) / displayData.xy;
+        
+        // We must check validity for EACH of the 4 bilinear samples
         if (is_valid_reprojection(sampleUV, curNormal, curDepth, curID)) 
         {
-            historySignal  += weights[i] * sanitize4(texture(gHistorySignal, sampleUV));
+            historySignal  += weights[i] * texture(gHistorySignal, sampleUV);
             vec4 hM = texture(gHistoryMoments, sampleUV);
             historyMoments += weights[i] * hM.rg;
             historyLen     += weights[i] * hM.a;
@@ -115,17 +113,25 @@ void main()
 
     if (valid) 
     {
-        historySignal /= weightSum; historyMoments /= weightSum; historyLen /= weightSum;
-        outHLen = min(historyLen + 1.0, 32.0); 
-        float alpha = max(svgfAlpha.x, 1.0 / outHLen);
-        float alphaM = max(svgfAlpha.y, 1.0 / outHLen);
+        // Re-normalize if some bilinear samples were rejected
+        historySignal /= weightSum; 
+        historyMoments /= weightSum; 
+        historyLen /= weightSum;
         
+        // Clamp history length to allow for dynamic adjustments
+        outHLen = min(32.0, historyLen + 1.0); 
+        float alpha = 1.0 / outHLen;
+        
+        // Exponential Moving Average
         accumSignal = mix(historySignal, curSignal, alpha);
-        m1 = mix(historyMoments.r, curLuma, alphaM);
-        m2 = mix(historyMoments.g, curLuma * curLuma, alphaM);
+        m1 = mix(historyMoments.r, curLuma, alpha);
+        m2 = mix(historyMoments.g, curLuma * curLuma, alpha);
     }
 
+    // Variance calculation (M2 - M1^2)
     float var = max(0.0, m2 - m1 * m1);
-    imageStore(outSignal, ipos, sanitize4(accumSignal));
-    imageStore(outMoments, ipos, vec4(sanitize(m1), sanitize(m2), sanitize(var), outHLen));
+    
+    // Temporal output for the next stages
+    imageStore(outSignal, ipos, accumSignal);
+    imageStore(outMoments, ipos, vec4(m1, m2, var, outHLen));
 }

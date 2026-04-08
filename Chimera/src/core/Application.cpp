@@ -77,9 +77,18 @@ Application::Application(const ApplicationSpecification& spec)
     m_ImGuiLayer = std::make_shared<ImGuiLayer>(m_Context);
     PushLayer(m_ImGuiLayer);
 
-        // Load Blue Noise texture for advanced sampling
+    // Load Blue Noise texture for advanced sampling
     auto hBlueNoise = m_ResourceManager->LoadTexture(
         "assets/textures/noise/blue_noise.png", false);
+
+    if (!hBlueNoise.IsValid())
+    {
+        CH_CORE_WARN(
+            "Application: Failed to load blue_noise.png, generating "
+            "procedurally...");
+        hBlueNoise = m_ResourceManager->GenerateBlueNoise(256, 256);
+    }
+
     m_BlueNoiseTextureIndex = hBlueNoise.IsValid() ? (int)hBlueNoise.id : -1;
 }
 
@@ -361,7 +370,9 @@ void Application::UpdateGlobalUBO(uint32_t frameIndex)
         (m_ResourceManager->HasActiveScene())
             ? (int)m_ResourceManager->GetActiveScene()->GetSkyboxTextureIndex()
             : -1;
-    ubo.envData = glm::vec4((float)skyboxIdx, 0.0f, 0.0f, 0.0f);
+    float lightCount =
+        (float)m_ResourceManager->GetLightManager().GetLightCount();
+    ubo.envData = glm::vec4((float)skyboxIdx, lightCount, 0.0f, 0.0f);
 
     ubo.svgfAlpha =
         glm::vec4(0.01f, 0.1f, 0.0f,

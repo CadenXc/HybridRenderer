@@ -6,7 +6,7 @@
 namespace Chimera
 {
 
-        // Note: Not constexpr because we access static methods of Vertex which might
+// Note: Not constexpr because we access static methods of Vertex which might
 // not be constexpr or just to keep it simple with C++ linkage.
 
 inline const VkVertexInputBindingDescription
@@ -14,8 +14,8 @@ inline const VkVertexInputBindingDescription
 inline const std::array<VkVertexInputAttributeDescription, 4>
     DEFAULT_VERTEX_ATTRIBUTE_DESCRIPTIONS = Vertex::getAttributeDescriptions();
 
-        // ImGui Vertex Definitions (Placeholder if needed, otherwise rely on ImGui
-        // impl)
+// ImGui Vertex Definitions (Placeholder if needed, otherwise rely on ImGui
+// impl)
 struct ImGuiVertex
 {
     glm::vec2 pos;

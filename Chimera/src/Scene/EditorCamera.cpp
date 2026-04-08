@@ -203,8 +203,6 @@ void EditorCamera::MouseRotate(const glm::vec2& delta)
     m_Yaw += yawSign * delta.x * RotationSpeed();
     m_Pitch += delta.y * RotationSpeed();
 
-    // [核心修改] 模拟“转头”动作：
-    // 保持相机位置不变，将焦点推到视线前方固定距离处
     m_FocalPoint = currentPosition + GetForwardDirection() * m_Distance;
 }
 

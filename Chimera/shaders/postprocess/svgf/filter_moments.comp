@@ -17,12 +17,22 @@ layout(set = 2, binding = 4) uniform sampler2D gMaterial;
 layout(set = 2, binding = 5, rgba16f) uniform image2D outSignal;
 layout(set = 2, binding = 6, rgba16f) uniform image2D outMoments;
 
-float CalculateLuminance(vec4 signal) 
-{ 
-    if (pc.useAlbedoDemod == 1)
-        return dot(signal.rgb, vec3(0.299, 0.587, 0.114)); 
-    else
-        return signal.r; // Use R channel for Shadow guide
+float CalculateLuminance(vec3 color) {
+    return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+}
+
+float computeWeight(
+    float depthCenter, float depthP, float phiDepth,
+    vec3 normalCenter, vec3 normalP, float phiNormal,
+    float luminanceCenter, float luminanceP, float phiLuma
+)
+{
+    // SVGF Reference Weighting
+    float weightNormal = pow(max(0.0, dot(normalCenter, normalP)), phiNormal);
+    float weightZ      = (phiDepth < 1e-6) ? 0.0 : abs(depthCenter - depthP) / phiDepth;
+    float weightL      = abs(luminanceCenter - luminanceP) / phiLuma;
+
+    return exp(-weightL - weightZ) * weightNormal;
 }
 
 void main()
@@ -31,69 +41,77 @@ void main()
     if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
 
     vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
-    vec4 centerMoments = texture(gInputMoments, uv);
-    float hLen = centerMoments.a;
+    vec4 currentMoments = texture(gInputMoments, uv);
+    float h = currentMoments.a; // history length from temporal pass
 
-    if (hLen >= 4.0)
-    {
-        imageStore(outSignal, ipos, texture(gInputSignal, uv));
-        imageStore(outMoments, ipos, centerMoments);
+    // [PLAGIARISM] SVGF FilterMoments Logic
+    // If we have enough temporal history (e.g. > 4 frames), we can trust temporal variance.
+    // Otherwise, we must compute spatial variance to avoid noise leakage.
+    
+    vec4 illuminationCenter = texture(gInputSignal, uv);
+    float lumaCenter = CalculateLuminance(illuminationCenter.rgb);
+
+    vec4 motionSample = texture(gMotion, uv);
+    float depthCenter = motionSample.z;
+    float depthDeriv  = motionSample.w; // Pre-calculated depth gradient
+    
+    if (depthCenter == 0.0) {
+        imageStore(outSignal, ipos, illuminationCenter);
         return;
     }
 
-    vec3  nCenter    = texture(gNormal, uv).xyz * 2.0 - 1.0;
-    vec4  mM         = texture(gMotion, uv);
-    float zCenter    = mM.z;
-    float gradCenter = mM.w;
-    int   idCenter   = int(texture(gMaterial, uv).w);
-    vec4  signalCenter= texture(gInputSignal, uv);
-    float lumaCenter = CalculateLuminance(signalCenter);
+    vec3 normalCenter = texture(gNormal, uv).xyz;
+    
+    // Parameters from SVGF paper
+    float phiLuma   = svgfPhi.x; 
+    float phiDepth  = max(depthDeriv, 1e-8) * 3.0; 
+    float phiNormal = svgfPhi.z;
 
-    float sumW = 0.0;
-    vec4  sumSignal = vec4(0.0);
-    vec2  sumMoments = vec2(0.0);
+    float sumWIllumination = 0.0;
+    vec3  sumIllumination  = vec3(0.0);
+    vec2  sumMoments       = vec2(0.0);
 
-    // [COPY] Reference weights from SVGF/Filter.cuh
-    float phiL = (pc.useAlbedoDemod == 1 ? svgfPhi.x : 0.2); // Tighter for initial shadow pass
-    float phiZ = max(gradCenter, 1e-8);
-
-    int radius = 3;
-    for (int y = -radius; y <= radius; y++)
+    // 7x7 spatial filter for moments
+    const int radius = 3;
+    for (int yy = -radius; yy <= radius; yy++)
     {
-        for (int x = -radius; x <= radius; x++)
+        for (int xx = -radius; xx <= radius; xx++)
         {
-            ivec2 p = ipos + ivec2(x, y);
+            ivec2 p = ipos + ivec2(xx, yy);
             if (p.x < 0 || p.x >= int(displayData.x) || p.y < 0 || p.y >= int(displayData.y)) continue;
 
-            vec2  pUV     = (vec2(p) + 0.5) / displayData.xy;
-            vec3  nSample = texture(gNormal, pUV).xyz * 2.0 - 1.0;
-            float zSample = texture(gMotion, pUV).z;
-            int   idSample= int(texture(gMaterial, pUV).w);
-            vec4  sSample = texture(gInputSignal, pUV);
-            vec2  mSample = texture(gInputMoments, pUV).rg;
-            float lSample = CalculateLuminance(sSample);
-
-            // [COPY] Reference weight formula
-            float wN = pow(max(0.0, dot(nCenter, nSample)), 64.0);
-            float distZ = abs(zCenter - zSample) / (phiZ * length(vec2(x, y)) + 1e-6);
-            float distL = abs(lumaCenter - lSample) / phiL;
-            int   wID = (idCenter == idSample) ? 1 : 0;
-
-            float weight = exp(-distL - distZ) * wN * float(wID);
+            vec2 pUV = (vec2(p) + 0.5) / displayData.xy;
+            vec3 illuminationP = texture(gInputSignal, pUV).rgb;
+            vec2 momentsP = texture(gInputMoments, pUV).rg; // (E[X], E[X^2])
+            float lumaP = CalculateLuminance(illuminationP);
             
-            sumW += weight;
-            sumSignal += sSample * weight;
-            sumMoments += mSample * weight;
+            float depthP = texture(gMotion, pUV).z;
+            vec3 normalP = texture(gNormal, pUV).xyz;
+
+            float w = computeWeight(
+                depthCenter, depthP, phiDepth * length(vec2(xx, yy)) + 1e-6,
+                normalCenter, normalP, phiNormal,
+                lumaCenter, lumaP, phiLuma
+            );
+
+            sumWIllumination += w;
+            sumIllumination  += illuminationP * w;
+            sumMoments       += momentsP * w;
         }
     }
 
-    sumW = max(sumW, 1e-6);
-    sumSignal /= sumW;
-    sumMoments /= sumW;
+    sumWIllumination = max(sumWIllumination, 1e-6);
+    sumIllumination /= sumWIllumination;
+    sumMoments      /= sumWIllumination;
 
+    // Variance calculation: Var(X) = E[X^2] - (E[X])^2
     float variance = max(0.0, sumMoments.y - sumMoments.x * sumMoments.x);
-    variance *= (4.0 / max(1.0, hLen));
+    
+    // SVGF Trick: Boost variance for the first few frames to ensure strong spatial filtering
+    if (h < 4.0) {
+        variance *= (4.0 / max(1.0, h));
+    }
 
-    imageStore(outSignal, ipos, sumSignal);
-    imageStore(outMoments, ipos, vec4(sumMoments, variance, hLen));
+    imageStore(outSignal, ipos, vec4(sumIllumination, variance));
+    imageStore(outMoments, ipos, vec4(sumMoments, variance, h));
 }

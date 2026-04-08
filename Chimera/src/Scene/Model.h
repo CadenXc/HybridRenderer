@@ -25,24 +25,64 @@ public:
     Model(std::shared_ptr<VulkanContext> context);
     ~Model();
 
-    LoadingStatus GetStatus() const { return m_Status; }
-    bool IsReady() const { return m_Status == LoadingStatus::Ready; }
+    LoadingStatus GetStatus() const
+    {
+        return m_Status;
+    }
+    bool IsReady() const
+    {
+        return m_Status == LoadingStatus::Ready;
+    }
 
     void UploadToGPU(const ImportedScene& sceneData);
 
-    const std::vector<Mesh>& GetMeshes() const { return m_Meshes; }
-    Buffer* GetVertexBuffer() const { return m_VertexBuffer.get(); }
-    Buffer* GetIndexBuffer() const { return m_IndexBuffer.get(); }
-    Buffer* GetTriangleBuffer() const { return m_TriangleBuffer.get(); }
+    const std::vector<Mesh>& GetMeshes() const
+    {
+        return m_Meshes;
+    }
+    const std::vector<GpuTriangle>& GetTriangleData() const
+    {
+        return m_TriangleData;
+    }
+    Buffer* GetVertexBuffer() const
+    {
+        return m_VertexBuffer.get();
+    }
+    Buffer* GetIndexBuffer() const
+    {
+        return m_IndexBuffer.get();
+    }
+    Buffer* GetTriangleBuffer() const
+    {
+        return m_TriangleBuffer.get();
+    }
 
-    VkDeviceAddress GetVertexBufferAddress() const { return m_VertexBuffer->GetDeviceAddress(); }
-    VkDeviceAddress GetIndexBufferAddress() const { return m_IndexBuffer->GetDeviceAddress(); }
-    VkDeviceAddress GetTriangleBufferAddress() const { return m_TriangleBuffer ? m_TriangleBuffer->GetDeviceAddress() : 0; }
+    VkDeviceAddress GetVertexBufferAddress() const
+    {
+        return m_VertexBuffer->GetDeviceAddress();
+    }
+    VkDeviceAddress GetIndexBufferAddress() const
+    {
+        return m_IndexBuffer->GetDeviceAddress();
+    }
+    VkDeviceAddress GetTriangleBufferAddress() const
+    {
+        return m_TriangleBuffer ? m_TriangleBuffer->GetDeviceAddress() : 0;
+    }
 
-    const std::vector<VkAccelerationStructureKHR>& GetBLASHandles() const { return m_BLASHandles; }
+    const std::vector<VkAccelerationStructureKHR>& GetBLASHandles() const
+    {
+        return m_BLASHandles;
+    }
 
-    uint32_t GetVertexCount() const { return m_VertexCount; }
-    uint32_t GetIndexCount() const { return m_IndexCount; }
+    uint32_t GetVertexCount() const
+    {
+        return m_VertexCount;
+    }
+    uint32_t GetIndexCount() const
+    {
+        return m_IndexCount;
+    }
 
     void Draw(class GraphicsExecutionContext& ctx);
 
@@ -59,6 +99,7 @@ private:
     std::unique_ptr<Buffer> m_VertexBuffer;
     std::unique_ptr<Buffer> m_IndexBuffer;
     std::unique_ptr<Buffer> m_TriangleBuffer;
+    std::vector<GpuTriangle> m_TriangleData;
     std::vector<Mesh> m_Meshes;
 
     std::vector<std::unique_ptr<Buffer>> m_BLASBuffers;

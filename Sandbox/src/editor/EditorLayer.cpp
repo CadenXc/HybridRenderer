@@ -122,13 +122,6 @@ void EditorLayer::OnDetach() {}
 
 void EditorLayer::OnUpdate(Timestep ts)
 {
-    // Keyboard Shortcuts for Feature Toggles
-    if (Input::IsKeyPressed(KeyCode::F1))
-        m_RenderFlags ^= RENDER_FLAG_SHADOW_BIT;
-    if (Input::IsKeyPressed(KeyCode::F2)) m_RenderFlags ^= RENDER_FLAG_GI_BIT;
-    if (Input::IsKeyPressed(KeyCode::F3)) m_RenderFlags ^= RENDER_FLAG_SVGF_BIT;
-    if (Input::IsKeyPressed(KeyCode::F4)) m_RenderFlags ^= RENDER_FLAG_TAA_BIT;
-
     m_AverageFrameTime = ts.GetMilliseconds();
     m_AverageFPS = 1.0f / ts.GetSeconds();
 
@@ -193,7 +186,10 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 void EditorLayer::OnEvent(Event& e)
 {
-    if (!ImGui::GetIO().WantCaptureMouse) m_EditorCamera.OnEvent(e);
+    if (!ImGui::GetIO().WantCaptureMouse)
+    {
+        m_EditorCamera.OnEvent(e);
+    }
 }
 
 void EditorLayer::SwitchRenderPath(RenderPathType type)

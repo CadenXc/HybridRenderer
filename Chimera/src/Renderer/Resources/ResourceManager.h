@@ -8,6 +8,7 @@
 #include "Renderer/Resources/ResourceHandle.h"
 #include "Renderer/Graph/RenderGraphCommon.h"
 #include "Scene/SceneCommon.h"
+#include "LightManager.h"
 #include <future>
 
 namespace Chimera
@@ -115,6 +116,13 @@ public:
     void SyncMaterialsToGPU();
     void SyncInstancesToGPU(class Scene* scene);
 
+    TextureHandle GenerateBlueNoise(uint32_t width, uint32_t height);
+
+    LightManager& GetLightManager()
+    {
+        return m_LightManager;
+    }
+
     std::shared_ptr<class Model> LoadModelAsync(
         const std::string& path,
         std::shared_ptr<class Scene> targetScene = nullptr);
@@ -205,6 +213,8 @@ private:
     std::vector<uint32_t> m_MaterialRefCount;
     std::unique_ptr<Buffer> m_MaterialBuffer;
     std::unique_ptr<Buffer> m_InstanceBuffer;
+
+    LightManager m_LightManager;
 
     std::vector<std::shared_ptr<Buffer>> m_Buffers;
     std::vector<uint32_t> m_BufferRefCount;

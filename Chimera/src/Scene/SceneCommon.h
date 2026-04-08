@@ -20,7 +20,9 @@ struct ChimeraAABB
     glm::vec3 max{std::numeric_limits<float>::lowest()};
 
     ChimeraAABB() = default;
-    ChimeraAABB(const glm::vec3& min, const glm::vec3& max) : min(min), max(max) {}
+    ChimeraAABB(const glm::vec3& min, const glm::vec3& max) : min(min), max(max)
+    {
+    }
 
     void Merge(const glm::vec3& point)
     {

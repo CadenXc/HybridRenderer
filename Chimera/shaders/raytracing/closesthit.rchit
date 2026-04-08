@@ -9,7 +9,7 @@ void main()
 {
     uint objId = gl_InstanceCustomIndexEXT;
     GpuInstance inst = instances[objId];
-    GpuMaterial mat = materials[inst.material];
+    GpuMaterial rawMat = materials[inst.material];
     
     IndexBufferRef indices = IndexBufferRef(inst.indexAddress);
     uint i0 = indices.i[3 * gl_PrimitiveID + 0];
@@ -35,52 +35,70 @@ void main()
 
     if (dot(geoNormal, gl_WorldRayDirectionEXT) > 0.0) geoNormal = -geoNormal;
 
-    vec4 albedoSample = GetAlbedo(mat, uv);
-    vec3 worldNormal = CalculateNormal(mat, geoNormal, worldTangent, uv);
+    // --- [PLAGIARISM] SVGF Material Point Extraction ---
+    MaterialPoint mat = GetMaterialPoint(rawMat, uv);
+    vec3 worldNormal = CalculateNormal(rawMat, geoNormal, worldTangent, uv);
 
-    float roughness = mat.roughness;
-    float metallic = mat.metallic;
-    if (mat.roughnessTexture >= 0) 
-    {
-        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.roughnessTexture)], uv);
-        roughness *= mrSample.g;
-        metallic *= mrSample.b;
-    }
-    float ao = GetAmbientOcclusion(mat, uv);
-    vec3 emissive = GetEmissive(mat, uv);
-
+    // --- Lighting Calculation ---
     uint renderFlags = frameData.w;
     bool lightEnabled = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
     vec3 viewDir = -gl_WorldRayDirectionEXT; 
-    vec3 lightDir = normalize(-sunLight.direction.xyz);
-    vec3 lightIntensity = lightEnabled ? (sunLight.color.rgb * sunLight.intensity.x) : vec3(0.0);
-
+    
+    // 1. Sun Light (Existing)
+    vec3 sunDir = normalize(-sunLight.direction.xyz);
+    vec3 sunIntensity = lightEnabled ? (sunLight.color.rgb * sunLight.intensity.x) : vec3(0.0);
     vec3 shadowOrigin = OffsetRay(worldPos, geoNormal);
-    float shadow = CalculateRayQueryShadow(shadowOrigin, lightDir, 1000.0);
+    float sunShadow = CalculateRayQueryShadow(shadowOrigin, sunDir, 1000.0);
+    vec3 directLighting = EvalPbr(mat.Colour, 1.5, mat.Roughness, mat.Metallic, worldNormal, viewDir, sunDir) * sunShadow * sunIntensity;
 
-    vec3 directLighting = EvaluateDirectPBR(worldNormal, viewDir, lightDir, albedoSample.rgb, roughness, metallic, lightIntensity) * shadow;
+    // 2. [NEW] Light Importance Sampling (NEE)
+    uint seed = InitRandomSeed(gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x, frameData.x);
+    int sampledInst = INVALID_ID;
+    vec3 sampledLightDir = SampleLights(worldPos, RandomFloat(seed), RandomFloat(seed), vec2(RandomFloat(seed), RandomFloat(seed)), sampledInst);
+    
+    if (length(sampledLightDir) > 0.001) {
+        float shadow = CalculateRayQueryShadow(shadowOrigin, sampledLightDir, 1000.0);
+        // Simplified NEE: Just add radiance if visible. 
+        // A full MIS would require PDFs from both BSDF and Light.
+        if (shadow > 0.5) {
+            if (sampledInst != INVALID_ID) {
+                GpuInstance sInst = instances[sampledInst];
+                GpuMaterial sMat = materials[sInst.material];
+                vec3 lightRadiance = sMat.emission * 5.0; // Scaled emission
+                directLighting += EvalPbr(mat.Colour, 1.5, mat.Roughness, mat.Metallic, worldNormal, viewDir, sampledLightDir) * lightRadiance;
+            } else {
+                // Environment light radiance
+                int skyIdx = int(envData.x);
+                if (skyIdx >= 0) {
+                    vec3 envRadiance = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(sampledLightDir)).rgb * postData.y;
+                    directLighting += EvalPbr(mat.Colour, 1.5, mat.Roughness, mat.Metallic, worldNormal, viewDir, sampledLightDir) * envRadiance;
+                }
+            }
+        }
+    }
 
     vec3 ambient = vec3(0.0);
     int skyIdx = int(envData.x);
-    if (skyIdx >= 0)
+    if (skyIdx >= 0 && (renderFlags & RENDER_FLAG_IBL_BIT) != 0)
     {
         vec3 R = reflect(-viewDir, worldNormal);
         vec3 envSpecular = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(R)).rgb;
         vec3 envDiffuse = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(worldNormal)).rgb;
-        vec3 F0 = mix(vec3(0.04), albedoSample.rgb, metallic);
-        vec3 F = FresnelSchlickRoughness(max(dot(worldNormal, viewDir), 0.0), F0, roughness);
-        vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+        vec3 F0 = mix(vec3(0.04), mat.Colour, mat.Metallic);
+        vec3 F = FresnelSchlick(F0, worldNormal, viewDir);
+        vec3 kD = (vec3(1.0) - F) * (1.0 - mat.Metallic);
         float ambientIntensity = max(postData.y, 0.2); 
-        ambient = (kD * envDiffuse * albedoSample.rgb + F * envSpecular) * ao * ambientIntensity;
+        ambient = (kD * envDiffuse * mat.Colour + F * envSpecular) * ambientIntensity;
     }
 
     vec4 clipPos = WorldToClip(vec4(worldPos, 1.0));
     vec4 prevClipPos = PrevWorldToClip(LocalToWorld(localPos, inst.prevTransform));
     vec2 motion = (clipPos.xy / clipPos.w * 0.5 + 0.5) - (prevClipPos.xy / prevClipPos.w * 0.5 + 0.5);
 
-    vec3 totalRadiance = directLighting + ambient + emissive;
+    vec3 totalRadiance = directLighting + ambient + mat.Emission;
     
     payload.color_dist = vec4(totalRadiance, gl_HitTEXT);
-    payload.normal_rough = vec4(worldNormal, roughness);
+    payload.normal_rough = vec4(worldNormal, mat.Roughness);
     payload.motion_hit = vec4(motion, 1.0, 0.0);
 }

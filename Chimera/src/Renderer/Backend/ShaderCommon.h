@@ -27,17 +27,19 @@ using uint64 = uint64_t;
 #define BINDING_MATERIALS             1
 #define BINDING_INSTANCES             2
 #define BINDING_TEXTURES              3
+#define BINDING_LIGHTS                4
+#define BINDING_LIGHTS_CDF            5
 #define BINDING_RT_OUTPUT             0
 #define BINDING_RT_MOTION             1
 
 // --- 1. Shared Constants ---
-#define INVALID_ID -1
+#define INVALID_ID                    -1
 
-#define MATERIAL_TYPE_MATTE 0
-#define MATERIAL_TYPE_PBR   1
-#define MATERIAL_TYPE_VOLUMETRIC   2
-#define MATERIAL_TYPE_GLASS   3
-#define MATERIAL_TYPE_SUBSURFACE   4
+#define MATERIAL_TYPE_MATTE           0
+#define MATERIAL_TYPE_PBR             1
+#define MATERIAL_TYPE_VOLUMETRIC      2
+#define MATERIAL_TYPE_GLASS           3
+#define MATERIAL_TYPE_SUBSURFACE      4
 
 #define DISPLAY_MODE_FINAL            0
 #define DISPLAY_MODE_ALBEDO           1
@@ -71,10 +73,10 @@ struct GpuMaterial
 {
     vec3 emission;
     float roughness;
-    
+
     vec3 colour;
     float metallic;
-    
+
     float padding;
     float anisotropy;
     float materialType;
@@ -120,17 +122,17 @@ struct GpuTriangle
     vec4 positionUvX0;
     vec4 positionUvX1;
     vec4 positionUvX2;
-    
-    vec4 normalUvY0; 
-    vec4 normalUvY1; 
+
+    vec4 normalUvY0;
+    vec4 normalUvY1;
     vec4 normalUvY2;
-    
+
     vec4 tangent0;
-    vec4 tangent1;  
+    vec4 tangent1;
     vec4 tangent2;
-    
+
     vec3 triCenter;
-    float padding3; 
+    float padding3;
 };
 
 struct GpuVertex
@@ -178,9 +180,10 @@ struct UniformBufferObject
     LightData sunLight;
 
     vec4 displayData; // x: width, y: height, z: 1/width, w: 1/height
-    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w: renderFlags
+    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w:
+                     // renderFlags
     vec4 postData; // x: exposure, y: ambientStrength, zw: blueNoiseTextureIndex
-    vec4 envData; // x: skyboxTextureIndex, yzw: padding
+    vec4 envData; // x: skyboxTextureIndex, y: lightCount, zw: padding
     vec4 svgfAlpha; // x: alphaColor, y: alphaMoments, zw: padding
     vec4 svgfPhi; // x: phiColor, y: phiNormal, z: phiDepth, w: padding
     vec4 gpuClearColor;

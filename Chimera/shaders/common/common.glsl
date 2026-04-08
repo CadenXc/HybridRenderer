@@ -14,7 +14,6 @@
 
 // --- 3. Global Resource Bindings (Set 0 & 1) ---
 
-// Set 1: Scene Resources
 layout(set = 1, binding = BINDING_AS) uniform accelerationStructureEXT TLAS; 
 
 layout(set = 1, binding = BINDING_MATERIALS, scalar) readonly buffer MaterialBuffer 
@@ -29,35 +28,26 @@ layout(set = 1, binding = BINDING_INSTANCES, scalar) readonly buffer InstanceBuf
 
 layout(set = 1, binding = BINDING_TEXTURES) uniform sampler2D textureArray[];
 
-// Buffer references for manual fetching in Hit Shaders
+layout(set = 1, binding = BINDING_LIGHTS, scalar) readonly buffer LightBuffer 
+{
+    GpuLight lights[];
+};
+
+layout(set = 1, binding = BINDING_LIGHTS_CDF, scalar) readonly buffer CDFBuffer 
+{
+    float lightsCDF[];
+};
+
 layout(buffer_reference, scalar) readonly buffer VertexBufferRef { GpuVertex v[]; };
 layout(buffer_reference, scalar) readonly buffer IndexBufferRef { uint i[]; };
 
-// --- 4. Utility Functions ---
+// --- 4. Constants & SVGF Aligned Math ---
 
 const float PI = 3.14159265359;
-const float COS_PI_4 = 0.70710678118; // cos(45 degrees) for normal validation
+const float PI_F = 3.14159265359;
+const float MIN_ROUGHNESS = (0.03 * 0.03);
 
 // 4.0 Random & Sampling Utilities
-float Halton(uint index, uint base) 
-{
-    float result = 0.0;
-    float f = 1.0 / float(base);
-    uint i = index;
-    while (i > 0) 
-    {
-        result += f * float(i % base);
-        i /= base;
-        f /= float(base);
-    }
-    return result;
-}
-
-vec2 GetHaltonSample(uint index)
-{
-    return vec2(Halton(index, 2), Halton(index, 3));
-}
-
 uint InitRandomSeed(uint val0, uint val1) 
 {
     uint v0 = val0;
@@ -93,6 +83,22 @@ vec3 GetCosHemisphereSample(inout uint seed, vec3 normal)
     return normalize(tangent * r * cos(phi) + bitangent * r * sin(phi) + normal * sqrt(1.0 - r1));
 }
 
+vec4 GetBlueNoise(ivec2 coord)
+{
+    int blueNoiseIdx = int(postData.w);
+    if (blueNoiseIdx < 0) return vec4(0.0);
+    ivec2 noiseSize = textureSize(textureArray[nonuniformEXT(blueNoiseIdx)], 0);
+    return texture(textureArray[nonuniformEXT(blueNoiseIdx)], (vec2(coord) + 0.5) / vec2(noiseSize));
+}
+
+vec3 SquareToUniformCone(vec2 u, float cosThetaMax)
+{
+    float cosTheta = (1.0 - u.x) + u.x * cosThetaMax;
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    float phi = u.y * 2.0 * PI;
+    return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+}
+
 vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 {
     vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -102,9 +108,8 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 
 vec2 SampleEquirectangular(vec3 v)
 {
-    // Equirectangular mapping
     float phi = atan(v.z, v.x);
-    float theta = asin(v.y);
+    float theta = asin(clamp(v.y, -1.0, 1.0));
     vec2 uv;
     uv.x = (phi / (2.0 * PI)) + 0.5;
     uv.y = (theta / PI) + 0.5;
@@ -115,8 +120,6 @@ vec2 SampleEquirectangular(vec3 v)
 vec4 LocalToWorld(vec3 pos, mat4 transform) { return transform * vec4(pos, 1.0); }
 vec4 WorldToClip(vec4 worldPos) { return camera.proj * camera.view * worldPos; }
 vec4 PrevWorldToClip(vec4 prevWorldPos) { return camera.prevProj * camera.prevView * prevWorldPos; }
-
-struct Ray { vec3 origin; vec3 dir; };
 
 float CalculateRayQueryShadow(vec3 origin, vec3 L, float maxDist) 
 {
@@ -161,28 +164,124 @@ vec3 OffsetRay(vec3 p, vec3 n)
                 abs(p.z) < origin ? p.z + float_scale * n.z : p_i.z);
 }
 
-// 4.2 Material & PBR Utilities
+// 4.2 [PLAGIARISM] SVGF PBR Math Logic
+
+vec3 EtaToReflectivity(vec3 Eta) {
+    return ((Eta - 1.0) * (Eta - 1.0)) / ((Eta + 1.0) * (Eta + 1.0));
+}
+
+vec3 FresnelSchlick(vec3 Specular, vec3 Normal, vec3 Outgoing) {
+    if (Specular == vec3(0.0)) return vec3(0.0);
+    float cosine = dot(Normal, Outgoing);
+    return Specular + (1.0 - Specular) * pow(clamp(1.0 - abs(cosine), 0.0, 1.0), 5.0);
+}
+
+float MicrofacetDistribution(float Roughness, vec3 Normal, vec3 Halfway) {
+    float Cosine = dot(Normal, Halfway);
+    if (Cosine <= 0.0) return 0.0;
+    float Roughness2 = Roughness * Roughness;
+    float Cosine2 = Cosine * Cosine;
+    float denom = (Cosine2 * (Roughness2 - 1.0) + 1.0);
+    return Roughness2 / (PI_F * denom * denom);
+}
+
+float MicrofacetShadowing1(float Roughness, vec3 Normal, vec3 Halfway, vec3 Direction) {
+    float Cosine = dot(Normal, Direction);
+    float Cosine2 = Cosine * Cosine;
+    float CosineH = dot(Halfway, Direction);
+    if (Cosine * CosineH <= 0.0) return 0.0;
+    float Roughness2 = Roughness * Roughness;
+    return 2.0 / (sqrt(((Roughness2 * (1.0 - Cosine2)) + Cosine2) / Cosine2) + 1.0);
+}
+
+float MicrofacetShadowing(float Roughness, vec3 Normal, vec3 Halfway, vec3 Outgoing, vec3 Incoming) {
+    return MicrofacetShadowing1(Roughness, Normal, Halfway, Outgoing) * MicrofacetShadowing1(Roughness, Normal, Halfway, Incoming);
+}
+
+vec3 EvalPbr(vec3 Colour, float IOR, float Roughness, float Metallic, vec3 Normal, vec3 Outgoing, vec3 Incoming) {
+    if (dot(Normal, Incoming) * dot(Normal, Outgoing) <= 0.0) return vec3(0.0);
+
+    vec3 Reflectivity = mix(EtaToReflectivity(vec3(IOR)), Colour, Metallic);
+    vec3 UpNormal = dot(Normal, Outgoing) <= 0.0 ? -Normal : Normal;
+    vec3 F1 = FresnelSchlick(Reflectivity, UpNormal, Outgoing);
+    vec3 Halfway = normalize(Incoming + Outgoing);
+    vec3 F = FresnelSchlick(Reflectivity, Halfway, Incoming);
+    float D = MicrofacetDistribution(Roughness, UpNormal, Halfway);
+    float G = MicrofacetShadowing(Roughness, UpNormal, Halfway, Outgoing, Incoming);
+
+    float Cosine = abs(dot(UpNormal, Incoming));
+    vec3 Diffuse = Colour * (1.0 - Metallic) * (1.0 - F1) / PI_F;
+    vec3 Specular = F * D * G / (4.0 * abs(dot(UpNormal, Outgoing)) * abs(dot(UpNormal, Incoming)));
+
+    return (Diffuse + Specular) * Cosine;
+}
+
+// 4.3 [PLAGIARISM] SVGF Light Sampling
+
+vec2 SampleTriangle(vec2 u) {
+    float r = sqrt(u.x);
+    return vec2(1.0 - r, u.y * r);
+}
+
+int SampleDiscrete(int lightID, float randVal) {
+    int start = lights[lightID].cdfStart;
+    int count = lights[lightID].cdfCount;
+    float maxVal = lightsCDF[start + count - 1];
+    float x = randVal * maxVal;
+    
+    int low = start;
+    int high = start + count;
+    while (low < high) {
+        int mid = low + (high - low) / 2;
+        if (x >= lightsCDF[mid]) low = mid + 1;
+        else high = mid;
+    }
+    return clamp(low - start, 0, count - 1);
+}
+
+vec3 SampleLights(vec3 position, float randL, float randEl, vec2 randUV, inout int sampledLightInstance) {
+    uint lightCount = uint(envData.y);
+    if (lightCount == 0) return vec3(0.0);
+
+    int lightID = int(randL * float(lightCount));
+    lightID = clamp(lightID, 0, int(lightCount) - 1);
+
+    if (lights[lightID].instance != INVALID_ID) {
+        sampledLightInstance = lights[lightID].instance;
+        GpuInstance inst = instances[sampledLightInstance];
+        int element = SampleDiscrete(lightID, randEl);
+        vec2 triUV = SampleTriangle(randUV);
+
+        VertexBufferRef vBuf = VertexBufferRef(inst.vertexAddress);
+        IndexBufferRef iBuf = IndexBufferRef(inst.indexAddress);
+        uint i0 = iBuf.i[element * 3 + 0];
+        uint i1 = iBuf.i[element * 3 + 1];
+        uint i2 = iBuf.i[element * 3 + 2];
+
+        vec3 p0 = (inst.transform * vec4(vBuf.v[i0].pos, 1.0)).xyz;
+        vec3 p1 = (inst.transform * vec4(vBuf.v[i1].pos, 1.0)).xyz;
+        vec3 p2 = (inst.transform * vec4(vBuf.v[i2].pos, 1.0)).xyz;
+
+        vec3 lightPos = p1 * triUV.x + p2 * triUV.y + p0 * (1.0 - triUV.x - triUV.y);
+        return normalize(lightPos - position);
+    } else if (lights[lightID].environment != INVALID_ID) {
+        float r1 = randUV.x;
+        float r2 = randUV.y;
+        float z = 2.0 * r1 - 1.0;
+        float r = sqrt(max(0.0, 1.0 - z * z));
+        float phi = 2.0 * PI * r2;
+        return vec3(r * cos(phi), r * sin(phi), z);
+    }
+    return vec3(0.0);
+}
+
+// 4.4 Material & Texture Utilities
+
 vec4 GetAlbedo(GpuMaterial mat, vec2 uv) 
 {
     vec4 base = vec4(mat.colour, mat.opacity);
     if (mat.colourTexture >= 0) base *= texture(textureArray[nonuniformEXT(mat.colourTexture)], uv);
     return base;
-}
-
-vec4 GetBlueNoise(ivec2 coord)
-{
-    int blueNoiseIdx = int(postData.w);
-    if (blueNoiseIdx < 0) return vec4(0.0);
-    ivec2 noiseSize = textureSize(textureArray[nonuniformEXT(blueNoiseIdx)], 0);
-    return texture(textureArray[nonuniformEXT(blueNoiseIdx)], (vec2(coord) + 0.5) / vec2(noiseSize));
-}
-
-vec3 SquareToUniformCone(vec2 u, float cosThetaMax)
-{
-    float cosTheta = (1.0 - u.x) + u.x * cosThetaMax;
-    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-    float phi = u.y * 2.0 * PI;
-    return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
 }
 
 vec3 CalculateNormal(GpuMaterial mat, vec3 N, vec4 tangent, vec2 uv) 
@@ -196,12 +295,6 @@ vec3 CalculateNormal(GpuMaterial mat, vec3 N, vec4 tangent, vec2 uv)
     return normalize(TBN * nm);
 }
 
-float GetAmbientOcclusion(GpuMaterial mat, vec2 uv) 
-{
-    // SVGF structure doesn't have AO texture explicitly, often packed in Roughness/Metal
-    return 1.0; 
-}
-
 vec3 GetEmissive(GpuMaterial mat, vec2 uv) 
 {
     vec3 e = mat.emission;
@@ -209,45 +302,36 @@ vec3 GetEmissive(GpuMaterial mat, vec2 uv)
     return e;
 }
 
-vec3 ACESToneMapping(vec3 color) 
-{
-    const float a = 2.51; const float b = 0.03; const float c = 2.43; const float d = 0.59; const float e = 0.14;
-    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
-}
+struct MaterialPoint {
+    vec3 Colour;
+    vec3 Emission;
+    float Roughness;
+    float Metallic;
+    float Opacity;
+    int MaterialType;
+};
 
-vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) { return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0); }
-float DistributionGGX(float NoH, float roughness) { float a = roughness * roughness; float a2 = a * a; float NoH2 = NoH * NoH; float denom = (NoH2 * (a2 - 1.0) + 1.0); return a2 / (PI * denom * denom); }
-float GeometrySchlickGGX(float NoV, float NoL, float roughness) { float r = (roughness + 1.0); float k = (r * r) / 8.0; float g1 = NoV / (NoV * (1.0 - k) + k); float g2 = NoL / (NoL * (1.0 - k) + k); return g1 * g2; }
-
-float DirectionalAlbedo(float NoV, float roughness)
-{
-    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
-    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
-    vec4 r = roughness * c0 + c1;
-    float a = min(r.x * r.y, exp2(-9.28 * NoV)) * r.z + r.w;
-    return clamp(a, 0.0, 1.0);
-}
-
-vec3 EvaluateDirectPBR(vec3 worldNormal, vec3 viewDirection, vec3 lightDirection, vec3 baseColor, float roughness, float metallic, vec3 lightIntensity) 
-{
-    vec3 halfVector = normalize(viewDirection + lightDirection);
-    float NoV = max(dot(worldNormal, viewDirection), 0.0001);
-    float NoL = max(dot(worldNormal, lightDirection), 0.0);
-    float NoH = max(dot(worldNormal, halfVector), 0.0);
-    float HoV = max(dot(halfVector, viewDirection), 0.0);
-    if (NoL <= 0.0) return vec3(0.0);
-    vec3 F0 = mix(vec3(0.04), baseColor, metallic);
-    float D = DistributionGGX(NoH, roughness);
-    float G = GeometrySchlickGGX(NoV, NoL, roughness);
-    vec3 F = FresnelSchlickRoughness(HoV, F0, roughness);
-    vec3 f_single = (D * G * F) / max(4.0 * NoV * NoL, 0.0001);
-    float Ess = DirectionalAlbedo(NoV, roughness);
-    float Esl = DirectionalAlbedo(NoL, roughness);
-    float Eavg = 0.6; 
-    vec3 f_add = F0 * (1.0 - Ess) * (1.0 - Esl) / max(PI * (1.0 - Eavg), 0.0001);
-    vec3 kS = F + f_add * Ess; 
-    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
-    return (kD * baseColor / PI + f_single + f_add) * lightIntensity * NoL;
+MaterialPoint GetMaterialPoint(GpuMaterial mat, vec2 uv) {
+    MaterialPoint p;
+    vec4 albedo = GetAlbedo(mat, uv);
+    p.Colour = albedo.rgb;
+    p.Opacity = albedo.a;
+    p.Emission = GetEmissive(mat, uv);
+    
+    float roughness = mat.roughness;
+    float metallic = mat.metallic;
+    if (mat.roughnessTexture >= 0) {
+        vec4 mrSample = texture(textureArray[nonuniformEXT(mat.roughnessTexture)], uv);
+        roughness *= mrSample.g;
+        metallic *= mrSample.b;
+    }
+    
+    // SVGF Squared Roughness logic
+    p.Roughness = roughness * roughness;
+    if (p.Roughness < MIN_ROUGHNESS) p.Roughness = 0.0;
+    p.Metallic = metallic;
+    p.MaterialType = int(mat.materialType);
+    return p;
 }
 
 #endif // CHIMERA_COMMON_GLSL

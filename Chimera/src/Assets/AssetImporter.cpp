@@ -15,10 +15,22 @@ namespace Chimera
 static glm::mat4 AssimpToGlmMatrix(const aiMatrix4x4& from)
 {
     glm::mat4 to;
-    to[0][0] = from.a1; to[1][0] = from.a2; to[2][0] = from.a3; to[3][0] = from.a4;
-    to[0][1] = from.b1; to[1][1] = from.b2; to[2][1] = from.b3; to[3][1] = from.b4;
-    to[0][2] = from.c1; to[1][2] = from.c2; to[2][2] = from.c3; to[3][2] = from.c4;
-    to[0][3] = from.d1; to[1][3] = from.d2; to[2][3] = from.d3; to[3][3] = from.d4;
+    to[0][0] = from.a1;
+    to[1][0] = from.a2;
+    to[2][0] = from.a3;
+    to[3][0] = from.a4;
+    to[0][1] = from.b1;
+    to[1][1] = from.b2;
+    to[2][1] = from.b3;
+    to[3][1] = from.b4;
+    to[0][2] = from.c1;
+    to[1][2] = from.c2;
+    to[2][2] = from.c3;
+    to[3][2] = from.c4;
+    to[0][3] = from.d1;
+    to[1][3] = from.d2;
+    to[2][3] = from.d3;
+    to[3][3] = from.d4;
     return to;
 }
 
@@ -48,7 +60,7 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
         mesh.name = aMesh->mName.C_Str();
         mesh.materialIndex = aMesh->mMaterialIndex;
         mesh.transform = worldTransform;
-        
+
         mesh.vertexOffset = (uint32_t)outScene.Vertices.size();
         mesh.indexOffset = (uint32_t)outScene.Indices.size();
 
@@ -57,14 +69,18 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
         for (unsigned int j = 0; j < aMesh->mNumVertices; j++)
         {
             VertexInfo v{};
-            v.pos = {aMesh->mVertices[j].x, aMesh->mVertices[j].y, aMesh->mVertices[j].z};
+            v.pos = {aMesh->mVertices[j].x, aMesh->mVertices[j].y,
+                     aMesh->mVertices[j].z};
             if (aMesh->HasNormals())
-                v.normal = {aMesh->mNormals[j].x, aMesh->mNormals[j].y, aMesh->mNormals[j].z};
+                v.normal = {aMesh->mNormals[j].x, aMesh->mNormals[j].y,
+                            aMesh->mNormals[j].z};
             if (aMesh->HasTextureCoords(0))
-                v.texCoord = {aMesh->mTextureCoords[0][j].x, aMesh->mTextureCoords[0][j].y};
+                v.texCoord = {aMesh->mTextureCoords[0][j].x,
+                              aMesh->mTextureCoords[0][j].y};
             if (aMesh->HasTangentsAndBitangents())
-                v.tangent = {aMesh->mTangents[j].x, aMesh->mTangents[j].y, aMesh->mTangents[j].z, 1.0f};
-            
+                v.tangent = {aMesh->mTangents[j].x, aMesh->mTangents[j].y,
+                             aMesh->mTangents[j].z, 1.0f};
+
             outScene.Vertices.push_back(v);
             mesh.localBounds.Merge(v.pos);
         }
@@ -101,7 +117,7 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
             tri.tangent2 = v2.tangent;
 
             tri.triCenter = (v0.pos + v1.pos + v2.pos) / 3.0f;
-            
+
             outScene.Triangles.push_back(tri);
         }
         mesh.indexCount = (uint32_t)aMesh->mNumFaces * 3;
@@ -113,7 +129,8 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
 
     for (unsigned int i = 0; i < node->mNumChildren; i++)
     {
-        TraverseNodes(node->mChildren[i], scene, worldTransform, outScene, nodeIdx);
+        TraverseNodes(node->mChildren[i], scene, worldTransform, outScene,
+                      nodeIdx);
     }
 }
 
@@ -122,21 +139,23 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
 {
     Assimp::Importer importer;
     importer.SetPropertyInteger(AI_CONFIG_PP_SLM_VERTEX_LIMIT, 65535);
-    
+
     const aiScene* scene = importer.ReadFile(
         path, aiProcess_Triangulate | aiProcess_FlipUVs |
                   aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals |
                   aiProcess_JoinIdenticalVertices | aiProcess_SortByPType |
                   aiProcess_ImproveCacheLocality);
 
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE ||
+        !scene->mRootNode)
     {
         CH_CORE_ERROR("Assimp Error: {0}", importer.GetErrorString());
         return nullptr;
     }
 
     auto outScene = std::make_shared<ImportedScene>();
-    std::string baseDir = std::filesystem::path(path).parent_path().string() + "/";
+    std::string baseDir =
+        std::filesystem::path(path).parent_path().string() + "/";
 
     std::vector<std::future<void>> textureFutures;
     std::set<std::string> uniquePaths;
@@ -153,9 +172,7 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
             textureFutures.push_back(
                 Application::Get().GetTaskSystem()->Enqueue(
                     [fullPath, srgb]()
-                    {
-                        ResourceManager::Get().LoadTexture(fullPath, srgb);
-                    }));
+                    { ResourceManager::Get().LoadTexture(fullPath, srgb); }));
         }
     };
 
@@ -171,7 +188,8 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
             QueueTexture(texPath, false);
         if (mat->GetTexture(aiTextureType_METALNESS, 0, &texPath) == AI_SUCCESS)
             QueueTexture(texPath, false);
-        if (mat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &texPath) == AI_SUCCESS)
+        if (mat->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &texPath) ==
+            AI_SUCCESS)
             QueueTexture(texPath, false);
         if (mat->GetTexture(aiTextureType_EMISSIVE, 0, &texPath) == AI_SUCCESS)
             QueueTexture(texPath, true);
@@ -207,19 +225,23 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         mat.scatteringColour = vec3(0.0f);
 
         aiColor4D color;
-        if (aiGetMaterialColor(aMat, AI_MATKEY_COLOR_DIFFUSE, &color) == AI_SUCCESS)
+        if (aiGetMaterialColor(aMat, AI_MATKEY_COLOR_DIFFUSE, &color) ==
+            AI_SUCCESS)
         {
             mat.colour = vec3(color.r, color.g, color.b);
             mat.opacity = color.a;
         }
 
-        if (aiGetMaterialColor(aMat, AI_MATKEY_COLOR_EMISSIVE, &color) == AI_SUCCESS)
+        if (aiGetMaterialColor(aMat, AI_MATKEY_COLOR_EMISSIVE, &color) ==
+            AI_SUCCESS)
             mat.emission = vec3(color.r, color.g, color.b);
 
         float value;
-        if (aiGetMaterialFloat(aMat, AI_MATKEY_METALLIC_FACTOR, &value) == AI_SUCCESS)
+        if (aiGetMaterialFloat(aMat, AI_MATKEY_METALLIC_FACTOR, &value) ==
+            AI_SUCCESS)
             mat.metallic = value;
-        if (aiGetMaterialFloat(aMat, AI_MATKEY_ROUGHNESS_FACTOR, &value) == AI_SUCCESS)
+        if (aiGetMaterialFloat(aMat, AI_MATKEY_ROUGHNESS_FACTOR, &value) ==
+            AI_SUCCESS)
             mat.roughness = value;
         if (aiGetMaterialFloat(aMat, AI_MATKEY_OPACITY, &value) == AI_SUCCESS)
             mat.opacity = value;
@@ -228,19 +250,28 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         mat.colourTexture = hAlbedo.IsValid() ? (int)hAlbedo.id : -1;
 
         auto hNormal = GetTexHandle(aMat, aiTextureType_NORMALS, false);
-        if (!hNormal.IsValid()) hNormal = GetTexHandle(aMat, aiTextureType_HEIGHT, false);
+        if (!hNormal.IsValid())
+            hNormal = GetTexHandle(aMat, aiTextureType_HEIGHT, false);
         mat.normalTexture = hNormal.IsValid() ? (int)hNormal.id : -1;
 
         auto hMetal = GetTexHandle(aMat, aiTextureType_METALNESS, false);
-        if (!hMetal.IsValid()) hMetal = GetTexHandle(aMat, aiTextureType_UNKNOWN, false); // GLTF combined
-        if (!hMetal.IsValid()) hMetal = GetTexHandle(aMat, aiTextureType_DIFFUSE_ROUGHNESS, false);
-        if (!hMetal.IsValid()) hMetal = GetTexHandle(aMat, aiTextureType_SPECULAR, false); // OBJ fallback
-        if (!hMetal.IsValid()) hMetal = GetTexHandle(aMat, aiTextureType_SHININESS, false); // OBJ fallback
-        
+        if (!hMetal.IsValid())
+            hMetal = GetTexHandle(aMat, aiTextureType_UNKNOWN,
+                                  false); // GLTF combined
+        if (!hMetal.IsValid())
+            hMetal = GetTexHandle(aMat, aiTextureType_DIFFUSE_ROUGHNESS, false);
+        if (!hMetal.IsValid())
+            hMetal = GetTexHandle(aMat, aiTextureType_SPECULAR,
+                                  false); // OBJ fallback
+        if (!hMetal.IsValid())
+            hMetal = GetTexHandle(aMat, aiTextureType_SHININESS,
+                                  false); // OBJ fallback
+
         mat.roughnessTexture = hMetal.IsValid() ? (int)hMetal.id : -1;
 
         auto hEmissive = GetTexHandle(aMat, aiTextureType_EMISSIVE, true);
-        if (!hEmissive.IsValid()) hEmissive = GetTexHandle(aMat, aiTextureType_EMISSION_COLOR, true);
+        if (!hEmissive.IsValid())
+            hEmissive = GetTexHandle(aMat, aiTextureType_EMISSION_COLOR, true);
         mat.emissionTexture = hEmissive.IsValid() ? (int)hEmissive.id : -1;
 
         outScene->Materials.push_back(mat);
@@ -249,7 +280,8 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
     if (outScene->Materials.empty())
         outScene->Materials.push_back(GpuMaterial{});
 
-    TraverseNodes(scene->mRootNode, scene, glm::mat4(1.0f), *outScene, 0xFFFFFFFF);
+    TraverseNodes(scene->mRootNode, scene, glm::mat4(1.0f), *outScene,
+                  0xFFFFFFFF);
 
     return outScene;
 }

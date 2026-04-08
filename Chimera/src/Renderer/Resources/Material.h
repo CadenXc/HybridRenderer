@@ -64,7 +64,8 @@ public:
 
     void SetRoughnessTexture(TextureHandle handle)
     {
-        m_Data.roughnessTexture = (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
+        m_Data.roughnessTexture =
+            (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
         m_Dirty = true;
     }
 
