@@ -110,6 +110,17 @@ void RaytracingExecutionContext::BindPipeline(
                                          ? rgRes.debug_view
                                          : rgRes.view;
 
+                    // [FIX] Use Nearest sampler for integer formats to avoid validation errors
+                    if (rgRes.format == VK_FORMAT_R32_UINT || 
+                        rgRes.format == VK_FORMAT_R32_SINT ||
+                        rgRes.format == VK_FORMAT_R16_UINT ||
+                        rgRes.format == VK_FORMAT_R16_SINT ||
+                        rgRes.format == VK_FORMAT_R8_UINT ||
+                        rgRes.format == VK_FORMAT_R8_SINT)
+                    {
+                        info.sampler = ResourceManager::Get().GetNearestSampler();
+                    }
+
                     // [FIX] Correctly access state via RenderGraph's friend or
                     // public mapping
                     info.imageLayout =

@@ -76,7 +76,6 @@ public:
     }
     VkCommandPool GetThreadLocalCommandPool();
 
-    // [CRITICAL] Global lock for all Queue operations across all threads
     static std::mutex& GetGlobalQueueMutex();
 
     std::shared_ptr<Swapchain> GetSwapchain() const

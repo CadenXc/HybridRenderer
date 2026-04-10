@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <functional>
 
+#include "Renderer/Backend/ShaderCommon.h"
+
 namespace Chimera
 {
 static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
@@ -20,7 +22,6 @@ static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 static constexpr VkFormat HDR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
 
-    // --- [FINALIZED] Reversed-Z Configuration ---
     // Near=1.0, Far=0.0. Clear to 0.0, use GreaterOrEqual test.
 static constexpr float CH_DEPTH_CLEAR_VALUE = 0.0f;
 static constexpr VkCompareOp CH_DEPTH_COMPARE_OP =
@@ -35,22 +36,21 @@ struct ApplicationSpecification
     bool Fullscreen = false;
     bool VSync = true;
 
-        // Paths
     std::string AssetDir = "assets/";
     std::string ShaderDir = "shaders/";
-    std::string ShaderSourceDir = ""; // Will be auto-detected if empty
+    std::string ShaderSourceDir = "";
 
         // Initial Settings
     glm::vec4 ClearColor = {0.1f, 0.1f, 0.1f, 1.0f};
-    uint32_t DisplayMode = 0;
-    uint32_t RenderFlags = 1;
+    DisplayMode DisplayMode = DisplayMode::Final;
+    RenderFlags RenderFlags = RenderFlags_LightBit;
     bool EnableRayTracing = true;
 };
 
     // --- PURE FORWARD DECLARATIONS ONLY ---
 class VulkanContext;
 class Scene;
-class RenderGraph; // MUST BE PURE FORWARD DECLARATION
+class RenderGraph;
 struct RenderFrameInfo;
 
 struct RenderFrameInfo

@@ -37,8 +37,8 @@ struct AppFrameContext
     float DeltaTime;
     float Time;
     uint32_t FrameIndex;
-    uint32_t DisplayMode = 0;
-    uint32_t RenderFlags = 1;
+    DisplayMode DisplayMode = DisplayMode::Final;
+    RenderFlags RenderFlags = RenderFlags_LightBit;
     float Exposure = 1.0f;
     float AmbientStrength = 1.0f;
     glm::vec4 ClearColor = {0.1f, 0.1f, 0.1f, 1.0f};
@@ -85,6 +85,7 @@ public:
     }
 
     void Close();
+    void SwitchRenderPath(RenderPathType type);
 
     ApplicationSpecification& GetSpecification()
     {
@@ -137,7 +138,7 @@ public:
     {
         m_FrameContext = ctx;
     }
-    const AppFrameContext& GetFrameContext() const // [NEW]
+    const AppFrameContext& GetFrameContext() const
     {
         return m_FrameContext;
     }

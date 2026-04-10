@@ -11,7 +11,8 @@ inline static const std::string RENDER_OUTPUT = "RENDER_OUTPUT";
         // --- 核心资源 (C++ 与 Shader 共用此名称) ---
 inline static const std::string Albedo = "Albedo";
 inline static const std::string Normal = "Normal";
-inline static const std::string Material = "Material";
+inline static const std::string MaterialParams = "MaterialParams";
+inline static const std::string ObjectID = "ObjectID";
 inline static const std::string Motion = "Motion";
 inline static const std::string Emissive = "Emissive";
 inline static const std::string Depth = "Depth";

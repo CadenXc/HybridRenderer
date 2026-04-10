@@ -14,8 +14,9 @@ layout(set = 2, binding = 0) uniform sampler2D gInputColor;
 layout(set = 2, binding = 1) uniform sampler2D gInputMoments;
 layout(set = 2, binding = 2) uniform sampler2D gNormal;
 layout(set = 2, binding = 3) uniform sampler2D gMotion;       
-layout(set = 2, binding = 4) uniform sampler2D gMaterial;     
-layout(set = 2, binding = 5, rgba16f) uniform image2D outFiltered;
+layout(set = 2, binding = 4) uniform usampler2D gObjectID;     
+layout(set = 2, binding = 5) uniform sampler2D gMaterialParams;
+layout(set = 2, binding = 6, rgba16f) uniform image2D outFiltered;
 
 float CalculateLuminance(vec3 color) {
     return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;

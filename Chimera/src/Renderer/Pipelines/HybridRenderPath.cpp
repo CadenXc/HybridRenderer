@@ -30,21 +30,14 @@ HybridRenderPath::HybridRenderPath(VulkanContext& context)
 void HybridRenderPath::BuildGraph(RenderGraph& graph,
                                   std::shared_ptr<Scene> scene)
 {
-        // 0. Depth Prepass (Early-Z Optimization)
-    graph.AddPass<DepthPrepass>(scene);
-
-        // 1. G-Buffer Pass (Uses EQUAL depth test)
     graph.AddPass<GBufferPass>(scene);
 
     bool rtSupported = m_Context->IsRayTracingSupported();
-    uint32_t renderFlags = Application::Get().GetFrameContext().RenderFlags;
+    RenderFlags renderFlags = Application::Get().GetFrameContext().RenderFlags;
 
-    bool useSVGFMaster = (renderFlags & RENDER_FLAG_SVGF_BIT) != 0;
-    bool doTemporal = (renderFlags & RENDER_FLAG_SVGF_TEMPORAL_BIT) != 0;
-    bool doSpatial = (renderFlags & RENDER_FLAG_SVGF_SPATIAL_BIT) != 0;
-
-    // SVGF is active only if the master gate is open AND at least one stage is
-    // enabled
+    bool useSVGFMaster = renderFlags & RenderFlags_SVGFBit;
+    bool doTemporal = renderFlags & RenderFlags_SVGFTemporalBit;
+    bool doSpatial = renderFlags & RenderFlags_SVGFSpatialBit;
     bool svgfActive = useSVGFMaster && (doTemporal || doSpatial);
 
     // 2. Ray Tracing Passes (Shadows, AO, Reflections, GI)

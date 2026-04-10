@@ -6,6 +6,7 @@
 #include "Scene/Scene.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Assets/AssetImporter.h"
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
@@ -27,10 +28,6 @@ public:
     virtual void OnImGuiRender() override;
     virtual void OnEvent(Event& e) override;
 
-    void SwitchRenderPath(RenderPathType type);
-    void LoadScene(const std::string& path);
-    void ClearScene();
-
     std::shared_ptr<Scene> GetActiveScene()
     {
         return ResourceManager::Get().GetActiveSceneShared();
@@ -45,12 +42,6 @@ public:
     }
 
 private:
-    void RefreshModelList();
-    void LoadModel(const std::string& relativePath);
-
-    void RefreshHDRList();
-    void LoadHDR(const std::string& relativePath);
-
                 // UI Panels (Accept active path as parameter)
     void DrawMenuBar();
     void DrawRenderPathPanel(RenderPath* activePath);
@@ -61,6 +52,9 @@ private:
     void DrawLightSettings(RenderPath* activePath);
     void DrawGeneralSettings();
 
+    void RefreshAssetList();
+    void ClearScene();
+
 private:
     EditorCamera m_EditorCamera;
 
@@ -69,8 +63,8 @@ private:
 
                 // UI Visibility
     bool m_ShowControlPanel = true;
-    uint32_t m_DisplayMode = 0; // 0: Final Output
-    uint32_t m_RenderFlags = 3; // Bit 0: SVGF, Bit 1: TAA
+    DisplayMode m_DisplayMode = DisplayMode::Final;
+    RenderFlags m_RenderFlags = RenderFlags_LightBit | RenderFlags_ShadowBit;
 
     float m_Exposure = 1.0f;
     float m_AmbientStrength = 1.0f;
@@ -80,27 +74,13 @@ private:
                 // --- Light Parameters ---
     float m_LightRadius = 0.05f;
 
-                // Model/Scene Management
-    struct ModelAsset
-    {
-        std::string Name;
-        std::string Path;
-    };
-    std::vector<ModelAsset> m_AvailableModels;
-    char m_AssetSearchFilter[256] = {0}; // [NEW] Search filter for models
-    std::string m_ActiveModelPath = "";
-    int m_SelectedModelIndex = -1;
+                // Shared Asset Management (Models/HDRs)
+    char m_AssetSearchFilter[256] = {0};
+    std::string m_ActiveAssetPath = "";
+    int m_SelectedAssetIndex = -1;
 
-                // HDR/Environment Management
-    struct HdrAsset
-    {
-        std::string Name;
-        std::string Path;
-    };
-    std::vector<HdrAsset> m_AvailableHDRs;
-    char m_HdrSearchFilter[256] = {0};
-    std::string m_ActiveHdrPath = "";
-    int m_SelectedHdrIndex = -1;
+    std::vector<AssetInfo> m_AvailableModels;
+    std::vector<AssetInfo> m_AvailableHDRs;
 
     int m_SelectedInstanceIndex = -1;
 

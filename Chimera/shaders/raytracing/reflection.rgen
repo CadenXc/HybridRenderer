@@ -2,6 +2,20 @@
 #extension GL_GOOGLE_include_directive : require
 #include "../common/common.glsl"
 
+/**
+ * @file reflection.rgen
+ * @brief Ray Traced Specular Reflection Generator (光线追踪镜面反射生成器)
+ * 
+ * 此着色器负责为混合渲染管线生成初始的镜面反射信号。它利用 G-Buffer 信息来确定射线的起点
+ * 和方向，并利用光线追踪硬件来探测场景中的反射物。
+ * 
+ * 核心技术点：
+ * 1. World Reconstruction: 从深度图重建世界空间坐标。
+ * 2. Jitter Compensation: 补偿 TAA 带来的像素偏移，确保反射起点精确。
+ * 3. Roughness Culling: 粗糙度剔除，避免在漫反射表面浪费昂贵的射线。
+ * 4. Hybrid Integration: 探测结果将交给 SVGF 阶段进行时域和空域降噪。
+ */
+
 layout(set = 2, binding = 0, rgba16f) uniform image2D reflectionOutput;
 layout(set = 2, binding = 1) uniform sampler2D gNormal;
 layout(set = 2, binding = 2) uniform sampler2D gDepth;
@@ -10,15 +24,18 @@ layout(set = 2, binding = 4) uniform sampler2D gAlbedo;
 
 layout(push_constant) uniform PushConstants 
 {
-    int skyboxIndex;
+    int skyboxIndex; // 场景当前使用的天空盒纹理在数组中的索引
 } pc;
 
 layout(location = 0) rayPayloadEXT HitPayload payload;
 
 void main() 
 {
+    // 计算当前线程对应的屏幕 UV 坐标
     const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
     
+    // 1. 快速剔除背景 (Early Exit for Background)
+    // 深度为 0.0 通常代表天空或远裁剪面，这些像素不需要发射反射射线
     float depth = texture(gDepth, inUV).r;
     if (depth == 0.0) 
     {
@@ -26,12 +43,18 @@ void main()
         return;
     }
 
-    // [FIX] Subtract TAA Jitter to reconstruct un-jittered world position
+    // 2. 世界坐标重建 (World Position Reconstruction)
+    // [FIX] 减去 TAA Jitter 以重建未抖动的原始位置，防止反射画面产生“果冻效应”
     vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
     vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
+    
+    // 获取法线和材质参数
     vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
     vec4 material = texture(gMaterial, inUV);
     
+    // 3. 粗糙度截断 (Roughness Cutoff)
+    // 粗糙度较高的表面反射非常散射，1-spp 的射线会导致无法消除的噪点。
+    // 在实时渲染中，我们将这些表面标记为“无反射”，由漫反射 GI 或 IBL 处理。
     float roughness = material.r;
     if (roughness > 0.6) 
     {
@@ -39,19 +62,28 @@ void main()
         return;
     }
 
+    // 4. 计算反射向量
+    // I 是视线方向，N 是表面法线
     vec3 viewDirection = normalize(worldPos - camera.position.xyz);
     vec3 reflectDirection = reflect(viewDirection, worldNormal);
+    
+    // 使用法线偏移射线起点，防止由于浮点精度导致的“阴影粉刺（Shadow Acne）”或自碰撞
     vec3 origin = OffsetRay(worldPos, worldNormal);
     
+    // 初始化回传数据
     payload.color_dist = vec4(0.0);
     payload.normal_rough = vec4(0.0);
     payload.motion_hit = vec4(0.0);
 
+    // 5. 执行光线追踪 (Ray Dispatch)
     if ((frameData.w & RENDER_FLAG_REFLECTION_BIT) != 0)
     {
-        // Using Tmin=0.01 to avoid precision issues
+        // 第 6 个参数为 0，对应 C++ 中配置的 MISS_INDEX_RADIANCE (miss.rmiss)
+        // 这样当射线射向天空时，能正确采样到天空颜色。
         traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, reflectDirection, 1e10, 0);
     }
 
+    // 将结果（颜色 + 命中距离）写入输出图像
+    // 后续 SVGF 阶段会利用 payload.color_dist.rgb 进行降噪。
     imageStore(reflectionOutput, ivec2(gl_LaunchIDEXT.xy), vec4(payload.color_dist.rgb, 1.0));
 }

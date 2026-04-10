@@ -2,67 +2,101 @@
 #extension GL_GOOGLE_include_directive : require
 #include "../common/common.glsl"
 
+/**
+ * @file rt_shadow.rgen
+ * @brief Hybrid Ray Traced Shadows & Ambient Occlusion (Shadow/AO) Generator
+ * 
+ * This shader is responsible for generating the initial noisy signals for soft shadows 
+ * and ambient occlusion. These signals are stored in a packed format (R: Shadow, G: AO) 
+ * and are designed to be filtered by the SVGF (Spatiotemporal Variance-Guided Filtering) 
+ * post-processing pass.
+ * 
+ * Key Features:
+ * 1. World Reconstruction: Uses G-Buffer depth and normal to reconstruct 3D context.
+ * 2. Next Event Estimation (NEE): Importance sampling of emissive area lights for soft shadows.
+ * 3. Ambient Occlusion: Cosine-weighted hemisphere sampling for local occlusion.
+ * 4. Hardware Ray Query: Uses VK_KHR_ray_query (Inline Ray Tracing) for optimal visibility checks.
+ * 5. Alpha Testing: Supports cut-out materials (e.g., foliage) via programmable intersection in common.glsl.
+ */
+
+// Set 2: Pass-specific resources (defined in RTShadowPass.cpp)
 layout(set = 2, binding = 0, rgba16f) uniform image2D rtShadowAO; 
 layout(set = 2, binding = 1) uniform sampler2D gNormal;
 layout(set = 2, binding = 2) uniform sampler2D gDepth;
 
-layout(location = 0) rayPayloadEXT HitPayload payload;
-
 void main() 
 {
+    // 1. Coordinate and UV Calculation
+    // gl_LaunchIDEXT provides the integer pixel coordinates for the current thread.
     const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
     
+    // 2. Early Exit for Background
+    // We fetch depth from the G-Buffer. Depth 0.0 usually represents the skybox/far plane.
     float depth = texture(gDepth, inUV).r;
     if (depth == 0.0) 
     {
+        // For background, we assume full visibility (Shadow=1.0) and no occlusion (AO=1.0).
+        // Blue channel is reserved/unused.
         imageStore(rtShadowAO, ivec2(gl_LaunchIDEXT.xy), vec4(1.0, 1.0, 0.0, 1.0));
         return;
     }
 
+    // 3. Randomness Management
+    // Initialize a stable LCG or PCG seed based on pixel position and frame count (time-varying).
+    // This ensures that the Monte Carlo noise pattern changes every frame, which is required for SVGF accumulation.
     uint seed = InitRandomSeed(uint(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x), uint(frameData.y));
-    vec4 blueNoise = GetBlueNoise(ivec2(gl_LaunchIDEXT.xy));
     
-    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
-    vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
+    // 4. World-Space Reconstruction
+    // We reconstruct the world position from depth to avoid storing it in the G-Buffer (saving bandwidth).
+    vec3 worldPos = GetWorldPos(depth, inUV, camera.viewProjInverse);
     vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 
-    // --- 1. [PLAGIARISM] Next Event Estimation (Shadows) ---
+    // 5. Soft Shadow Calculation (Next Event Estimation)
     float shadow = 1.0;
     if ((frameData.w & RENDER_FLAG_SHADOW_BIT) != 0)
     {
-        // Random samples for light selection and triangle/sphere sampling
+        // Sample one light source from the scene's light buffer using importance sampling (CDF).
         float randL = RandomFloat(seed);
         float randEl = RandomFloat(seed);
         vec2 randUV = vec2(RandomFloat(seed), RandomFloat(seed));
         
         int sampledLightInstance = INVALID_ID;
+        // SampleLights calculates a direction vector L towards a random point on a random light source.
         vec3 L = SampleLights(worldPos, randL, randEl, randUV, sampledLightInstance);
         
         if (length(L) > 0.01)
         {
+            // Apply a small bias along the normal to prevent self-intersection (shadow acne).
             vec3 origin = OffsetRay(worldPos, worldNormal);
             
-            // Check visibility using Ray Query for better performance in some cases
-            // or traceRayEXT for hardware RT pipeline consistency.
-            // Using CalculateRayQueryShadow which is defined in common.glsl
+            // Perform a visibility check using Hardware Ray Query.
+            // CalculateRayQueryShadow returns 0.0 if occluded, 1.0 if visible.
             shadow = CalculateRayQueryShadow(origin, L, 1e10);
         }
-        else if (sunLight.intensity.x > 0.0) // Fallback to Sun Light if no emissive lights sampled
+        else if (sunLight.intensity.x > 0.0) 
         {
+            // Fallback to the global directional sun light if no area lights were sampled.
             vec3 L_sun = normalize(-sunLight.direction.xyz);
             vec3 origin = OffsetRay(worldPos, worldNormal);
             shadow = CalculateRayQueryShadow(origin, L_sun, 1e10);
         }
     }
 
-    // --- 2. Ambient Occlusion ---
+    // 6. Ambient Occlusion Calculation
     float ao = 1.0;
     if ((frameData.w & RENDER_FLAG_AO_BIT) != 0)
     {
         vec3 origin = OffsetRay(worldPos, worldNormal);
+        // Generate a random ray direction within the hemisphere oriented around the surface normal.
+        // We use cosine-weighted sampling to naturally give more weight to vertical occluders.
         vec3 aoDirection = GetCosHemisphereSample(seed, worldNormal);
-        ao = CalculateRayQueryShadow(origin, aoDirection, 5.0); 
+        
+        // Trace a short ray (10 units) to detect local geometric occlusion.
+        ao = CalculateRayQueryShadow(origin, aoDirection, 10.0); 
     }
 
+    // 7. Output Result
+    // We store the raw 1-spp (sample per pixel) signals. 
+    // SVGF will use the variance and history of these signals to produce a clean, denoised result.
     imageStore(rtShadowAO, ivec2(gl_LaunchIDEXT.xy), vec4(shadow, ao, 0.0, 1.0));
 }

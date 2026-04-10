@@ -107,6 +107,9 @@ void Scene::FinalizeAsyncModelLoad(std::shared_ptr<Model> model,
     BuildOctree();
     UpdateTLAS();
 
+    // Sync instances and rebuild light structures (for Emissive mesh sampling)
+    ResourceManager::Get().SyncInstancesToGPU(this);
+
     if (auto* renderPath = Application::Get().GetActiveRenderPath())
         renderPath->OnSceneUpdated();
 

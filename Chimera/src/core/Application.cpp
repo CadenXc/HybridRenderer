@@ -8,6 +8,7 @@
 #include "Renderer/Backend/ShaderManager.h"
 #include "Renderer/Backend/ShaderRegistry.h"
 #include "Renderer/Pipelines/RenderPath.h"
+#include "Renderer/Pipelines/RenderPathFactory.h"
 #include "Core/ImGuiLayer.h"
 #include "Scene/Scene.h"
 #include "Scene/EditorCamera.h"
@@ -106,29 +107,18 @@ Application::~Application()
             VkDevice device = m_Context->GetDevice();
             vkDeviceWaitIdle(device);
 
-            // 2. Kill the window callback immediately to stop any incoming
-            // events
             if (m_Window)
             {
                 m_Window->SetEventCallback([](Event&) {});
             }
 
-            // 3. Clear Event Queue to release any captures
             {
                 std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
                 m_EventQueue.clear();
             }
 
-            // 4. [STEP 1] DESTROY RENDER PIPELINES
-            // Must do this first because RenderGraph/Models need
-            // ResourceManager to stay alive during their destruction.
-            CH_CORE_INFO(
-                "Application: [Step 1/5] Destroying RenderPath and Scene...");
             m_RenderPath.reset();
 
-            // 5. [STEP 2] DESTROY BUSINESS LAYERS (ImGui context must still be
-            // alive)
-            CH_CORE_INFO("Application: [Step 2/5] Purging LayerStack...");
             while (m_LayerStack.size() > 1)
             {
                 auto layer = m_LayerStack.back();
@@ -151,8 +141,7 @@ Application::~Application()
             CH_CORE_INFO(
                 "Application: [Step 3/5] Destroying core rendering "
                 "subsystems...");
-            m_RenderState
-                .reset(); // This destroys per-frame camera/material UBOs
+            m_RenderState.reset();
 
             if (m_PipelineManager)
             {
@@ -161,9 +150,8 @@ Application::~Application()
             }
 
             ShaderManager::ClearCache();
-            m_Renderer.reset(); // This destroys frame-sync objects
+            m_Renderer.reset();
 
-            // 7. [STEP 4] CLEAR RESOURCE POOL
             if (m_ResourceManager)
             {
                 CH_CORE_INFO(
@@ -188,7 +176,6 @@ Application::~Application()
             // 8. [STEP 5] SHUT DOWN IMGUI
             if (m_ImGuiLayer)
             {
-                CH_CORE_INFO("Application: [Step 5/5] Final ImGui shutdown...");
                 m_ImGuiLayer->OnDetach();
 
                 auto it = std::find(m_LayerStack.begin(), m_LayerStack.end(),
@@ -197,10 +184,7 @@ Application::~Application()
                 m_ImGuiLayer.reset();
             }
 
-            CH_CORE_INFO("Application: ImGui shutdown completed.");
-
             // 9. FINAL HARDWARE FLUSH
-            CH_CORE_INFO("Application: Final hardware DeletionQueue flush...");
             m_Context->GetDeletionQueue().FlushAll();
 
             vkDeviceWaitIdle(device);
@@ -256,8 +240,7 @@ void Application::Run()
             if (cmd != VK_NULL_HANDLE)
             {
                 uint32_t frameIndex = m_Renderer->GetCurrentFrameIndex();
-                m_ResourceManager
-                    ->UpdateLoadingTasks(); // [NEW] Check async tasks
+                m_ResourceManager->UpdateLoadingTasks();
                 for (auto& layer : m_LayerStack)
                 {
                     layer->OnUpdate(deltaTime);
@@ -347,18 +330,20 @@ void Application::UpdateGlobalUBO(uint32_t frameIndex)
                   1.0f / m_FrameContext.ViewportSize.y);
 
     // Block 2: frameData
-    uint32_t currentFlags = m_FrameContext.RenderFlags;
+    RenderFlags currentFlags = m_FrameContext.RenderFlags;
     // [TAA] Handle Jitter & History Status
-    if (currentFlags & RENDER_FLAG_TAA_BIT)
+    if (currentFlags & RenderFlags_TAABit)
     {
         if (m_RenderPath &&
             m_RenderPath->GetRenderGraph().HasHistory("TAAOutput"))
         {
-            currentFlags |= RENDER_FLAG_TAA_HISTORY_BIT;
+            currentFlags |= RenderFlags_TAAHistoryBit;
         }
     }
-    ubo.frameData = glm::uvec4(frameIndex, m_TotalFrameCount,
-                               m_FrameContext.DisplayMode, currentFlags);
+    ubo.frameData =
+        glm::uvec4(frameIndex, m_TotalFrameCount,
+                   static_cast<uint32_t>(m_FrameContext.DisplayMode),
+                   static_cast<uint32_t>(currentFlags));
 
     // Block 3: postData
     ubo.postData =
@@ -438,6 +423,28 @@ void Application::SwitchRenderPath(std::unique_ptr<RenderPath> path)
         m_RenderPath->SetViewportSize(m_Specification.Width,
                                       m_Specification.Height);
     }
+}
+
+void Application::SwitchRenderPath(RenderPathType type)
+{
+    QueueEvent(
+        [this, type]()
+        {
+            if (!m_Context) return;
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            try
+            {
+                auto newPath = RenderPathFactory::Create(type, m_Context);
+                if (newPath)
+                {
+                    SwitchRenderPath(std::move(newPath));
+                }
+            }
+            catch (...)
+            {
+                CH_CORE_ERROR("Application: Failed to switch RenderPath!");
+            }
+        });
 }
 
 void Application::Close()

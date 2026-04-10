@@ -25,8 +25,8 @@ struct SVGFTemporalData
     RGResourceHandle normal;
     RGResourceHandle prevDepth;
     RGResourceHandle prevNormal;
-    RGResourceHandle material;
-    RGResourceHandle prevMaterial;
+    RGResourceHandle objectID;
+    RGResourceHandle prevObjectID;
     RGResourceHandle prevMotion;
 };
 
@@ -39,7 +39,7 @@ struct SVGFVarianceEstimateData
     RGResourceHandle inputMoments;
     RGResourceHandle normal;
     RGResourceHandle motion;
-    RGResourceHandle material;
+    RGResourceHandle objectID;
     RGResourceHandle outputIllum;
     RGResourceHandle outputMoments;
 };
@@ -53,7 +53,8 @@ struct SVGFAtrousData
     RGResourceHandle moments;
     RGResourceHandle normal;
     RGResourceHandle depth;
-    RGResourceHandle material;
+    RGResourceHandle objectID;
+    RGResourceHandle materialParams;
     RGResourceHandle output;
 };
 

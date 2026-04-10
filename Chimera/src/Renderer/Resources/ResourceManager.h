@@ -64,6 +64,11 @@ public:
         return m_TextureSampler;
     }
 
+    VkSampler GetNearestSampler() const
+    {
+        return m_NearestSampler;
+    }
+
     Image* GetDefaultTexture() const
     {
         return m_Textures.empty() ? nullptr : m_Textures[0].get();
@@ -100,6 +105,12 @@ public:
 
     TextureHandle LoadTexture(const std::string& path, bool srgb = true);
     TextureHandle LoadHDRTexture(const std::string& path);
+    void LoadHDR(const std::string& path);
+
+    // High-level scene management
+    void LoadScene(const std::string& path);
+    void ClearScene();
+
     TextureHandle AddTexture(std::unique_ptr<Image> texture,
                              const std::string& name = "");
     TextureHandle GetTextureIndex(const std::string& name);
@@ -205,6 +216,7 @@ private:
     std::vector<std::unique_ptr<Buffer>> m_UniformBuffers;
     std::vector<std::unique_ptr<Image>> m_Textures;
     VkSampler m_TextureSampler = VK_NULL_HANDLE;
+    VkSampler m_NearestSampler = VK_NULL_HANDLE;
     std::unordered_map<std::string, TextureHandle> m_TextureMap;
     std::vector<uint32_t> m_TextureRefCount;
 

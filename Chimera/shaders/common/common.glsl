@@ -124,7 +124,9 @@ vec4 PrevWorldToClip(vec4 prevWorldPos) { return camera.prevProj * camera.prevVi
 float CalculateRayQueryShadow(vec3 origin, vec3 L, float maxDist) 
 {
     rayQueryEXT rq;
-    rayQueryInitializeEXT(rq, TLAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.001, L, maxDist);
+    // Cap maxDist at 10000 to prevent precision issues, use slightly larger tmin (0.01)
+    float tMax = min(maxDist, 10000.0);
+    rayQueryInitializeEXT(rq, TLAS, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 0.01, L, tMax);
     while (rayQueryProceedEXT(rq)) 
     {
         if (rayQueryGetIntersectionTypeEXT(rq, false) == gl_RayQueryCandidateIntersectionTriangleEXT) 

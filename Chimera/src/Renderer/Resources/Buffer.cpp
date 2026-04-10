@@ -47,6 +47,7 @@ Buffer::Buffer(VkDeviceSize size, VkBufferUsageFlags usage,
 
     if (result != VK_SUCCESS)
     {
+        CH_CORE_ERROR("Buffer: Failed to create buffer! Result: {0}, Size: {1}, Name: {2}", (int)result, size, name);
         throw std::runtime_error("Failed to create buffer!");
     }
 

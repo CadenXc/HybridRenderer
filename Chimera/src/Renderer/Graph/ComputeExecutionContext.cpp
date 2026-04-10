@@ -89,6 +89,17 @@ void ComputeExecutionContext::BindPipeline(const std::string& shaderName)
                                          ? rgRes.image.debug_view
                                          : rgRes.image.view;
 
+                    // [FIX] Use Nearest sampler for integer formats to avoid validation errors
+                    if (rgRes.image.format == VK_FORMAT_R32_UINT || 
+                        rgRes.image.format == VK_FORMAT_R32_SINT ||
+                        rgRes.image.format == VK_FORMAT_R16_UINT ||
+                        rgRes.image.format == VK_FORMAT_R16_SINT ||
+                        rgRes.image.format == VK_FORMAT_R8_UINT ||
+                        rgRes.image.format == VK_FORMAT_R8_SINT)
+                    {
+                        info.sampler = ResourceManager::Get().GetNearestSampler();
+                    }
+
                     // [FIX] Use the actual layout tracked by RenderGraph
                     info.imageLayout = rgRes.currentState.layout;
 

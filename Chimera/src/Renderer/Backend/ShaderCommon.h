@@ -35,6 +35,52 @@ using uint64 = uint64_t;
 // --- 1. Shared Constants ---
 #define INVALID_ID                    -1
 
+#ifdef __cplusplus
+enum class MaterialType : int
+{
+    Matte = 0,
+    PBR = 1,
+    Volumetric = 2,
+    Glass = 3,
+    Subsurface = 4
+};
+
+enum class DisplayMode : uint32_t
+{
+    Final = 0,
+    Albedo = 1,
+    Normal = 2,
+    Material = 3,
+    Motion = 4,
+    Depth = 5,
+    Shadow = 6,
+    AO = 7,
+    Reflection = 8,
+    GI = 9,
+    Emissive = 10,
+    SVGFVariance = 11
+};
+
+enum RenderFlags_
+{
+    RenderFlags_None = 0,
+    RenderFlags_LightBit = (1 << 0),
+    RenderFlags_ShadowBit = (1 << 1),
+    RenderFlags_AOBit = (1 << 2),
+    RenderFlags_ReflectionBit = (1 << 3),
+    RenderFlags_GIBit = (1 << 4),
+    RenderFlags_TAABit = (1 << 5),
+    RenderFlags_TAAHistoryBit = (1 << 6),
+    RenderFlags_SVGFBit = (1 << 7),
+    RenderFlags_SVGFTemporalBit = (1 << 8),
+    RenderFlags_SVGFSpatialBit = (1 << 9),
+    RenderFlags_IBLBit = (1 << 10),
+    RenderFlags_EmissiveBit = (1 << 11)
+};
+typedef uint32_t RenderFlags;
+
+#else
+// GLSL Fallback defines
 #define MATERIAL_TYPE_MATTE           0
 #define MATERIAL_TYPE_PBR             1
 #define MATERIAL_TYPE_VOLUMETRIC      2
@@ -66,6 +112,7 @@ using uint64 = uint64_t;
 #define RENDER_FLAG_SVGF_SPATIAL_BIT  (1 << 9)
 #define RENDER_FLAG_IBL_BIT           (1 << 10)
 #define RENDER_FLAG_EMISSIVE_BIT      (1 << 11)
+#endif
 
 // --- 2. Data Structures ---
 

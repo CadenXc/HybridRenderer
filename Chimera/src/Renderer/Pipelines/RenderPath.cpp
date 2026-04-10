@@ -3,6 +3,7 @@
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Backend/PipelineManager.h"
 
 namespace Chimera
 {
@@ -45,6 +46,9 @@ VkSemaphore RenderPath::Render(const RenderFrameInfo& frameInfo)
         // RenderGraph Otherwise we might destroy image views currently in use
         // by active descriptor sets.
         vkDeviceWaitIdle(m_Context->GetDevice());
+
+        // Clear pipeline cache to ensure fresh state for the new graph
+        PipelineManager::Get().ClearCache();
 
         // Re-creating the RenderGraph forces old resources (and history) to be
         // destroyed

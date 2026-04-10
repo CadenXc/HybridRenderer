@@ -13,7 +13,8 @@ struct GBufferPassData
 {
     RGResourceHandle albedo;
     RGResourceHandle normal;
-    RGResourceHandle material;
+    RGResourceHandle materialParams;
+    RGResourceHandle objectID;
     RGResourceHandle motion;
     RGResourceHandle emissive;
     RGResourceHandle depth;

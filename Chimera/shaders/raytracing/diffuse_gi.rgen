@@ -2,6 +2,20 @@
 #extension GL_GOOGLE_include_directive : require
 #include "../common/common.glsl"
 
+/**
+ * @file diffuse_gi.rgen
+ * @brief Ray Traced Diffuse Global Illumination Generator (光线追踪漫反射全局光照生成器)
+ * 
+ * 此着色器负责为混合渲染管线生成初始的漫反射 GI 信号（也称为“颜色溢出”或“间接光照”）。
+ * 它利用 G-Buffer 的法线在半球空间内进行随机采样，通过探测周围环境的颜色来模拟光线在表面的二次弹射。
+ * 
+ * 核心技术点 (Technical Points):
+ * 1. Monte Carlo Integration: 蒙特卡洛积分，通过随机采样估算渲染方程的间接项。
+ * 2. Cosine-Weighted Sampling: 余弦权重采样，根据兰伯特余弦定律，优先采样更垂直于表面的方向，以加速收敛。
+ * 3. Jitter Compensation: TAA 抖动补偿，确保 GI 射线的起点在时域上保持稳定。
+ * 4. Temporal Variance: 每一帧使用不同的随机种子，配合 SVGF 降噪器进行时域累积。
+ */
+
 layout(set = 2, binding = 0, rgba16f) uniform image2D giOutput;
 layout(set = 2, binding = 1) uniform sampler2D gNormal;
 layout(set = 2, binding = 2) uniform sampler2D gDepth;
@@ -9,19 +23,23 @@ layout(set = 2, binding = 3) uniform sampler2D gMaterial;
 
 layout(push_constant) uniform PushConstants 
 {
-    int skyboxIndex;
+    int skyboxIndex; // 天空盒纹理索引，当射线射向天空时作为背景来源
 } pc;
 
 layout(location = 0) rayPayloadEXT HitPayload payload;
 
 void main() 
 {
+    // 计算当前线程对应的屏幕 UV 坐标
     const vec2 inUV = (vec2(gl_LaunchIDEXT.xy) + vec2(0.5)) / vec2(gl_LaunchSizeEXT.xy);
     
-    // [FIX] Robust random seed for temporal sampling
+    // 1. 随机化管理 (Randomness Management)
+    // [FIX] 使用稳健的随机种子，结合像素索引和帧计数值，确保每一帧的噪点分布都在变化
     uint pixelIdx = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x;
     uint seed = InitRandomSeed(pixelIdx, frameData.y);
 
+    // 2. 深度剔除 (Depth Culling)
+    // 剔除背景像素，避免为天空区域发射不必要的 GI 射线
     float depth = texture(gDepth, inUV).r;
     if (depth == 0.0) 
     {
@@ -29,35 +47,44 @@ void main()
         return;
     }
 
-    // [FIX] Subtract TAA Jitter to reconstruct un-jittered world position
+    // 3. 世界坐标重建 (World Position Reconstruction)
+    // [FIX] 补偿 TAA 带来的 Jitter，确保重建位置的精确性
     vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
     vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
     vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 
-    // 2. 漫反射采样 (Cosine-weighted hemisphere sampling)
+    // 4. 漫反射采样方向 (Hemisphere Sampling)
+    // 根据表面法线，生成一个符合余弦权重分布的随机方向
+    // 这种采样方式自然地给靠近法线方向的射线更高权重，符合 Lambertian 表面模型
     vec3 rayDirection = GetCosHemisphereSample(seed, worldNormal);
+    
+    // 使用法线偏移起点，防止光线由于浮点精度问题产生自碰撞（Self-intersection）
     vec3 origin = OffsetRay(worldPos, worldNormal);
     
-    // Initialize payload
+    // 初始化 Payload 通信数据
     payload.color_dist = vec4(0.0);
     payload.normal_rough = vec4(0.0);
     payload.motion_hit = vec4(0.0, 0.0, 0.0, 0.0);
 
+    // 5. 执行光线追踪 (Ray Dispatch)
     if ((frameData.w & RENDER_FLAG_GI_BIT) != 0)
     {
+        // 第 6 个参数为 0，对应 C++ 中配置的 MISS_INDEX_RADIANCE (miss.rmiss)
+        // traceRayEXT 将触发光线追踪硬件遍历场景
         traceRayEXT(TLAS, gl_RayFlagsNoneEXT, 0xFF, 0, 0, 0, origin, 0.01, rayDirection, 1e10, 0);
         
-        // [DEBUG] If ray tracing is working but payload is black, provide a hint color
+        // [DEBUG] 提示逻辑：如果渲染正常但结果全黑，通常是光照强度过低或采样失败
         if (length(payload.color_dist.rgb) < 0.001) {
-            // payload.color_dist.rgb = vec3(0.01, 0.02, 0.05); // Very dim blue hint
+            // payload.color_dist.rgb = vec3(0.01, 0.02, 0.05); 
         }
     }
     else
     {
-        // [DEBUG] If GI is OFF, output a recognizable pattern if needed
+        // 如果 GI 标志位未开启，输出纯黑
         payload.color_dist = vec4(0.0);
     }
 
-    // [OUTPUT] Real color retrieved from Hit or Miss shaders
+    // 6. 最终输出 (Final Output)
+    // 存储探测到的辐射度颜色。这些带有噪点的 1-spp 结果将交由 SVGF 算法进行时空滤波降噪
     imageStore(giOutput, ivec2(gl_LaunchIDEXT.xy), vec4(payload.color_dist.rgb, 1.0));
 }

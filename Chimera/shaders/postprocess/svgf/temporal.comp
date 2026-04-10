@@ -2,47 +2,59 @@
 #extension GL_GOOGLE_include_directive : require
 #include "../../common/common.glsl"
 
+/**
+ * @file temporal.comp
+ * @brief SVGF 时域累积着色器
+ * 
+ * 主要职责：
+ * 1. 利用运动矢量寻找上一帧的对应像素（重投影）。
+ * 2. 执行双线性插值并验证历史像素的有效性（ID、法线、深度校验）。
+ * 3. 混合当前采样信号与历史累积信号，降低蒙特卡洛方差。
+ */
+
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(push_constant) uniform PushConstants 
-{ 
-    int useAlbedoDemod; 
-} pc;
+layout(push_constant) uniform PushConstants { int useAlbedoDemod; } pc;
 
-layout(set = 2, binding = 0) uniform sampler2D gCurSignal;
-layout(set = 2, binding = 1) uniform sampler2D gMotion;
-layout(set = 2, binding = 2) uniform sampler2D gHistorySignal;
-layout(set = 2, binding = 3) uniform sampler2D gHistoryMoments;
+// --- 绑定顺序与 SVGFTemporalPass::Setup 严格对应 ---
+layout(set = 2, binding = 0)  uniform sampler2D  gCurSignal;      // 当前帧原始光追信号
+layout(set = 2, binding = 1)  uniform sampler2D  gMotion;         // 运动矢量 (来自 G-Buffer)
+layout(set = 2, binding = 2)  uniform sampler2D  gHistorySignal;  // 上一帧累积信号
+layout(set = 2, binding = 3)  uniform sampler2D  gHistoryMoments; // 上一帧历史矩数据
 
-layout(set = 2, binding = 4, rgba16f) uniform image2D outSignal;
-layout(set = 2, binding = 5, rgba16f) uniform image2D outMoments;
+layout(set = 2, binding = 4, rgba16f) uniform image2D outSignal;  // [Output 0]: 混合后的信号
+layout(set = 2, binding = 5, rgba16f) uniform image2D outMoments; // [Output 1]: 更新后的矩数据
 
-layout(set = 2, binding = 6) uniform sampler2D gCurDepth;  
-layout(set = 2, binding = 7) uniform sampler2D gCurNormal;
-layout(set = 2, binding = 8) uniform sampler2D gPrevDepth; 
-layout(set = 2, binding = 9) uniform sampler2D gPrevNormal;
-layout(set = 2, binding = 10) uniform sampler2D gCurMaterial; 
-layout(set = 2, binding = 11) uniform sampler2D gPrevMaterial;
-layout(set = 2, binding = 12) uniform sampler2D gPrevMotion; 
-layout(set = 2, binding = 13) uniform sampler2D gAlbedo; 
+layout(set = 2, binding = 6)  uniform sampler2D  gCurDepth;  
+layout(set = 2, binding = 7)  uniform sampler2D  gCurNormal;
+layout(set = 2, binding = 8)  uniform sampler2D  gPrevDepth; 
+layout(set = 2, binding = 9)  uniform sampler2D  gPrevNormal;
+layout(set = 2, binding = 10) uniform usampler2D gCurObjectID; 
+layout(set = 2, binding = 11) uniform usampler2D gPrevObjectID;
+layout(set = 2, binding = 12) uniform sampler2D  gPrevMotion; 
+layout(set = 2, binding = 13) uniform sampler2D  gAlbedo; 
 
 float CalculateLuminance(vec3 color) {
     return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
 }
 
-bool is_valid_reprojection(vec2 prevUV, vec3 curNormal, float curDepth, int curID) 
+/**
+ * @brief 校验重投影点的有效性
+ * 防止在物体边缘或遮挡切换处产生错误的信号拖影（Ghosting）
+ */
+bool is_valid_reprojection(vec2 prevUV, vec3 curNormal, float curDepth, uint curID) 
 {
     if (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) return false;
 
-    // 1. Mesh ID Check (Most reliable)
-    int preID = int(texture(gPrevMaterial, prevUV).w);
+    // 1. ObjectID 校验：最强力的准则，ID 不同说明不是同一个物体
+    uint preID = texture(gPrevObjectID, prevUV).r;
     if (curID != preID) return false;
 
-    // 2. Normal Check (SVGF uses exponential dot product)
+    // 2. 法线校验：防止平滑曲面间的错误混合
     vec3 preNormal = texture(gPrevNormal, prevUV).xyz; 
     if (dot(curNormal, preNormal) < 0.95) return false; 
 
-    // 3. Depth Check (Relative difference is better than absolute 0.7)
+    // 3. 深度校验：防止前后重叠物体的错误混合
     float preDepth = texture(gPrevMotion, prevUV).z;
     if (abs(curDepth - preDepth) / (curDepth + 1e-6) > 0.05) return false; 
 
@@ -56,82 +68,75 @@ void main()
 
     vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
     
-    // SVGF uses Motion Vector from G-Buffer directly
+    // --- 1. 获取当前帧核心属性 ---
     vec4 motionSample = texture(gMotion, uv);
     vec2 motion = motionSample.xy;
     float curDepth = motionSample.z;
-    
-    // Reproject to previous frame
-    vec2 prevUV = uv - motion;
+    vec3 curNormal = texture(gCurNormal, uv).xyz;
+    uint curID = texture(gCurObjectID, uv).r;
 
+    // --- 2. 预处理当前信号 ---
     vec4 curSignal = texture(gCurSignal, uv);
-    if (pc.useAlbedoDemod == 1)
+    if (pc.useAlbedoDemod == 1) // 若启用，则除以 Albedo 以解耦光照与纹理，利于滤波
     {
         vec3 albedo = texture(gAlbedo, uv).rgb;
         curSignal.rgb /= max(vec3(0.01), albedo);
     }
+    float curLuma = CalculateLuminance(curSignal.rgb);
 
-    vec3 curNormal = texture(gCurNormal, uv).xyz;
-    int  curID     = int(texture(gCurMaterial, uv).w); 
-    float curLuma  = CalculateLuminance(curSignal.rgb);
+    // --- 3. 重投影与历史有效性分析 ---
+    vec2 prevUV = uv - motion;
+    vec4 historySignal = vec4(0.0);
+    vec2 historyMoments = vec2(0.0);
+    float historyLen = 0.0;
+    float weightSum = 0.0;
 
-    // --- SVGF Temporal Integration with Bilinear History Validation ---
-    
-    vec4  historySignal  = vec4(0.0);
-    vec2  historyMoments = vec2(0.0);
-    float historyLen     = 0.0;
-    float weightSum      = 0.0;
-
-    // Calculate bilinear weights for the reprojected pixel
+    // 执行带校验的手动双线性采样
     vec2 prevPixelPos = prevUV * displayData.xy - vec2(0.5);
     ivec2 prevCoordBase = ivec2(floor(prevPixelPos));
     vec2 f = fract(prevPixelPos);
 
-    float weights[4] = { (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y };
-    ivec2 offsets[4] = { ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1) };
+    float weights[4] = { (1.0-f.x)*(1.0-f.y), f.x*(1.0-f.y), (1.0-f.x)*f.y, f.x*f.y };
+    ivec2 offsets[4] = { ivec2(0,0), ivec2(1,0), ivec2(0,1), ivec2(1,1) };
 
     for (int i = 0; i < 4; i++) 
     {
-        ivec2 sampleCoord = prevCoordBase + offsets[i];
-        vec2 sampleUV = (vec2(sampleCoord) + 0.5) / displayData.xy;
-        
-        // We must check validity for EACH of the 4 bilinear samples
+        vec2 sampleUV = (vec2(prevCoordBase + offsets[i]) + 0.5) / displayData.xy;
         if (is_valid_reprojection(sampleUV, curNormal, curDepth, curID)) 
         {
-            historySignal  += weights[i] * texture(gHistorySignal, sampleUV);
+            historySignal += weights[i] * texture(gHistorySignal, sampleUV);
             vec4 hM = texture(gHistoryMoments, sampleUV);
             historyMoments += weights[i] * hM.rg;
-            historyLen     += weights[i] * hM.a;
-            weightSum      += weights[i];
+            historyLen += weights[i] * hM.a;
+            weightSum += weights[i];
         }
     }
 
+    // --- 4. 最终混合逻辑 ---
     bool valid = (weightSum > 0.01);
-    vec4  accumSignal = curSignal;
+    vec4 accumSignal = curSignal;
     float m1 = curLuma, m2 = curLuma * curLuma;
     float outHLen = 1.0;
 
     if (valid) 
     {
-        // Re-normalize if some bilinear samples were rejected
         historySignal /= weightSum; 
         historyMoments /= weightSum; 
         historyLen /= weightSum;
         
-        // Clamp history length to allow for dynamic adjustments
         outHLen = min(32.0, historyLen + 1.0); 
         float alpha = 1.0 / outHLen;
         
-        // Exponential Moving Average
+        // 执行指数平滑移动平均 (EMA)
         accumSignal = mix(historySignal, curSignal, alpha);
         m1 = mix(historyMoments.r, curLuma, alpha);
         m2 = mix(historyMoments.g, curLuma * curLuma, alpha);
     }
 
-    // Variance calculation (M2 - M1^2)
-    float var = max(0.0, m2 - m1 * m1);
-    
-    // Temporal output for the next stages
+    // [Output 0]: 存储时域混合后的信号
     imageStore(outSignal, ipos, accumSignal);
+    
+    // [Output 1]: 存储更新后的矩数据 (RG: 矩, B: 方差, A: 累积长度)
+    float var = max(0.0, m2 - m1 * m1);
     imageStore(outMoments, ipos, vec4(m1, m2, var, outHLen));
 }

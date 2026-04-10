@@ -11,6 +11,7 @@
 #include "Renderer/Backend/ShaderCommon.h"
 #include "Scene/Scene.h"
 #include "Scene/Model.h"
+#include "Renderer/Pipelines/RenderPath.h"
 #include "Assets/AssetImporter.h"
 #include "Core/TaskSystem.h"
 
@@ -81,6 +82,11 @@ void ResourceManager::Clear()
     {
         vkDestroySampler(device, m_TextureSampler, nullptr);
         m_TextureSampler = VK_NULL_HANDLE;
+    }
+    if (m_NearestSampler != VK_NULL_HANDLE)
+    {
+        vkDestroySampler(device, m_NearestSampler, nullptr);
+        m_NearestSampler = VK_NULL_HANDLE;
     }
 }
 
@@ -168,26 +174,51 @@ void ResourceManager::CreateTransientDescriptorPools()
 
 void ResourceManager::CreateTextureSampler()
 {
-    VkSamplerCreateInfo i{
-        VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        nullptr,
-        0,
-        VK_FILTER_LINEAR,
-        VK_FILTER_LINEAR,
-        VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        0.0f,
-        VK_TRUE,
-        m_Context->GetDeviceProperties().limits.maxSamplerAnisotropy,
-        VK_FALSE,
-        VK_COMPARE_OP_ALWAYS,
-        0.0f,
-        10.0f,
-        VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-        VK_FALSE};
-    vkCreateSampler(m_Context->GetDevice(), &i, nullptr, &m_TextureSampler);
+    {
+        VkSamplerCreateInfo i{
+            VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            nullptr,
+            0,
+            VK_FILTER_LINEAR,
+            VK_FILTER_LINEAR,
+            VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            0.0f,
+            VK_TRUE,
+            m_Context->GetDeviceProperties().limits.maxSamplerAnisotropy,
+            VK_FALSE,
+            VK_COMPARE_OP_ALWAYS,
+            0.0f,
+            10.0f,
+            VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+            VK_FALSE};
+        vkCreateSampler(m_Context->GetDevice(), &i, nullptr, &m_TextureSampler);
+    }
+
+    {
+        VkSamplerCreateInfo i{
+            VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            nullptr,
+            0,
+            VK_FILTER_NEAREST,
+            VK_FILTER_NEAREST,
+            VK_SAMPLER_MIPMAP_MODE_NEAREST,
+            VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+            0.0f,
+            VK_FALSE,
+            1.0f,
+            VK_FALSE,
+            VK_COMPARE_OP_ALWAYS,
+            0.0f,
+            1.0f,
+            VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+            VK_FALSE};
+        vkCreateSampler(m_Context->GetDevice(), &i, nullptr, &m_NearestSampler);
+    }
 }
 
 void ResourceManager::CreateDescriptorPool()
@@ -310,9 +341,11 @@ void ResourceManager::UpdateGlobalResources(uint32_t cF,
 void ResourceManager::UpdateSceneDescriptorSet(Scene* s, uint32_t fI)
 {
     if (!s || m_SceneDescriptorSets.empty()) return;
+    
+    // If fI is 0xFFFFFFFF, we update ALL frames to ensure consistency after major scene changes
     uint32_t start = (fI == 0xFFFFFFFF) ? 0 : fI;
-    uint32_t end =
-        (fI == 0xFFFFFFFF) ? (uint32_t)m_SceneDescriptorSets.size() : fI + 1;
+    uint32_t end = (fI == 0xFFFFFFFF) ? (uint32_t)m_SceneDescriptorSets.size() : fI + 1;
+    
     for (uint32_t i = start; i < end; ++i)
     {
         VkDescriptorSet tS = m_SceneDescriptorSets[i];
@@ -692,6 +725,74 @@ TextureHandle ResourceManager::LoadHDRTexture(const std::string& p)
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     }
     return AddTexture(std::move(im), p);
+}
+
+void ResourceManager::LoadHDR(const std::string& path)
+{
+    Application::Get().QueueEvent(
+        [this, path]()
+        {
+            if (!m_Context) return;
+
+            // Ensure GPU is idle before heavy allocation and texture upload
+            vkDeviceWaitIdle(m_Context->GetDevice());
+
+            TextureHandle handle;
+            std::string ext = std::filesystem::path(path).extension().string();
+
+            CH_CORE_INFO("ResourceManager: Loading HDR from {0}", path);
+
+            if (ext == ".hdr" || ext == ".exr")
+                handle = LoadHDRTexture(path);
+            else
+                handle = LoadTexture(path, false);
+
+            if (!handle.IsValid())
+            {
+                CH_CORE_ERROR("ResourceManager: Failed to load HDR texture {0}",
+                              path);
+                return;
+            }
+
+            if (m_ActiveScene)
+            {
+                m_ActiveScene->SetSkyboxTextureIndex(handle.id);
+                m_ActiveScene->MarkMaterialDirty();
+                // Force update all descriptor sets to ensure the new texture is
+                // visible
+                UpdateSceneDescriptorSet(m_ActiveScene.get(), 0xFFFFFFFF);
+            }
+
+            if (auto* renderPath = Application::Get().GetActiveRenderPath())
+            {
+                renderPath->OnSceneUpdated();
+            }
+        });
+}
+
+void ResourceManager::LoadScene(const std::string& path)
+{
+    Application::Get().QueueEvent(
+        [this, path]()
+        {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            if (m_ActiveScene)
+            {
+                m_ActiveScene->LoadModel(path);
+            }
+        });
+}
+
+void ResourceManager::ClearScene()
+{
+    Application::Get().QueueEvent(
+        [this]()
+        {
+            vkDeviceWaitIdle(m_Context->GetDevice());
+            ClearRuntimeAssets();
+            auto newScene = std::make_shared<Scene>(m_Context);
+            SetActiveScene(newScene);
+        });
 }
 
 TextureHandle ResourceManager::AddTexture(std::unique_ptr<Image> t,

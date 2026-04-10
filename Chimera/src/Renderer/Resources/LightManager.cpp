@@ -110,15 +110,16 @@ m_GpuLights.push_back(light);
         m_LightBuffer->Update(m_GpuLights.data(), lightSize);
 
         VkDeviceSize cdfSize = m_LightsCDF.size() * sizeof(float);
-        if (!m_CDFBuffer || m_CDFBuffer->GetSize() < cdfSize)
+        VkDeviceSize actualSize = std::max(cdfSize, (VkDeviceSize)sizeof(float));
+        if (!m_CDFBuffer || m_CDFBuffer->GetSize() < actualSize)
         {
             m_CDFBuffer = std::make_unique<Buffer>(
-                cdfSize * 2,
+                actualSize * 2,
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                 VMA_MEMORY_USAGE_CPU_TO_GPU, "CDFBuffer");
         }
-        m_CDFBuffer->Update(m_LightsCDF.data(), cdfSize);
+        if (cdfSize > 0) m_CDFBuffer->Update(m_LightsCDF.data(), cdfSize);
     }
 }
 } // namespace Chimera

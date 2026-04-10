@@ -219,7 +219,7 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         mat.emission = vec3(0.0f);
         mat.roughness = 1.0f;
         mat.metallic = 0.0f;
-        mat.materialType = (float)MATERIAL_TYPE_PBR;
+        mat.materialType = (float)MaterialType::PBR;
         mat.opacity = 1.0f;
         mat.transmissionDepth = 0.01f;
         mat.scatteringColour = vec3(0.0f);
@@ -284,5 +284,52 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
                   0xFFFFFFFF);
 
     return outScene;
+}
+
+std::vector<AssetInfo> AssetImporter::GetAvailableModels(
+    const std::string& rootDirectory)
+{
+    std::vector<AssetInfo> models;
+    if (!std::filesystem::exists(rootDirectory)) return models;
+
+    for (const auto& entry :
+         std::filesystem::recursive_directory_iterator(rootDirectory))
+    {
+        if (entry.is_regular_file())
+        {
+            auto ext = entry.path().extension();
+            if (ext == ".gltf" || ext == ".glb" || ext == ".obj")
+            {
+                models.push_back(
+                    {entry.path().filename().string(),
+                     std::filesystem::relative(entry.path(), ".")
+                         .generic_string()});
+            }
+        }
+    }
+    return models;
+}
+
+std::vector<AssetInfo> AssetImporter::GetAvailableHDRs(
+    const std::string& rootDirectory)
+{
+    std::vector<AssetInfo> hdrs;
+    if (!std::filesystem::exists(rootDirectory)) return hdrs;
+
+    for (const auto& entry :
+         std::filesystem::directory_iterator(rootDirectory))
+    {
+        if (entry.is_regular_file())
+        {
+            std::string ext = entry.path().extension().string();
+            if (ext == ".hdr" || ext == ".exr" || ext == ".png" ||
+                ext == ".jpg")
+            {
+                hdrs.push_back({entry.path().filename().string(),
+                                entry.path().generic_string()});
+            }
+        }
+    }
+    return hdrs;
 }
 } // namespace Chimera

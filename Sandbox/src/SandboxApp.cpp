@@ -8,7 +8,6 @@ public:
     ChimeraApp(const Chimera::ApplicationSpecification& spec)
         : Chimera::Application(spec)
     {
-        // Push the Editor Layer which contains the UI and logic
         auto editorLayer = std::make_shared<Chimera::EditorLayer>();
         PushLayer(editorLayer);
 
@@ -32,23 +31,6 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
     spec.Height = 900;
 
     ChimeraApp* app = new ChimeraApp(spec);
-    // If a scene path is provided on the command line, request loading it on
-    // startup
-    if (argc > 1 && argv[1])
-    {
-        try
-        {
-            auto editorLayer = app->GetLayer<Chimera::EditorLayer>();
-            if (editorLayer)
-            {
-                editorLayer->LoadScene(std::string(argv[1]));
-            }
-        }
-        catch (...)
-        {
-            // Ignore
-        }
-    }
 
     return app;
 }

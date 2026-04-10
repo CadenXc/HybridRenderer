@@ -29,8 +29,8 @@ void SVGFTemporalPass::Setup(SVGFTemporalData& data,
     data.normal = builder.ReadCompute(RS::Normal);
     data.prevDepth = builder.ReadHistorySafe(RS::Depth, RS::Depth);
     data.prevNormal = builder.ReadHistorySafe(RS::Normal, RS::Normal);
-    data.material = builder.ReadCompute(RS::Material);
-    data.prevMaterial = builder.ReadHistorySafe(RS::Material, RS::Material);
+    data.objectID = builder.ReadCompute(RS::ObjectID);
+    data.prevObjectID = builder.ReadHistorySafe(RS::ObjectID, RS::ObjectID);
     data.prevMotion = builder.ReadHistorySafe(RS::Motion, RS::Motion);
     builder.ReadCompute(RS::Albedo);
 }
@@ -63,7 +63,7 @@ void SVGFVarianceEstimatePass::Setup(SVGFVarianceEstimateData& data,
     data.inputMoments = builder.ReadCompute(m_InputMoments);
     data.normal = builder.ReadCompute(RS::Normal);
     data.motion = builder.ReadCompute(RS::Motion);
-    data.material = builder.ReadCompute(RS::Material);
+    data.objectID = builder.ReadCompute(RS::ObjectID);
     data.outputIllum = builder.WriteStorage(m_OutputIllum)
                            .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
     data.outputMoments = builder.WriteStorage(m_OutputMoments)
@@ -124,7 +124,8 @@ void SVGFAtrousPass::Setup(SVGFAtrousData& data,
     data.moments = builder.ReadCompute(m_MomentsName);
     data.normal = builder.ReadCompute(RS::Normal);
     data.depth = builder.ReadCompute(RS::Motion);
-    data.material = builder.ReadCompute(RS::Material);
+    data.objectID = builder.ReadCompute(RS::ObjectID);
+    data.materialParams = builder.ReadCompute(RS::MaterialParams);
 
     auto outputProxy = builder.WriteStorage(m_OutputName)
                            .Format(VK_FORMAT_R16G16B16A16_SFLOAT);

@@ -14,7 +14,7 @@ struct GraphicsPipeline
     VkPipeline handle = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     GraphicsPipelineDescription description;
-    std::vector<const Shader*> shaders; // [NEW] 存储完整 Shader 链用于反射对齐
+    std::vector<const Shader*> shaders;
 };
 
 struct RaytracingPipeline
@@ -22,7 +22,7 @@ struct RaytracingPipeline
     VkPipeline handle = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     RaytracingPipelineDescription description;
-    std::vector<const Shader*> shaders; // [NEW] 包含 Raygen, Miss, Hit
+    std::vector<const Shader*> shaders;
 
     struct SBT
     {
@@ -35,7 +35,7 @@ struct ComputePipeline
 {
     VkPipeline handle = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
-    std::vector<const Shader*> shaders; // [NEW]
+    std::vector<const Shader*> shaders;
 };
 
 class PipelineManager
@@ -54,7 +54,6 @@ public:
     ComputePipeline& GetComputePipeline(
         const ComputePipelineDescription::Kernel& kernel);
 
-    // 获取基于 Shader 链的统一布局
     VkPipelineLayout GetReflectionLayout(
         const std::vector<const Shader*>& shaders);
     VkDescriptorSetLayout GetSet2Layout(

@@ -17,7 +17,7 @@ void RTDiffuseGIPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
         builder.WriteStorage("GIRaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
     data.normal = builder.Read(RS::Normal);
     data.depth = builder.Read(RS::Depth);
-    data.material = builder.Read(RS::Material);
+    data.material = builder.Read(RS::MaterialParams);
 }
 
 void RTDiffuseGIPass::Execute(const PassData& data, RenderGraphRegistry& reg,

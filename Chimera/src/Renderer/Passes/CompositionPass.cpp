@@ -16,9 +16,9 @@ void CompositionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
     // MUST STRICTLY MATCH binding order in composition.frag (Set 2, Bindings
     // 0-11)
     data.albedo = builder.Read(RS::Albedo); // 0
-    data.normal = builder.Read(RS::Normal); // 1
-    data.material = builder.Read(RS::Material); // 2
-    data.motion = builder.Read(RS::Motion); // 3
+    data.normal = builder.Read(RS::Normal);     // 1
+    data.material = builder.Read(RS::MaterialParams); // 2
+    data.albedo = builder.Read(RS::Albedo);     // 3
     data.depth = builder.Read(RS::Depth); // 4
     data.emissive = builder.Read(RS::Emissive); // 5
 

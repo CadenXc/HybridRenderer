@@ -29,13 +29,14 @@ void GBufferPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
                       .Clear(clearNormal)
                       .SaveAsHistory(RS::Normal);
 
-    data.material =
-        builder.Write(RS::Material)
-            .Format(VK_FORMAT_R32G32B32A32_SFLOAT) // High precision for Object
-                                                   // ID in .w
-            .Clear(clearZero)
-            .SaveAsHistory(
-                RS::Material); // Needed for SVGF reprojection validation
+    data.materialParams = builder.Write(RS::MaterialParams)
+                              .Format(VK_FORMAT_R8G8B8A8_UNORM)
+                              .Clear(clearZero);
+
+    data.objectID = builder.Write(RS::ObjectID)
+                        .Format(VK_FORMAT_R32_UINT)
+                        .Clear(clearZero)
+                        .SaveAsHistory(RS::ObjectID);
 
     data.motion =
         builder.Write(RS::Motion)

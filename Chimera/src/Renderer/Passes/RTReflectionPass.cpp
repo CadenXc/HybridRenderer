@@ -18,7 +18,7 @@ void RTReflectionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
                       .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
     data.normal = builder.Read(RS::Normal);
     data.depth = builder.Read(RS::Depth);
-    data.material = builder.Read(RS::Material);
+    data.material = builder.Read(RS::MaterialParams);
     data.albedo = builder.Read(RS::Albedo);
 }
 
