@@ -12,10 +12,11 @@
 #include <algorithm>
 #include <unordered_set>
 #include <set>
+#include <imgui.h>
 
 namespace Chimera
 {
-    // --- Internal Helpers for Robust State Mapping ---
+// --- Internal Helpers for Robust State Mapping ---
 static ResourceState GetStateFromUsage(ResourceUsage usage, bool isDepth)
 {
     ResourceState state{};
@@ -28,8 +29,6 @@ static ResourceState GetStateFromUsage(ResourceUsage usage, bool isDepth)
             break;
         case ResourceUsage::ComputeSampled:
         case ResourceUsage::RaytraceSampled:
-            // Prefer SHADER_READ_ONLY for sampled resources in all stages.
-            // GENERAL is only required for Storage (Read/Write) access.
             state.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             state.access = VK_ACCESS_2_SHADER_READ_BIT;
             state.stage = (usage == ResourceUsage::ComputeSampled)
@@ -93,15 +92,15 @@ RenderGraph::RenderGraph(VulkanContext& context, uint32_t w, uint32_t h)
 
 RenderGraph::~RenderGraph()
 {
-    CH_CORE_INFO("RenderGraph: Destructor started. context count: {}",
-                 m_Context.GetShared().use_count());
+    if (m_TimestampQueryPool != VK_NULL_HANDLE)
+    {
+        vkDestroyQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, nullptr);
+    }
     DestroyResources(true);
-    CH_CORE_INFO("RenderGraph: Destructor finished.");
 }
 
 void RenderGraph::Compile()
 {
-    // 1. Initialize or Re-initialize Physical Resources
     for (auto& res : m_Resources)
     {
         res.firstPass = 0xFFFFFFFF;
@@ -111,10 +110,7 @@ void RenderGraph::Compile()
         {
             bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
             VkImageUsageFlags finalUsage = res.desc.usage;
-
-            finalUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                          VK_IMAGE_USAGE_SAMPLED_BIT;
+            finalUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
             if (isDepth)
             {
@@ -132,7 +128,6 @@ void RenderGraph::Compile()
         }
     }
 
-    // 2. Map Passes to Resource Lifetimes and Attachment Formats
     for (uint32_t i = 0; i < (uint32_t)m_PassStack.size(); ++i)
     {
         auto& pass = m_PassStack[i];
@@ -146,26 +141,18 @@ void RenderGraph::Compile()
             res.lastPass = i;
 
             if (out.usage == ResourceUsage::ColorAttachment)
-            {
                 pass.colorFormats.push_back(res.desc.format);
-            }
             else if (out.usage == ResourceUsage::DepthStencilWrite)
-            {
                 pass.depthFormat = res.desc.format;
-            }
         }
 
         for (auto& in : pass.inputs)
         {
             if (in.handle != INVALID_RESOURCE)
-            {
-                PhysicalResource& res = m_Resources[in.handle];
-                res.lastPass = i;
-            }
+                m_Resources[in.handle].lastPass = i;
         }
     }
 
-    // 3. Perform parallel analysis
     BuildDependencyGraph();
 }
 
@@ -176,79 +163,55 @@ void RenderGraph::BuildDependencyGraph()
     if (numPasses == 0) return;
 
     std::vector<uint32_t> passDepths(numPasses, 0);
-    std::unordered_map<RGResourceHandle, uint32_t>
-        lastWriter; // Resource -> Last pass index that wrote to it
+    std::unordered_map<RGResourceHandle, uint32_t> lastWriter;
 
-    // 1. Leveling algorithm: Assign depth to each pass based on its
-    // dependencies
     for (uint32_t i = 0; i < numPasses; ++i)
     {
         auto& pass = m_PassStack[i];
         uint32_t maxDepth = 0;
-
-        // Check dependency: If I read what someone else wrote, I must be at
-        // least one level deeper
         for (auto& input : pass.inputs)
         {
             if (lastWriter.count(input.handle))
-            {
-                maxDepth = std::max(maxDepth,
-                                    passDepths[lastWriter[input.handle]] + 1);
-            }
+                maxDepth = std::max(maxDepth, passDepths[lastWriter[input.handle]] + 1);
         }
-
         passDepths[i] = maxDepth;
-
-        // Track who is the last writer of this resource
         for (auto& output : pass.outputs)
-        {
             lastWriter[output.handle] = i;
-        }
     }
 
-    // Group passes into parallel layers
     uint32_t totalLayers = 0;
     for (uint32_t d : passDepths) totalLayers = std::max(totalLayers, d + 1);
 
     m_ParallelLayers.resize(totalLayers);
     for (uint32_t i = 0; i < numPasses; ++i)
-    {
         m_ParallelLayers[passDepths[i]].push_back(i);
-    }
 }
 
-void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderGraphPass& pass,
-                                uint32_t passIdx)
+void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderGraphPass& pass, uint32_t passIdx)
 {
     std::vector<VkImageMemoryBarrier2> barriers;
     auto process = [&](std::vector<ResourceRequest>& reqs)
     {
         for (auto& req : reqs)
         {
-            if (req.handle == INVALID_RESOURCE)
-            {
-                continue;
-            }
+            if (req.handle == INVALID_RESOURCE) continue;
             PhysicalResource& res = m_Resources[req.handle];
             bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
             ResourceState target = GetStateFromUsage(req.usage, isDepth);
 
-            if (res.currentState.layout != target.layout ||
-                (res.currentState.access & target.access) != target.access)
+            if (res.currentState.layout != target.layout || (res.currentState.access & target.access) != target.access)
             {
-                VkImageMemoryBarrier2 b{
-                    VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+                VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
                 b.srcStageMask = res.currentState.stage;
                 b.srcAccessMask = res.currentState.access;
                 b.dstStageMask = target.stage;
                 b.dstAccessMask = target.access;
                 b.oldLayout = res.currentState.layout;
                 b.newLayout = target.layout;
+                b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                 b.image = res.image.handle;
-                b.subresourceRange = {
-                    (VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT
-                                                 : VK_IMAGE_ASPECT_COLOR_BIT),
-                    0, 1, 0, 1};
+                b.subresourceRange = {(VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 1, 0, 1};
                 barriers.push_back(b);
                 res.currentState = target;
             }
@@ -259,43 +222,96 @@ void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderGraphPass& pass,
 
     if (!barriers.empty())
     {
-        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                             nullptr,
-                             0,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr,
-                             (uint32_t)barriers.size(),
-                             barriers.data()};
+        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO, nullptr, 0, 0, nullptr, 0, nullptr, (uint32_t)barriers.size(), barriers.data()};
         vkCmdPipelineBarrier2(cmd, &dep);
+    }
+}
+
+void RenderGraph::InitQueryPool()
+{
+    uint32_t passCount = (uint32_t)m_PassStack.size();
+    if (passCount == 0) return;
+
+    if (m_TimestampQueryPool == VK_NULL_HANDLE || m_PreviousPassCount < passCount)
+    {
+        if (m_TimestampQueryPool != VK_NULL_HANDLE)
+            vkDestroyQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, nullptr);
+
+        VkQueryPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+        poolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        poolInfo.queryCount = std::max(64u, passCount * 2);
+        vkCreateQueryPool(m_Context.GetDevice(), &poolInfo, nullptr, &m_TimestampQueryPool);
+        
+        // [FIX] Perform an immediate Host Reset upon creation.
+        // This ensures the pool is in a valid state even before the first GPU command buffer executes.
+        vkResetQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, 0, poolInfo.queryCount);
+        
+        m_PreviousPassCount = passCount;
+        m_StatsReady = false;
+    }
+}
+
+void RenderGraph::WriteTimestamp(VkCommandBuffer cmd, uint32_t queryIdx, VkPipelineStageFlags2 stage)
+{
+    if (m_TimestampQueryPool != VK_NULL_HANDLE)
+        vkCmdWriteTimestamp2(cmd, stage, m_TimestampQueryPool, queryIdx);
+}
+
+void RenderGraph::FetchQueryResults()
+{
+    if (m_TimestampQueryPool == VK_NULL_HANDLE || m_PassStack.empty() || !m_StatsReady) return;
+
+    uint32_t queryCount = (uint32_t)m_LastPassNames.size() * 2;
+    if (queryCount == 0) return;
+
+    std::vector<uint64_t> results(queryCount);
+    
+    // We don't use WAIT_BIT here to avoid any chance of blocking the main thread.
+    // If results aren't ready (VK_NOT_READY), we simply skip this frame's update.
+    VkResult res = vkGetQueryPoolResults(
+        m_Context.GetDevice(), m_TimestampQueryPool, 0, queryCount,
+        results.size() * sizeof(uint64_t), results.data(), sizeof(uint64_t),
+        VK_QUERY_RESULT_64_BIT);
+
+    if (res == VK_SUCCESS)
+    {
+        m_LatestTimings.clear();
+        float period = m_Context.GetDeviceProperties().limits.timestampPeriod;
+        for (uint32_t i = 0; i < (uint32_t)m_LastPassNames.size(); ++i)
+        {
+            uint64_t start = results[i * 2];
+            uint64_t end = results[i * 2 + 1];
+            float durationMs = (end > start) ? (float)(end - start) * period / 1000000.0f : 0.0f;
+            m_LatestTimings.push_back({m_LastPassNames[i], durationMs});
+        }
     }
 }
 
 VkSemaphore RenderGraph::Execute(VkCommandBuffer cmd)
 {
-    // New Multi-threaded Ready Execution Model: Execute by parallel layers
+    // 1. Try to fetch results from PREVIOUS frame (async)
+    FetchQueryResults();
+
+    // 2. Initialize pool (handles recreation if needed)
+    InitQueryPool();
+    
+    // 3. GPU-side Reset for CURRENT frame
+    vkCmdResetQueryPool(cmd, m_TimestampQueryPool, 0, (uint32_t)m_PassStack.size() * 2);
+
+    m_LastPassNames.clear();
+    for (const auto& pass : m_PassStack) m_LastPassNames.push_back(pass.name);
+
     for (const auto& layer : m_ParallelLayers)
     {
-        // 1. Global Barrier Sync: Master thread emits all barriers for this
-        // parallel layer This ensures all resource transitions are done before
-        // any concurrent recording starts
         for (uint32_t passIdx : layer)
-        {
             BuildBarriers(cmd, m_PassStack[passIdx], passIdx);
-        }
 
-        // 2. Parallel Recording Point:
-        // In a full multi-threaded implementation, the passes within this loop
-        // can be dispatched to separate worker threads to record into Secondary
-        // Command Buffers.
         for (uint32_t passIdx : layer)
         {
             auto& pass = m_PassStack[passIdx];
-            CH_CORE_TRACE(
-                "RenderGraph: Executing pass '{}' (Parallel Layer Mode)",
-                pass.name);
-
+            // Start Timestamp
+            WriteTimestamp(cmd, passIdx * 2, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT);
+            
             BeginPassDebugLabel(cmd, pass);
 
             if (pass.isCompute)
@@ -305,10 +321,7 @@ VkSemaphore RenderGraph::Execute(VkCommandBuffer cmd)
             }
             else
             {
-                // [FIX] Ensure viewport/scissor are set PER PASS to match pass
-                // dimensions
-                VkViewport vp{0.0f, 0.0f, (float)pass.width, (float)pass.height,
-                              0.0f, 1.0f};
+                VkViewport vp{0.0f, 0.0f, (float)pass.width, (float)pass.height, 0.0f, 1.0f};
                 VkRect2D sc{{0, 0}, {pass.width, pass.height}};
                 vkCmdSetViewport(cmd, 0, 1, &vp);
                 vkCmdSetScissor(cmd, 0, 1, &sc);
@@ -316,17 +329,22 @@ VkSemaphore RenderGraph::Execute(VkCommandBuffer cmd)
                 bool active = BeginDynamicRendering(cmd, pass);
                 RenderGraphRegistry reg{*this, pass};
                 pass.executeFunc(reg, cmd);
-                if (active)
-                {
-                    vkCmdEndRendering(cmd);
-                }
+                if (active) vkCmdEndRendering(cmd);
             }
+            
             EndPassDebugLabel(cmd);
+            
+            // End Timestamp
+            WriteTimestamp(cmd, passIdx * 2 + 1, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT);
         }
     }
 
-    // [OPTIMIZATION] Only update history/persistent resources.
     UpdatePersistentResources(cmd);
+    
+    // Crucially set this to true AFTER we've recorded all commands.
+    // The next frame's Execute() will then try to fetch these results.
+    m_StatsReady = true;
+    
     return VK_NULL_HANDLE;
 }
 
@@ -412,21 +430,13 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
             res.desc = {hist.image.width, hist.image.height, hist.image.format,
                         0};
 
-            // [FIX] Self-perpetuating history:
-            // Mark this proxy so it also saves itself back into the pool at the
-            // end of the frame.
             res.historyName = name;
 
             graph.m_Resources.push_back(res);
             graph.m_ResourceMap[historyName] = h;
-            // CH_CORE_INFO("RenderGraph: Linked history resource '{}' for name
-            // '{}'", historyName, name);
         }
         else
         {
-            // [FIX] Always sync image and state from the persistent history
-            // record to ensure current frame's RenderGraph has the correct
-            // layout/handle.
             auto& hist = graph.m_HistoryResources[name];
             graph.m_Resources[h].image = hist.image;
             graph.m_Resources[h].currentState = hist.state;
@@ -450,8 +460,6 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistorySafe(
     {
         return ReadHistory(name);
     }
-
-    // Fallback to current frame's resource (e.g. black texture or raw input)
     return ReadCompute(fallbackName);
 }
 
@@ -583,7 +591,6 @@ void RenderGraph::SetExternalResource(const std::string& name, VkImage image,
     res.image.height = desc.height;
     res.image.format = desc.format;
 
-    // Track external state
     if (m_ExternalImageStates.count(image))
     {
         res.currentState = m_ExternalImageStates[image];
@@ -601,22 +608,59 @@ RGResourceHandle RenderGraph::GetResourceHandle(const std::string& name)
     return m_ResourceMap.count(name) ? m_ResourceMap[name] : INVALID_RESOURCE;
 }
 
-void RenderGraph::DrawPerformanceStatistics() {}
+void RenderGraph::DrawPerformanceStatistics()
+{
+    if (m_LatestTimings.empty())
+    {
+        ImGui::Text("No timing data available. Ensure GPU queries are active.");
+        return;
+    }
+
+    float totalTime = 0.0f;
+    for (const auto& timing : m_LatestTimings) totalTime += timing.durationMS;
+
+    if (ImGui::BeginTable("PassTimings", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
+    {
+        ImGui::TableSetupColumn("Pass Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("GPU Time (ms)", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        ImGui::TableSetupColumn("Ratio (%)", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+        ImGui::TableHeadersRow();
+
+        for (const auto& timing : m_LatestTimings)
+        {
+            float percentage = (totalTime > 0.0f) ? (timing.durationMS / totalTime) * 100.0f : 0.0f;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("%s", timing.name.c_str());
+            
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.3f ms", timing.durationMS);
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%.1f%%", percentage);
+        }
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Total GPU Pipeline Time");
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "%.3f ms", totalTime);
+        ImGui::TableSetColumnIndex(2);
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "100.0%%");
+
+        ImGui::EndTable();
+    }
+}
 
 std::string RenderGraph::ExportToMermaid() const
 {
     std::stringstream ss;
     ss << "graph LR\n";
-
-    // Style definitions: Muted Pass nodes (Orange), Resource nodes (Blue)
-    ss << "    classDef graphics "
-          "fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
-    ss << "    classDef compute "
-          "fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
-    ss << "    classDef raytrace "
-          "fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
-    ss << "    classDef resource "
-          "fill:#90CAF9,stroke:#1565C0,stroke-width:1px,color:#333\n";
+    ss << "    classDef graphics fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
+    ss << "    classDef compute fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
+    ss << "    classDef raytrace fill:#FFCC80,stroke:#EF6C00,stroke-width:1px,color:#333\n";
+    ss << "    classDef resource fill:#90CAF9,stroke:#1565C0,stroke-width:1px,color:#333\n";
 
     std::vector<std::string> graphicsPasses;
     std::vector<std::string> computePasses;
@@ -640,8 +684,7 @@ std::string RenderGraph::ExportToMermaid() const
             endShape = "}}";
             computePasses.push_back(passNode);
         }
-        else if (pass.name.find("RT") != std::string::npos ||
-                 pass.name.find("Ray") != std::string::npos)
+        else if (pass.name.find("RT") != std::string::npos || pass.name.find("Ray") != std::string::npos)
         {
             shape = "((";
             endShape = "))";
@@ -652,35 +695,14 @@ std::string RenderGraph::ExportToMermaid() const
             graphicsPasses.push_back(passNode);
         }
 
-        std::string shaderLabel = "";
-        if (!pass.shaderNames.empty())
-        {
-            shaderLabel = "<br/>(";
-            for (size_t i = 0; i < pass.shaderNames.size(); ++i)
-            {
-                shaderLabel += pass.shaderNames[i];
-                if (i < pass.shaderNames.size() - 1)
-                {
-                    shaderLabel += ", ";
-                }
-            }
-            shaderLabel += ")";
-        }
+        ss << "    " << passNode << shape << "\"" << pass.name << "\"" << endShape << "\n";
 
-        ss << "    " << passNode << shape << "\"" << pass.name << shaderLabel
-           << "\"" << endShape << "\n";
-
-        // Inputs: Resource -> Pass (Read) - Green Arrow
         for (const auto& in : pass.inputs)
         {
-            if (in.handle == INVALID_RESOURCE ||
-                in.handle >= m_Resources.size())
-                continue;
-
+            if (in.handle == INVALID_RESOURCE || in.handle >= m_Resources.size()) continue;
             std::string resName = m_Resources[in.handle].name;
             std::string resID = "Res_" + resName;
             std::replace(resID.begin(), resID.end(), ' ', '_');
-
             if (handledResources.find(resID) == handledResources.end())
             {
                 ss << "    " << resID << "(\"" << resName << "\")\n";
@@ -691,17 +713,12 @@ std::string RenderGraph::ExportToMermaid() const
             readLinks.push_back(linkIndex++);
         }
 
-        // Outputs: Pass -> Resource (Write) - Red Arrow
         for (const auto& out : pass.outputs)
         {
-            if (out.handle == INVALID_RESOURCE ||
-                out.handle >= m_Resources.size())
-                continue;
-
+            if (out.handle == INVALID_RESOURCE || out.handle >= m_Resources.size()) continue;
             std::string resName = m_Resources[out.handle].name;
             std::string resID = "Res_" + resName;
             std::replace(resID.begin(), resID.end(), ' ', '_');
-
             if (handledResources.find(resID) == handledResources.end())
             {
                 ss << "    " << resID << "(\"" << resName << "\")\n";
@@ -713,16 +730,12 @@ std::string RenderGraph::ExportToMermaid() const
         }
     }
 
-    auto addClass =
-        [&](const std::vector<std::string>& nodes, const std::string& className)
+    auto addClass = [&](const std::vector<std::string>& nodes, const std::string& className)
     {
         if (!nodes.empty())
         {
             ss << "    class ";
-            for (size_t i = 0; i < nodes.size(); ++i)
-            {
-                ss << nodes[i] << (i < nodes.size() - 1 ? "," : "");
-            }
+            for (size_t i = 0; i < nodes.size(); ++i) ss << nodes[i] << (i < nodes.size() - 1 ? "," : "");
             ss << " " << className << "\n";
         }
     };
@@ -731,22 +744,15 @@ std::string RenderGraph::ExportToMermaid() const
     addClass(computePasses, "compute");
     addClass(raytracePasses, "raytrace");
 
-    // Apply link styles for colors
-    for (int idx : readLinks)
-        ss << "    linkStyle " << idx << " stroke:#00FF00,stroke-width:2px\n";
-    for (int idx : writeLinks)
-        ss << "    linkStyle " << idx << " stroke:#FF0000,stroke-width:2px\n";
+    for (int idx : readLinks) ss << "    linkStyle " << idx << " stroke:#00FF00,stroke-width:2px\n";
+    for (int idx : writeLinks) ss << "    linkStyle " << idx << " stroke:#FF0000,stroke-width:2px\n";
 
     return ss.str();
 }
 
 const GraphImage& RenderGraph::GetImage(const std::string& name) const
 {
-    if (m_ResourceMap.count(name))
-    {
-        return m_Resources[m_ResourceMap.at(name)].image;
-    }
-
+    if (m_ResourceMap.count(name)) return m_Resources[m_ResourceMap.at(name)].image;
     static GraphImage nullImage{};
     return nullImage;
 }
@@ -764,56 +770,32 @@ bool RenderGraph::HasHistory(const std::string& name) const
 std::vector<std::string> RenderGraph::GetDebuggableResources() const
 {
     std::vector<std::string> names;
-    // Always include "Final Color" or similar if needed, but here we just
-    // return graph resources
     for (const auto& res : m_Resources)
     {
-        if (res.image.handle != VK_NULL_HANDLE)
-        {
-            names.push_back(res.name);
-        }
+        if (res.image.handle != VK_NULL_HANDLE) names.push_back(res.name);
     }
     return names;
 }
 
-void RenderGraph::BeginPassDebugLabel(VkCommandBuffer cmd,
-                                      const RenderGraphPass& pass)
+void RenderGraph::BeginPassDebugLabel(VkCommandBuffer cmd, const RenderGraphPass& pass)
 {
-    VkDebugUtilsLabelEXT l{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT,
-                           nullptr,
-                           pass.name.c_str(),
-                           {0.8f, 0.8f, 0.1f, 1.0f}};
-    if (vkCmdBeginDebugUtilsLabelEXT)
-    {
-        vkCmdBeginDebugUtilsLabelEXT(cmd, &l);
-    }
+    VkDebugUtilsLabelEXT l{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT, nullptr, pass.name.c_str(), {0.8f, 0.8f, 0.1f, 1.0f}};
+    if (vkCmdBeginDebugUtilsLabelEXT) vkCmdBeginDebugUtilsLabelEXT(cmd, &l);
 }
 
 void RenderGraph::EndPassDebugLabel(VkCommandBuffer cmd)
 {
-    if (vkCmdEndDebugUtilsLabelEXT)
-    {
-        vkCmdEndDebugUtilsLabelEXT(cmd);
-    }
+    if (vkCmdEndDebugUtilsLabelEXT) vkCmdEndDebugUtilsLabelEXT(cmd);
 }
 
-bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd,
-                                        const RenderGraphPass& pass)
+bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd, const RenderGraphPass& pass)
 {
-    if (pass.colorFormats.empty() && pass.depthFormat == VK_FORMAT_UNDEFINED)
-    {
-        return false;
-    }
+    if (pass.colorFormats.empty() && pass.depthFormat == VK_FORMAT_UNDEFINED) return false;
 
-    // Find current pass index in the stack
     uint32_t passIdx = 0xFFFFFFFF;
     for (uint32_t i = 0; i < (uint32_t)m_PassStack.size(); ++i)
     {
-        if (&m_PassStack[i] == &pass)
-        {
-            passIdx = i;
-            break;
-        }
+        if (&m_PassStack[i] == &pass) { passIdx = i; break; }
     }
 
     std::vector<VkRenderingAttachmentInfo> colorAtts;
@@ -822,44 +804,25 @@ bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd,
         if (req.usage == ResourceUsage::ColorAttachment)
         {
             PhysicalResource& res = m_Resources[req.handle];
+            bool hasClear = (req.clearValue.color.float32[0] != 0.0f || req.clearValue.color.float32[1] != 0.0f ||
+                             req.clearValue.color.float32[2] != 0.0f || req.clearValue.color.float32[3] != 0.0f ||
+                             res.name == RS::Motion || res.name == RS::FinalColor || res.name == RS::Albedo);
 
-            // [FIX] More robust loadOp determination:
-            // If the pass specifically requested a clear, and it's the first
-            // WRITER, use CLEAR.
-            bool hasClear = false;
-            if (req.clearValue.color.float32[0] != 0.0f ||
-                req.clearValue.color.float32[1] != 0.0f ||
-                req.clearValue.color.float32[2] != 0.0f ||
-                req.clearValue.color.float32[3] != 0.0f)
-                hasClear = true;
-
-            // For Motion specifically, we almost always want to clear if it's
-            // the first time we write to it this frame.
-            if (res.name == RS::Motion || res.name == RS::FinalColor ||
-                res.name == RS::Albedo)
-                hasClear = true;
-
-            VkAttachmentLoadOp loadOp = (res.firstPass == passIdx || hasClear)
-                                            ? VK_ATTACHMENT_LOAD_OP_CLEAR
-                                            : VK_ATTACHMENT_LOAD_OP_LOAD;
+            VkAttachmentLoadOp loadOp = (res.firstPass == passIdx || hasClear) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 
             VkRenderingAttachmentInfo a{
-                VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                nullptr,
-                res.image.view,
-                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                VK_RESOLVE_MODE_NONE,
-                VK_NULL_HANDLE,
-                VK_IMAGE_LAYOUT_UNDEFINED,
-                loadOp,
-                VK_ATTACHMENT_STORE_OP_STORE,
-                req.clearValue};
+                .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                .imageView = res.image.view,
+                .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .loadOp = loadOp,
+                .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                .clearValue = req.clearValue
+            };
             colorAtts.push_back(a);
         }
     }
 
-    VkRenderingAttachmentInfo depthAtt{
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    VkRenderingAttachmentInfo depthAtt{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     bool hasDepth = false;
     if (pass.depthFormat != VK_FORMAT_UNDEFINED)
     {
@@ -868,249 +831,135 @@ bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd,
             if (req.usage == ResourceUsage::DepthStencilWrite)
             {
                 PhysicalResource& res = m_Resources[req.handle];
-                VkAttachmentLoadOp loadOp = (res.firstPass == passIdx)
-                                                ? VK_ATTACHMENT_LOAD_OP_CLEAR
-                                                : VK_ATTACHMENT_LOAD_OP_LOAD;
-
-                depthAtt = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                            nullptr,
-                            res.image.view,
-                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                            VK_RESOLVE_MODE_NONE,
-                            VK_NULL_HANDLE,
-                            VK_IMAGE_LAYOUT_UNDEFINED,
-                            loadOp,
-                            VK_ATTACHMENT_STORE_OP_STORE,
-                            req.clearValue};
+                VkAttachmentLoadOp loadOp = (res.firstPass == passIdx) ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+                depthAtt = {
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                    .imageView = res.image.view,
+                    .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    .loadOp = loadOp,
+                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                    .clearValue = req.clearValue
+                };
                 hasDepth = true;
                 break;
             }
         }
     }
-    VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO,
-                         nullptr,
-                         0,
-                         {{0, 0}, {pass.width, pass.height}},
-                         1,
-                         0,
-                         (uint32_t)colorAtts.size(),
-                         colorAtts.data(),
-                         hasDepth ? &depthAtt : nullptr,
-                         nullptr};
+    VkRenderingInfo info{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea = {{0, 0}, {pass.width, pass.height}},
+        .layerCount = 1,
+        .colorAttachmentCount = (uint32_t)colorAtts.size(),
+        .pColorAttachments = colorAtts.data(),
+        .pDepthAttachment = hasDepth ? &depthAtt : nullptr
+    };
     vkCmdBeginRendering(cmd, &info);
     return true;
 }
 
 void RenderGraph::UpdatePersistentResources(VkCommandBuffer cmd)
 {
-    auto FreeGraphImageLocal = [&](GraphImage& img)
-    {
-        if (img.handle != VK_NULL_HANDLE && !img.is_external)
-        {
-            ResourceManager::Get().DestroyGraphImage(img);
-        }
-        img.handle = VK_NULL_HANDLE;
-        img.view = VK_NULL_HANDLE;
-        img.debug_view = VK_NULL_HANDLE;
-        img.allocation = VK_NULL_HANDLE;
-    };
-
     std::vector<VkImageMemoryBarrier2> finalBarriers;
-
     for (auto& res : m_Resources)
     {
-        if (res.image.handle == VK_NULL_HANDLE)
-        {
-            continue;
-        }
-
+        if (res.image.handle == VK_NULL_HANDLE) continue;
         bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
-        VkImageAspectFlags aspectMask =
-            isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+        VkImageAspectFlags aspectMask = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 
-        // [FIX] Update History via Physical Copy (True Ping-Pong)
         if (!res.historyName.empty())
         {
-            // 1. Allocate history image if it doesn't exist
-            if (m_HistoryResources.find(res.historyName) ==
-                m_HistoryResources.end())
+            if (m_HistoryResources.find(res.historyName) == m_HistoryResources.end())
             {
-                VkImageUsageFlags histUsage = res.desc.usage |
-                                              VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                              VK_IMAGE_USAGE_SAMPLED_BIT;
-                if (!isDepth)
-                {
-                    histUsage |= VK_IMAGE_USAGE_STORAGE_BIT;
-                }
-                else
-                {
-                    histUsage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-                    histUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-                }
+                VkImageUsageFlags histUsage = res.desc.usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+                if (!isDepth) histUsage |= VK_IMAGE_USAGE_STORAGE_BIT;
+                else { histUsage &= ~VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; histUsage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT; }
 
-                GraphImage historyImg = ResourceManager::Get().CreateGraphImage(
-                    res.desc.width, res.desc.height, res.desc.format, histUsage,
-                    VK_IMAGE_LAYOUT_UNDEFINED, res.desc.samples,
-                    "History_" + res.historyName);
-
-                ResourceState histState{};
-                histState.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-                histState.access = VK_ACCESS_2_NONE;
-                histState.stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-
-                m_HistoryResources[res.historyName] = {historyImg, histState};
+                GraphImage historyImg = ResourceManager::Get().CreateGraphImage(res.desc.width, res.desc.height, res.desc.format, histUsage, VK_IMAGE_LAYOUT_UNDEFINED, res.desc.samples, "History_" + res.historyName);
+                m_HistoryResources[res.historyName] = {historyImg, {VK_IMAGE_LAYOUT_UNDEFINED, VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT}};
             }
 
             auto& histRecord = m_HistoryResources[res.historyName];
-            GraphImage& dstImg = histRecord.image;
-
-            // [FIX] Skip physical copy if source and destination are the same
-            // image (History Proxy case)
-            if (res.image.handle == dstImg.handle)
+            if (res.image.handle == histRecord.image.handle)
             {
-                // Still need to ensure the layout is updated for the next frame
-                res.currentState.layout =
-                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                res.currentState.access = VK_ACCESS_2_SHADER_READ_BIT;
-                res.currentState.stage =
-                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-
+                res.currentState = {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT};
                 histRecord.state = res.currentState;
                 continue;
             }
 
-            // 2. Transition Source to TRANSFER_SRC
-            VkImageMemoryBarrier2 srcBarrier{
-                VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            srcBarrier.srcStageMask = res.currentState.stage;
-            srcBarrier.srcAccessMask = res.currentState.access;
-            srcBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            srcBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-            srcBarrier.oldLayout = res.currentState.layout;
-            srcBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            srcBarrier.image = res.image.handle;
-            srcBarrier.subresourceRange = {aspectMask, 0, 1, 0, 1};
-
-            // 3. Transition Destination to TRANSFER_DST
-            VkImageMemoryBarrier2 dstBarrier{
-                VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            dstBarrier.srcStageMask = histRecord.state.stage;
-            dstBarrier.srcAccessMask = histRecord.state.access;
-            dstBarrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            dstBarrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            dstBarrier.oldLayout = histRecord.state.layout;
-            dstBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            dstBarrier.image = dstImg.handle;
-            dstBarrier.subresourceRange = {aspectMask, 0, 1, 0, 1};
-
-            VkImageMemoryBarrier2 copyBarriers[] = {srcBarrier, dstBarrier};
-            VkDependencyInfo copyDep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                     nullptr,
-                                     0,
-                                     0,
-                                     nullptr,
-                                     0,
-                                     nullptr,
-                                     2,
-                                     copyBarriers};
+            VkImageMemoryBarrier2 srcB{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .srcStageMask = res.currentState.stage,
+                .srcAccessMask = res.currentState.access,
+                .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+                .oldLayout = res.currentState.layout,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = res.image.handle,
+                .subresourceRange = {aspectMask, 0, 1, 0, 1}
+            };
+            VkImageMemoryBarrier2 dstB{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .srcStageMask = histRecord.state.stage,
+                .srcAccessMask = histRecord.state.access,
+                .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                .oldLayout = histRecord.state.layout,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = histRecord.image.handle,
+                .subresourceRange = {aspectMask, 0, 1, 0, 1}
+            };
+            
+            VkImageMemoryBarrier2 copyBs[] = {srcB, dstB};
+            VkDependencyInfo copyDep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 2, .pImageMemoryBarriers = copyBs};
             vkCmdPipelineBarrier2(cmd, &copyDep);
 
-            // 4. Physical GPU Copy
-            VkImageCopy copyRegion{};
-            copyRegion.srcSubresource = {aspectMask, 0, 0, 1};
-            copyRegion.dstSubresource = {aspectMask, 0, 0, 1};
-            copyRegion.extent = {res.desc.width, res.desc.height, 1};
-            vkCmdCopyImage(cmd, res.image.handle,
-                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImg.handle,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                           &copyRegion);
+            VkImageCopy region{ {aspectMask, 0, 0, 1}, {0, 0, 0}, {aspectMask, 0, 0, 1}, {0, 0, 0}, {res.desc.width, res.desc.height, 1} };
+            vkCmdCopyImage(cmd, res.image.handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, histRecord.image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-            // 5. Restore layouts with Depth-specific intelligence
-            VkImageMemoryBarrier2 postSrcBarrier = srcBarrier;
-            postSrcBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            postSrcBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-            postSrcBarrier.dstStageMask =
-                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            postSrcBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            postSrcBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            // Source depth returns to READ_ONLY_OPTIMAL for next frame setup
-            postSrcBarrier.newLayout =
-                isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            VkImageMemoryBarrier2 postSrcB = srcB;
+            postSrcB.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; postSrcB.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+            postSrcB.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; postSrcB.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            postSrcB.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL; postSrcB.newLayout = isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            VkImageMemoryBarrier2 postDstBarrier = dstBarrier;
-            postDstBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            postDstBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            postDstBarrier.dstStageMask =
-                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-            postDstBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            postDstBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            // [FIX] All history resources are read via samplers in next frame,
-            // so must be SHADER_READ_ONLY_OPTIMAL
-            postDstBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            VkImageMemoryBarrier2 postDstB = dstB;
+            postDstB.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT; postDstB.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            postDstB.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR; postDstB.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+            postDstB.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; postDstB.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            VkImageMemoryBarrier2 postBarriers[] = {postSrcBarrier,
-                                                    postDstBarrier};
-            VkDependencyInfo postDep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                     nullptr,
-                                     0,
-                                     0,
-                                     nullptr,
-                                     0,
-                                     nullptr,
-                                     2,
-                                     postBarriers};
+            VkImageMemoryBarrier2 postBs[] = {postSrcB, postDstB};
+            VkDependencyInfo postDep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 2, .pImageMemoryBarriers = postBs};
             vkCmdPipelineBarrier2(cmd, &postDep);
 
-            res.currentState.layout = postSrcBarrier.newLayout;
-            res.currentState.access = VK_ACCESS_2_SHADER_READ_BIT;
-            res.currentState.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-
-            histRecord.state.layout = postDstBarrier.newLayout;
-            histRecord.state.access = VK_ACCESS_2_SHADER_READ_BIT;
-            histRecord.state.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            res.currentState = {postSrcB.newLayout, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT};
+            histRecord.state = {postDstB.newLayout, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT};
         }
-        else if (!res.image.is_external && !isDepth &&
-                 res.currentState.layout !=
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        else if (!res.image.is_external && !isDepth && res.currentState.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
         {
-            // Normal transition for non-history, non-external resources
-            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            b.srcStageMask = res.currentState.stage;
-            b.srcAccessMask = res.currentState.access;
-            b.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            b.oldLayout = res.currentState.layout;
-            b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            b.image = res.image.handle;
-            b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
+            VkImageMemoryBarrier2 b{
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .srcStageMask = res.currentState.stage,
+                .srcAccessMask = res.currentState.access,
+                .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+                .oldLayout = res.currentState.layout,
+                .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = res.image.handle,
+                .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}
+            };
             finalBarriers.push_back(b);
-
-            res.currentState.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            res.currentState.access = VK_ACCESS_2_SHADER_READ_BIT;
-            res.currentState.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+            res.currentState = {VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_2_SHADER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT};
         }
     }
 
     if (!finalBarriers.empty())
     {
-        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                             nullptr,
-                             0,
-                             0,
-                             nullptr,
-                             0,
-                             nullptr,
-                             (uint32_t)finalBarriers.size(),
-                             finalBarriers.data()};
+        VkDependencyInfo dep{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = (uint32_t)finalBarriers.size(), .pImageMemoryBarriers = finalBarriers.data()};
         vkCmdPipelineBarrier2(cmd, &dep);
     }
 }

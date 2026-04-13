@@ -258,6 +258,9 @@ public:
     }
 
 private:
+    void InitQueryPool();
+    void FetchQueryResults();
+
     // Parallel execution layers: each inner vector contains indices of passes
     // that can run concurrently
     std::vector<std::vector<uint32_t>> m_ParallelLayers;
@@ -341,6 +344,7 @@ private:
     std::vector<PassTiming> m_LatestTimings;
     std::vector<std::string> m_LastPassNames;
     uint32_t m_PreviousPassCount = 0;
+    bool m_StatsReady = false;
 
     std::vector<PooledImage> m_ImagePool;
 

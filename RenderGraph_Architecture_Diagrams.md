@@ -1,6 +1,6 @@
-# Chimera 渲染引擎设计图体系 (PlantUML)
+# 本渲染引擎设计图体系 (PlantUML)
 
-本文件存储了 Chimera 渲染引擎在需求分析与概要设计阶段对应的所有用例图、类图及架构图代码。
+本文件存储了本渲染引擎在需求分析与概要设计阶段对应的所有用例图、类图及架构图代码。
 
 ---
 # 第一部分：用例图 (需求分析)
@@ -13,28 +13,25 @@
 left to right direction
 skinparam packageStyle rectangle
 
-actor "图形开发者 / 艺术家" as User
+actor "用户" as User
 
-rectangle "Chimera 渲染引擎 - 场景与资产管理" {
-    usecase "导入 GLTF 模型资产" as UC1
-    usecase "浏览场景层级 (Hierarchy)" as UC2
-    usecase "选中特定场景实体" as UC3
+rectangle "场景与资产管理" {
+    usecase "资源浏览与加载 (模型/HDR)" as UC1
+    usecase "场景层级管理 (Hierarchy)" as UC2
     usecase "编辑实体变换 (TRS)" as UC4
-    usecase "实时调优 PBR 材质参数" as UC5
-    usecase "移除选中的场景实体" as UC6
+    usecase "移除场景实体" as UC5
 }
 
 User --> UC1
 User --> UC2
-User --> UC3
-UC3 ..> UC4 : <<include>>
-UC3 ..> UC5 : <<include>>
-UC3 ..> UC6 : <<include>>
 
+UC2 ..> UC4 : <<include>>
+UC2 ..> UC5 : <<include>>
 @enduml
+
 ```
 
-## 2. 渲染控制与参数配置用例图
+## 2. Debug UI 交互用例图
 **建议导出文件名：** `rendering_control_usecase.png` (对应 LaTeX Label: `fig:pipeline_usecase`)
 
 ```plantuml
@@ -42,30 +39,24 @@ UC3 ..> UC6 : <<include>>
 left to right direction
 skinparam packageStyle rectangle
 
-actor "图形开发者 / 艺术家" as User
+actor "用户" as User
 
-rectangle "Chimera 渲染引擎 - 渲染控制与参数配置" {
-    usecase "切换全局渲染路径 (Forward/Hybrid/RT)" as UC7
-    usecase "开启/关闭光线追踪增强特性" as UC8
-    usecase "配置 SVGF 降噪策略" as UC9
-    usecase "调节后期显示参数 (ACES/TAA)" as UC10
-    
-    usecase "控制 RT 阴影/AO" as UC8_1
-    usecase "控制 RT 反射/GI" as UC8_2
+rectangle "Debug UI 交互" {
+    usecase "渲染路径与视图切换" as UC6
+    usecase "渲染调试控制 (光追/降噪/TAA)" as UC7
+    usecase "光源控制 (方向/颜色/环境光)" as UC8
+    usecase "渲染管线拓扑图导出 (Mermaid)" as UC9
 }
 
+User --> UC6
 User --> UC7
-User --> UC8
-User --> UC9
 User --> UC10
-
-UC8 <|-- UC8_1
-UC8 <|-- UC8_2
+User --> UC11
 
 @enduml
 ```
 
-## 3. 调试与可视化监控用例图
+## 3. 场景交互与观察用例图
 **建议导出文件名：** `visualization_debug_usecase.png` (对应 LaTeX Label: `fig:debug_usecase`)
 
 ```plantuml
@@ -73,15 +64,17 @@ UC8 <|-- UC8_2
 left to right direction
 skinparam packageStyle rectangle
 
-actor "图形开发者 / 艺术家" as User
+actor "用户" as User
 
-rectangle "Chimera 渲染引擎 - 调试与可视化监控" {
-    usecase "切换 G-Buffer 分量预览 (Display Mode)" as UC11
-    usecase "预览 RT 原始信号与降噪方差图" as UC12
-    usecase "实时监控性能曲线 (FPS/FrameTime)" as UC13
-    usecase "分析 GPU 各 Pass 耗时明细" as UC14
+rectangle "场景交互与观察" {
+    usecase "视角环绕旋转 (Alt + LMB)" as UC10
+    usecase "焦点平移控制 (Alt + MMB)" as UC11
+    usecase "焦距实时缩放 (Alt + RMB/Scroll)" as UC12
+    usecase "相机物理参数反馈 (Pos/FOV)" as UC13
+    usecase "GPU Pass 耗时监测与占比分析" as UC14
 }
 
+User --> UC10
 User --> UC11
 User --> UC12
 User --> UC13
@@ -102,25 +95,18 @@ skinparam classAttributeIconSize 0
 skinparam linetype ortho
 
 class Application {
-    - m_LayerStack: LayerStack
-    - m_Context: VulkanContext
-    - m_RenderPath: RenderPath
-    - m_RenderState: RenderState
+    - m_LayerStack: std::vector<shared_ptr<Layer>>
+    - m_Context: shared_ptr<VulkanContext>
+    - m_RenderPath: unique_ptr<RenderPath>
+    - m_RenderState: unique_ptr<RenderState>
+    - m_Window: unique_ptr<Window>
     + {static} Get(): Application&
     + Run(): void
     + OnEvent(e: Event&): void
-    + PushLayer(layer: Layer*): void
-    + SwitchRenderPath(path: unique_ptr<RenderPath>): void
-    + GetActiveScene(): Scene*
-    + GetFrameContext(): AppFrameContext&
-}
-
-class LayerStack {
-    - m_Layers: std::vector<Layer*>
-    + PushLayer(layer: Layer*): void
-    + PopLayer(layer: Layer*): void
-    + begin(): iterator
-    + end(): iterator
+    + PushLayer(layer: shared_ptr<Layer>): void
+    + SwitchRenderPath(type: RenderPathType): void
+    + GetActiveSceneRaw(): Scene*
+    + GetFrameContext(): const AppFrameContext&
 }
 
 abstract class Layer {
@@ -134,26 +120,27 @@ abstract class Layer {
 
 class EditorLayer {
     - m_EditorCamera: EditorCamera
-    - m_SelectedInstance: int
+    - m_SelectedInstanceIndex: int
+    - m_ViewportSize: vec2
     + OnUpdate(ts: Timestep): void
     + OnImGuiRender(): void
 }
 
 class VulkanContext {
-    - m_Instance: VkInstance
-    - m_Device: VkDevice
-    - m_PhysicalDevice: VkPhysicalDevice
-    + Init(): void
+    - m_Instance: unique_ptr<VulkanInstance>
+    - m_Device: unique_ptr<VulkanDevice>
+    - m_Swapchain: shared_ptr<Swapchain>
+    + {static} Get(): VulkanContext&
     + GetDevice(): VkDevice
+    + GetDeviceProperties(): const VkPhysicalDeviceProperties&
     + IsRayTracingSupported(): bool
 }
 
 ' Relationships
-Application *-- LayerStack
+Application o-- Layer
 Application *-- VulkanContext
 Application *-- RenderState
 Application o-- RenderPath
-LayerStack o-- Layer
 Layer <|-- EditorLayer
 @enduml
 ```
@@ -172,51 +159,61 @@ class ResourceManager {
     - m_Materials: vector<unique_ptr<Material>>
     - m_ResourceFreeQueue: vector<vector<function>>
     + {static} Get(): ResourceManager&
-    + LoadModelAsync(path: string): void
-    + SubmitResourceFree(func: function): void
+    + LoadModelAsync(path: string): shared_ptr<Model>
+    + CreateGraphImage(desc...): GraphImage
     + SyncMaterialsToGPU(): void
 }
 
 class Buffer {
     - m_Buffer: VkBuffer
     - m_Allocation: VmaAllocation
-    + UploadData(data: void*, size: size_t): void
+    - m_DeviceAddress: uint64_t
+    + Update(data: void*, size: size_t): void
+    + GetDeviceAddress(): uint64_t
 }
 
 class Image {
     - m_Image: VkImage
     - m_View: VkImageView
-    + TransitionLayout(): void
+    - m_Format: VkFormat
+    + GetImageView(): VkImageView
 }
 
 ' --- 场景层 ---
 class Scene {
     - m_Entities: vector<Entity>
     - m_TopLevelAS: VkAccelerationStructureKHR
-    + AddEntity(e: Entity): void
+    - m_TLASBuffer: unique_ptr<Buffer>
+    + UpdateEntityTRS(index: uint32, TRS...): void
     + RemoveEntity(index: uint32): void
     + UpdateTLAS(): void
 }
 
 struct Entity {
     + name: string
-    + transform: Transform
-    + model: shared_ptr<Model>
+    + transform: TransformComponent
+    + mesh: MeshComponent
     + primitiveOffset: uint32
+}
+
+struct MeshComponent {
+    + model: shared_ptr<Model>
+    + material: MaterialRef
 }
 
 class Model {
     - m_Meshes: vector<Mesh>
     - m_VertexBuffer: unique_ptr<Buffer>
     - m_IndexBuffer: unique_ptr<Buffer>
-    - m_BLAS: vector<VkAccelerationStructureKHR>
-    + GetMeshes(): vector<Mesh>&
+    - m_BLASHandles: vector<VkAccelerationStructureKHR>
+    + GetMeshes(): const vector<Mesh>&
+    + UploadToGPU(data: ImportedScene): void
 }
 
 struct Mesh {
     + indexCount: uint32
-    + materialIndex: uint32
-    + localBounds: AABB
+    + materialIndex: int
+    + localBounds: ChimeraAABB
 }
 
 ' --- 关系 ---
@@ -224,7 +221,8 @@ ResourceManager ..> Buffer : "creates"
 ResourceManager ..> Image : "manages"
 
 Scene *-- Entity : "contains"
-Entity o-- Model : "references (shared_ptr)"
+Entity *-- MeshComponent : "contains"
+MeshComponent o-- Model : "references"
 Model *-- Mesh : "contains"
 Model *-- Buffer : "owns geometry data"
 
@@ -241,96 +239,60 @@ skinparam linetype ortho
 
 ' --- 1. Orchestration ---
 abstract class RenderPath {
-    # m_Graph: RenderGraph
+    # m_Graph: unique_ptr<RenderGraph>
     + {abstract} BuildGraph(graph: RenderGraph&, scene: shared_ptr<Scene>): void
-    + Render(frameInfo: RenderFrameInfo): void
+    + Render(frameInfo: RenderFrameInfo): VkSemaphore
 }
 
 class HybridRenderPath {
-    + BuildGraph(): void
+    + GetType(): RenderPathType
 }
 
 class RenderGraph {
-    - m_Nodes: vector<PassNode>
-    - m_Registry: RenderGraphRegistry
-    + AddPass<T>(args...): void
-    + Compile(): void
-    + Execute(cmd: VkCommandBuffer): void
+    - m_PassStack: vector<RenderGraphPass>
+    - m_Resources: vector<PhysicalResource>
+    + AddGraphicsPass<T>(setup, execute): PassBuilder
+    + AddComputePass<T>(setup, execute): PassBuilder
+    + AddRaytracingPass<T>(setup, execute): PassBuilder
+    + Execute(cmd: VkCommandBuffer): VkSemaphore
 }
 
-' --- 2. Pass Hierarchy ---
-interface IRenderGraphPass {
-    + {abstract} Setup(builder: PassBuilder&): void
-    + {abstract} Execute(reg: Registry&, cmd: VkCommandBuffer): void
-}
-
-abstract class "RenderPass<T>" as RenderPass_T {
-    # m_Data: T
-}
-
-abstract class GraphicsPass {
-    + Execute(reg: Registry&, ctx: GraphicsExecutionContext&): void
-}
-
-abstract class ComputePass {
-    + Execute(reg: Registry&, ctx: ComputeExecutionContext&): void
-}
-
-abstract class RaytracingPass {
-    + Execute(reg: Registry&, ctx: RaytracingExecutionContext&): void
-}
-
-' --- 3. Concrete Implementations ---
-class GBufferPass {
-    + Setup(): void
-    + Execute(): void
-}
-
-class RTShadowPass {
-    + Setup(): void
-    + Execute(): void
-}
-
-class SVGFPass {
-    + Setup(): void
-    + Execute(): void
-}
-
-' --- 4. Contexts & Builder ---
+' --- 2. Pass Builder & Hierarchy ---
 class PassBuilder {
-    + Read(resource): RGResourceHandle
-    + Write(resource): RGResourceHandle
-    + WriteStorage(resource): RGResourceHandle
+    + Read(name): RGResourceHandle
+    + ReadCompute(name): RGResourceHandle
+    + Write(name, format): ResourceHandleProxy
+    + WriteStorage(name, format): ResourceHandleProxy
+}
+
+abstract class ExecutionContext {
+    # m_Cmd: VkCommandBuffer
+    + BindPipeline(desc...): void
 }
 
 class GraphicsExecutionContext {
-    - m_Cmd: VkCommandBuffer
-    + BindPipeline(): void
-    + DrawMeshes(): void
+    + DrawIndexed(count...): void
+    + DrawMeshes(desc, scene): void
+}
+
+class ComputeExecutionContext {
+    + Dispatch(shader, gx, gy, gz): void
 }
 
 class RaytracingExecutionContext {
-    + BindPipeline(): void
-    + TraceRays(): void
+    + TraceRays(w, h, d): void
 }
 
 ' --- Relationships ---
 RenderPath <|-- HybridRenderPath
 RenderPath *-- RenderGraph
 
-IRenderGraphPass <|.. RenderPass_T
-RenderPass_T <|-- GraphicsPass
-RenderPass_T <|-- ComputePass
-RenderPass_T <|-- RaytracingPass
+RenderGraph o-- PassBuilder : "creates during setup"
+RenderGraph ..> ExecutionContext : "provides to executeFunc"
 
-GraphicsPass <|-- GBufferPass
-RaytracingPass <|-- RTShadowPass
-ComputePass <|-- SVGFPass
-
-RenderGraph *-- IRenderGraphPass
-IRenderGraphPass ..> PassBuilder : "Setup"
-GraphicsPass ..> GraphicsExecutionContext : "Execute"
-RaytracingPass ..> RaytracingExecutionContext : "Execute"
+ExecutionContext <|-- GraphicsExecutionContext
+ExecutionContext <|-- ComputeExecutionContext
+ExecutionContext <|-- RaytracingExecutionContext
 
 @enduml
 ```
@@ -338,7 +300,7 @@ RaytracingPass ..> RaytracingExecutionContext : "Execute"
 ---
 # 第三部分：系统架构图
 
-## 7. Chimera 引擎五层分层拓扑架构图
+## 7. 五层分层拓扑架构图
 **建议导出文件名：** `renderer_architecture.png` (对应 LaTeX Label: `fig:renderer_architecture`)
 
 ```plantuml
@@ -346,45 +308,14 @@ RaytracingPass ..> RaytracingExecutionContext : "Execute"
 skinparam packageStyle rectangle
 skinparam linetype ortho
 skinparam nodesep 10
-skinparam ranksep 20
+skinparam ranksep 30
 
-package "应用层 (Sandbox Layer)" #E3F2FD {
-    [SandboxApp]
-    [EditorLayer]
-}
-
-package "核心框架层 (Core Layer)" #FFF3E0 {
-    [Application]
-    [LayerStack]
-    [TaskSystem (Worker Threads)]
-}
-
-package "场景与资源层 (Scene & Assets Layer)" #E8F5E9 {
-    [Scene Graph]
-    [ResourceManager (VMA)]
-    [Acceleration Structures (AS)]
-}
-
-package "渲染调度层 (Renderer Layer)" #F3E5F5 {
-    [RenderPath (Hybrid/RT/Forward)]
-    [RenderGraph (DAG / Aliasing)]
-    [Pass Execution Contexts]
-}
-
-package "平台硬件层 (Platform Layer)" #FAFAFA {
-    [Vulkan Context / Device]
-    [Window (GLFW)]
-    [volk (API Loader)]
-}
-
-' Control & Data Flow
-[SandboxApp] --> [Application] : "Constructs"
-[Application] --> [LayerStack] : "Ticks / Events"
-[EditorLayer] --> [Scene Graph] : "Edits / Updates"
-[EditorLayer] --> [RenderPath (Hybrid/RT/Forward)] : "Configures"
-[RenderPath (Hybrid/RT/Forward)] --> [RenderGraph (DAG / Aliasing)] : "Builds"
-[RenderGraph (DAG / Aliasing)] --> [ResourceManager (VMA)] : "Resource Lifetimes"
-[ResourceManager (VMA)] --> [Vulkan Context / Device] : "VMA Allocations"
+' 严格的上下层依赖关系
+[工具层 (Tool Layer)] --> [功能层 (Function Layer)] : "Command"
+[功能层 (Function Layer)] --> [资源层 (Resource Layer)] : "Query Data"
+[功能层 (Function Layer)] --> [核心层 (Core Layer)] : "Schedule Tasks"
+[资源层 (Resource Layer)] --> [平台层 (Platform Layer)] : "Alloc VRAM"
+[核心层 (Core Layer)] --> [平台层 (Platform Layer)] : "API Call"
 
 @enduml
 ```
@@ -400,39 +331,39 @@ skinparam shadowing false
 
 start
 
-partition "资产预处理阶段 (CPU)" {
-    :GLTF 模型与纹理资产;
-    :TaskSystem 异步解析;
-    :构建 BLAS 与 GPU 缓冲区上传;
+partition "资产处理 (CPU)" {
+    :解析模型与纹理;
+    :TaskSystem 异步处理;
+    :构建 GPU 缓冲区与 AS;
 }
 
-partition "逻辑调度阶段 (Renderer)" {
+partition "渲染调度 (Renderer)" {
     :RenderGraph 节点注册;
-    :DAG 拓扑依赖分析;
-    :显存别名 (Aliasing) 分配;
-    :自动插入同步屏障 (Barriers);
+    :DAG 依赖分析;
+    :显存别名分配;
+    :自动插入同步屏障;
 }
 
-partition "混合计算阶段 (GPU)" {
-    :G-Buffer 几何采集 (Rasterization);
-    :Ray Query 硬件光追探测;
-    :PBR 物理光影合成;
+partition "混合计算 (GPU)" {
+    :G-Buffer 采集;
+    :硬件光追射线查询;
+    :PBR 物理着色计算;
 }
 
-partition "画质重建阶段 (GPU Post-process)" {
-    :SVGF 时空方差导向滤波;
-    :TAA 时域抗锯齿;
-    :ACES 色调映射与 Gamma 校正;
+partition "信号重构 (Post-process)" {
+    :SVGF 时空滤波;
+    :TAA 抗锯齿处理;
+    :色调映射与校正;
 }
 
-:交换链呈现 (Swapchain);
+:交换链呈现 (Present);
 
 stop
 @enduml
 ```
 
 ---
-## 11. SVGF 降噪管线数据流转与逻辑拓扑图
+## 11. SVGF 降噪管线流程图
 **建议导出文件名：** `svgf_pipeline_data_flow.png` (对应 LaTeX Label: `fig:svgf_pipeline`)
 
 ```plantuml
@@ -442,42 +373,37 @@ skinparam shadowing false
 
 start
 
-partition "输入阶段 (G-Buffer & RT)" {
+partition "输入阶段" {
     fork
-        :读取当前帧光追信号 (1 SPP);
-        :反照率解耦 (Albedo Demodulation);
+        :读取 1 SPP 原始信号;
+        :反照率解耦;
     fork again
-        :获取几何辅助数据 (Normal, Depth, Motion);
+        :获取几何辅助数据;
     end fork
 }
 
-partition "阶段一：时域重投影与累积" {
-    :利用 Motion Vector 回溯历史坐标;
-    :进行双线性插值采样历史缓冲区;
-    :执行指数移动平均 (EMA) 累积亮度与矩;
-    :更新有效样本计数 (Sample Depth);
+partition "时域累积" {
+    :运动矢量回溯采样;
+    :EMA 亮度与矩累积;
+    :更新样本有效计数;
 }
 
-partition "阶段二：方差估算" {
-    :基于累积的一阶矩与二阶矩计算亮度方差;
-    :进行初步空间域 3x3 滤波平滑方差图;
+partition "方差估算" {
+    :计算亮度方差信号;
+    :空间域 3x3 预平滑;
 }
 
-partition "阶段三：À-Trous 分级空间滤波" {
-    while (执行 5 轮迭代 (Filter Level 1 to 5)?) is (下一级)
-        :计算联合双边权重 (Edge-Stopping Weights);
-        note right
-            权重由位置、法线、深度
-            及亮度方差共同决定
-        end note
-        :执行 5x5 跨步卷积内核采样;
-        :输出至 Ping-Pong 临时缓冲区;
+partition "分级空间滤波" {
+    while (执行 5 轮 À-Trous 迭代?) is (下一级)
+        :计算联合双边权重;
+        :执行跨步卷积内核采样;
+        :Ping-Pong 缓冲区交换;
     endwhile (结束)
 }
 
-partition "输出阶段" {
-    :反照率重耦合 (Albedo Modulation);
-    :写入最终降噪信号 (Filtered_Final);
+partition "最终输出" {
+    :反照率重耦合;
+    :写入降噪结果;
 }
 
 stop
@@ -486,7 +412,7 @@ stop
 
 
 ---
-## 10. 信号重建时域历史持久化机制图
+## 10. 时域历史持久化机制图
 **建议导出文件名：** `history_persistent_mechanism.png` (对应 LaTeX Label: `fig:history_mechanism`)
 
 ```plantuml
@@ -495,44 +421,44 @@ skinparam backgroundColor white
 skinparam shadowing false
 skinparam linetype polyline
 
-package "第 N 帧执行环境" {
+package "第 N 帧环境" {
     node "当前帧输入" as CurrentFrame {
-        [Raw RT Signal (1 SPP)]
+        [RT Signal]
         [Motion Vector]
-        [Depth / Normal]
+        [Geometry Data]
     }
 
-    node "重建算法节点 (SVGF / TAA)" as Pass {
-        component "时域重投影逻辑" as Reprojection
-        component "指数移动平均 (EMA)" as Accumulation
+    node "重建算法节点" as Pass {
+        component "重投影逻辑" as Reprojection
+        component "EMA 累积" as Accumulation
     }
 
-    database "历史缓冲区 (History Pool)" {
-        [上一帧持久化数据] as History_Read #E1F5FE
+    database "历史池 (History Pool)" {
+        [上一帧数据] as History_Read #E1F5FE
         [新生成的累积数据] as History_Write #FFF9C4
     }
 }
 
-package "帧间状态转移 (RenderGraph Persistent Logic)" {
-    [句柄交换 / 指针重定向] as Swap #FFCCBC
+package "帧间转移逻辑" {
+    [句柄交换 / 资源重定向] as Swap #FFCCBC
 }
 
 ' Data Flow
-CurrentFrame --> Reprojection : "提供采样输入"
-History_Read --> Reprojection : "提供历史颜色/矩"
-Reprojection --> Accumulation : "计算时域权重"
-Accumulation --> History_Write : "存储更新状态"
+CurrentFrame --> Reprojection
+History_Read --> Reprojection
+Reprojection --> Accumulation
+Accumulation --> History_Write
 
 ' Lifecycle
-History_Write ..> Swap : "帧执行结束"
-Swap ..> History_Read : "下一帧重用"
+History_Write ..> Swap
+Swap ..> History_Read
 
 @enduml
 ```
 
 
 ---
-## 9. RenderGraph 运行生命周期流程图
+## 9. RenderGraph 生命周期流程图
 **建议导出文件名：** `render_graph_lifecycle_flow.png` (对应 LaTeX Label: `fig:render_graph_lifecycle`)
 
 ```plantuml
@@ -542,37 +468,30 @@ skinparam shadowing false
 
 start
 
-partition "Setup 阶段 (每帧声明)" {
-    :调用 AddPass<T>() / AddPassRaw();
-    :执行具体的 Pass::Setup();
-    :PassBuilder 记录 Read/Write 依赖;
-    :构建虚拟 Pass 栈与 Handle 映射;
+partition "Setup (声明)" {
+    :注册 Pass 节点;
+    :声明资源 Read/Write 依赖;
+    :构建虚拟 Handle 映射;
 }
 
-partition "Compile 阶段 (依赖分析)" {
-    :Reset 物理资源状态追踪器;
-    :BuildDependencyGraph (拓扑排序);
-    :Parallel Leveling (压缩 Pass 为并行层级);
-    :计算资源生存区间 (firstPass, lastPass);
-    :物理资源实例化 (池化创建或复用);
+partition "Compile (分析)" {
+    :构建依赖有向无环图;
+    :拓扑排序与并行分层;
+    :计算资源生存区间;
+    :物理资源实例化与复用;
 }
 
-partition "Execute 阶段 (指令录制)" {
-    while (遍历 Parallel Layers?) is (下一个 Layer)
-        :BuildBarriers (自动推导并插入同步屏障);
+partition "Execute (执行)" {
+    while (遍历执行层级?) is (下一个)
+        :自动推导同步屏障;
         fork
-            :图形任务 (Graphics Pass);
-            :BeginDynamicRendering;
-            :设置 Viewport 与 Scissor;
+            :图形任务指令录制;
         fork again
-            :非图形任务 (Compute / RT Pass);
+            :计算/光追指令录制;
         end fork
-        :回调执行 Pass::Execute();
-        if (是图形任务?) then (yes)
-            :EndDynamicRendering;
-        endif
+        :回调执行具体 Pass 逻辑;
     endwhile (结束)
-    :UpdatePersistentResources (更新历史帧持久化数据);
+    :持久化资源状态更新;
 }
 
 stop
@@ -580,9 +499,9 @@ stop
 ```
 
 ---
-# 第四部分：软工详细设计动态图
+# 第四部分：动态逻辑图
 
-## 12. 应用单帧生命周期活动图
+## 12. 单帧生命周期活动图
 **建议导出文件名：** `app_frame_activity.png` (对应 LaTeX Label: `fig:app_activity`)
 
 ```plantuml
@@ -591,108 +510,195 @@ skinparam backgroundColor white
 skinparam shadowing false
 
 start
-:计算当前帧 Timestep;
-:Input Polling (查询键盘鼠标状态);
-partition "LayerStack 遍历" {
-    :从底向上调用 Layer::OnUpdate();
-    note right: 处理物理逻辑与渲染指令
-    :从底向上调用 Layer::OnImGuiRender();
-    note right: 提交 UI 绘图指令
+:计算 Timestep;
+:轮询输入设备状态;
+partition "LayerStack 调度" {
+    :调用 OnUpdate();
+    :调用 OnImGuiRender();
 }
-:Vulkan 交换链获取可用图像;
-:RenderGraph 执行录制好的指令流;
-:提交 Queue 至 GPU 并呈现 (Present);
+:获取交换链图像;
+:RenderGraph 指令提交;
+:队列提交与呈现;
 stop
 @enduml
 ```
 
-## 13. 异步资源加载处理顺序图
+## 13. 异步加载顺序图
 **建议导出文件名：** `async_loading_sequence.png` (对应 LaTeX Label: `fig:loading_sequence`)
 
 ```plantuml
 @startuml
 skinparam backgroundColor white
-participant "EditorLayer" as UI
-participant "ResourceManager" as RM
+participant "UI" as UI
+participant "Manager" as RM
 participant "TaskSystem" as TS
-participant "VulkanDevice" as GPU
+participant "GPU" as GPU
 
-UI -> RM : LoadModelAsync(path)
+UI -> RM : LoadModelAsync()
 activate RM
-RM -> TS : Submit(IO & Parsing Task)
+RM -> TS : 提交解析任务
 activate TS
-TS -> TS : cgltf 解析模型
-TS --> RM : 解析完成 (Geometry Data)
+TS -> TS : 数据反序列化
+TS --> RM : 解析完成
 deactivate TS
 
-RM -> TS : Submit(Texture Decoding Task)
-activate TS
-TS -> TS : STB 并行解码纹理
-TS --> RM : 解码完成 (Bitmaps)
-deactivate TS
-
-RM -> GPU : 录制 Copy 指令并提交 Transfer 队列
+RM -> GPU : 录制 Copy 指令
 activate GPU
-GPU -> GPU : 物理显存分配与数据上传
-GPU --> RM : 上传完成 (Fence Signal)
+GPU -> GPU : 上传至 VRAM
+GPU --> RM : 同步完成
 deactivate GPU
 
-RM -> UI : 通知加载就绪 (OnSceneUpdated)
-UI -> RM : 获取 Ready 模型句柄
+RM -> UI : 加载就绪通知
 deactivate RM
 @enduml
 ```
 
-## 14. 渲染图自动同步执行顺序图
+## 14. RenderGraph 自动同步顺序图
 **建议导出文件名：** `rg_sync_sequence.png` (对应 LaTeX Label: `fig:sync_sequence`)
 
 ```plantuml
 @startuml
 skinparam backgroundColor white
-participant "RenderGraph" as RG
-participant "ResourceTracker" as TR
-participant "PassNode" as PN
-participant "CommandBuffer" as CMD
+participant "Graph" as RG
+participant "Tracker" as TR
+participant "Pass" as PN
+participant "CMD" as CMD
 
-RG -> RG : 拓扑排序完成
-loop 遍历所有 Pass 节点
-    RG -> TR : 查询资源当前 Layout (e.g. GENERAL)
-    RG -> PN : 获取 Pass 需求 Layout (e.g. SHADER_READ)
+RG -> RG : 拓扑排序
+loop 遍历 Pass
+    RG -> TR : 查询当前 Layout
+    RG -> PN : 获取需求 Layout
     
     alt 状态不匹配?
-        RG -> CMD : 插入 vkCmdPipelineBarrier2
-        note right: 自动转换布局并处理 RAW 冒险
-        TR -> TR : 更新资源全局状态
+        RG -> CMD : 插入同步屏障 (Barrier)
+        TR -> TR : 更新资源状态
     end
     
-    RG -> PN : 调用 Pass::Execute()
-    PN -> CMD : 录制具体的绘制/计算指令
+    RG -> PN : Execute()
+    PN -> CMD : 指令录制
 end
 @enduml
 ```
 
-## 15. 渲染参数动态调节顺序图
+## 15. 参数动态调节顺序图
 **建议导出文件名：** `param_adjustment_sequence.png` (对应 LaTeX Label: `fig:param_sequence`)
 
 ```plantuml
 @startuml
 skinparam backgroundColor white
 actor "用户" as User
-participant "ImGui 控制面板" as UI
-participant "AppFrameContext" as Context
-participant "GPU 常量缓冲区" as UBO
+participant "UI" as UI
+participant "Context" as Context
+participant "UBO" as UBO
 participant "Shader" as Shader
 
-User -> UI : 拖动 SVGF 时间步长滑块
-UI -> Context : 更新 DenoiseParam 字段
-UI -> Context : 设置 RenderDirty = true
+User -> UI : 调节参数滑块
+UI -> Context : 更新字段值
+UI -> Context : 设置 Dirty 标记
 
-loop 每一帧渲染
-    Context -> UBO : 数据映射 (Map/Unmap)
-    UBO -> Shader : 绑定全局 Descriptor Set
-    Shader -> Shader : 执行新的降噪逻辑
+loop 帧循环
+    Context -> UBO : 数据写入 (Mapping)
+    UBO -> Shader : 绑定描述符集
+    Shader -> Shader : 应用新参数计算
 end
 @enduml
 ```
 
+---
+## 16. 系统渲染数据流图 (DFD)
+**建议导出文件名：** `render_dfd_refined.png` (对应 LaTeX Label: `fig:render_dfd`)
 
+```plantuml
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam linetype ortho
+
+skinparam usecase {
+    BackgroundColor White
+    BorderColor Black
+}
+skinparam collections {
+    BackgroundColor White
+    BorderColor Black
+}
+
+node "磁盘资产" as Disk
+node "显示器" as Monitor
+
+usecase "资产解析与转换" as P1
+usecase "RenderGraph 编译" as P2
+usecase "GPU 渲染执行" as P3
+
+collections "元数据存储" as RAM
+collections "显存资源池" as VRAM
+
+Disk --> P1
+P1 --> RAM
+RAM --> P1
+P1 --> VRAM
+
+VRAM --> P2
+P2 --> P3
+
+VRAM <--> P3
+P3 --> Monitor
+@enduml
+```
+
+---
+## 17. 混合管线执行时序图
+**建议导出文件名：** `hybrid_pipeline_sequence.png` (对应 LaTeX Label: `fig:hybrid_sequence`)
+
+```plantuml
+@startuml
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+
+participant "RenderGraph" as RG
+participant "GBuffer" as GB
+participant "RT_Pass" as RT
+participant "SVGF" as SVGF
+participant "PBR_Comp" as Comp
+participant "TAA" as TAA
+participant "Post" as Post
+participant "GPU" as GPU
+
+RG -> GB : 1. 几何采集
+activate GB
+GB -> GPU : 写入 G-Buffer
+GB --> RG 
+deactivate GB
+
+RG -> RT : 2. 射线查询
+activate RT
+RT -> GPU : 硬件光追探测
+RT --> RG 
+deactivate RT
+
+RG -> SVGF : 3. 时空降噪
+activate SVGF
+SVGF -> GPU : 多级 À-Trous 滤波
+SVGF --> RG 
+deactivate SVGF
+
+RG -> Comp : 4. 能量合成
+activate Comp
+Comp -> GPU : 物理着色
+Comp --> RG 
+deactivate Comp
+
+RG -> TAA : 5. 抗锯齿
+activate TAA
+TAA -> GPU : 亚像素重建
+TAA --> RG 
+deactivate TAA
+
+RG -> Post : 6. 后期处理
+activate Post
+Post -> GPU : 色调映射
+Post --> GPU : 写入交换链
+deactivate Post
+@enduml
+```

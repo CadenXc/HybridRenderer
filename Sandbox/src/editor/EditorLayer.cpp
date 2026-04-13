@@ -413,6 +413,9 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             DrawSceneHierarchy();
             ImGui::TreePop();
         }
+        
+        DrawPropertiesPanel(activePath);
+
         if (ImGui::TreeNodeEx("Content Browser",
                               ImGuiTreeNodeFlags_DefaultOpen))
         {
@@ -488,47 +491,53 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             ImGui::TreePop();
         }
     }
-    if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen))
-    {
-        glm::vec3 pos = m_EditorCamera.GetPosition();
-        glm::vec3 focal = m_EditorCamera.GetFocalPoint();
-        float distance = m_EditorCamera.GetDistance();
-        float pitch = m_EditorCamera.GetPitch();
-        float yaw = m_EditorCamera.GetYaw();
-        float fov = m_EditorCamera.GetFOV();
-
-        ImGui::Text("Position: %.3f, %.3f, %.3f", pos.x, pos.y, pos.z);
-        ImGui::Text("Focal Point: %.3f, %.3f, %.3f", focal.x, focal.y, focal.z);
-        ImGui::Text("Distance: %.3f", distance);
-        ImGui::Text("Pitch: %.3f, Yaw: %.3f", pitch, yaw);
-        ImGui::Text("FOV: %.3f", fov);
-
-        if (ImGui::Button("Reset Camera"))
-        {
-            m_EditorCamera.Reset();
-        }
-    }
-
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0, 1, 0, 1), "Performance: %.3f ms (%.1f FPS)",
-                       m_AverageFrameTime, m_AverageFPS);
-
-    const auto& stats = Application::Get().GetFrameStats();
-    ImGui::Text("Scene: %u Meshes (%u Visible, %u Culled)", stats.TotalMeshes,
-                stats.DrawCalls, stats.CulledMeshes);
-
-    if (ImGui::TreeNode("GPU Pass Breakdown"))
+    
+    if (ImGui::CollapsingHeader("Debug Information", ImGuiTreeNodeFlags_DefaultOpen))
     {
-        if (activePath)
-            activePath->GetRenderGraph().DrawPerformanceStatistics();
-        ImGui::TreePop();
-    }
+        // 1. Frame Statistics & Performance Graph
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), "Frame Time: %.3f ms", m_AverageFrameTime);
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), "(%.1f FPS)", m_AverageFPS);
 
-    if (ImGui::Button("Copy RenderGraph (Mermaid)", ImVec2(-1, 0)) &&
-        activePath)
-    {
-        ImGui::SetClipboardText(
-            activePath->GetRenderGraph().ExportToMermaid().c_str());
+        // Simple performance plot
+        static float values[100] = {};
+        static int values_offset = 0;
+        values[values_offset] = m_AverageFrameTime;
+        values_offset = (values_offset + 1) % 100;
+        ImGui::PlotLines("##FrameTime", values, 100, values_offset, "Performance Analysis (ms)", 0.0f, 33.0f, ImVec2(0, 50));
+
+        const auto& stats = Application::Get().GetFrameStats();
+        ImGui::Text("Render Stats: %u Meshes (%u Visible, %u Culled)", stats.TotalMeshes,
+                    stats.DrawCalls, stats.CulledMeshes);
+
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // 2. Camera Parameters
+        if (ImGui::TreeNodeEx("Camera Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            glm::vec3 pos = m_EditorCamera.GetPosition();
+            float fov = m_EditorCamera.GetFOV();
+            ImGui::Text("Position: [%.2f, %.2f, %.2f]", pos.x, pos.y, pos.z);
+            ImGui::Text("FOV: %.1f", fov);
+            if (ImGui::SmallButton("Reset Camera")) m_EditorCamera.Reset();
+            ImGui::TreePop();
+        }
+
+        // 3. GPU Pass Breakdown
+        if (ImGui::TreeNode("GPU Pass Breakdown"))
+        {
+            if (activePath)
+                activePath->GetRenderGraph().DrawPerformanceStatistics();
+            ImGui::TreePop();
+        }
+
+        // 4. Export RenderGraph
+        if (ImGui::Button("Export Render Graph (Mermaid)", ImVec2(-1, 0)) && activePath)
+        {
+            ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
+        }
     }
 
     if (activePath)
