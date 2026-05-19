@@ -138,9 +138,16 @@ void SVGFAtrousPass::Setup(SVGFAtrousData& data,
 void SVGFAtrousPass::Execute(const SVGFAtrousData& data,
                              ComputeExecutionContext& ctx)
 {
-    int step = 1 << m_Iteration;
+    struct PushConstants
+    {
+        int step;
+        int useAlbedoDemod;
+    } pc;
+    pc.step = 1 << m_Iteration;
+    pc.useAlbedoDemod = m_Config.useAlbedoDemod ? 1 : 0;
+
     ctx.BindPipeline("SVGF_Atrous");
-    ctx.PushConstants(VK_SHADER_STAGE_ALL, step);
+    ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
     ctx.Dispatch("SVGF_Atrous", (ctx.GetGraph().GetWidth() + 15) / 16,
                  (ctx.GetGraph().GetHeight() + 15) / 16);
 }

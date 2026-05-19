@@ -70,9 +70,9 @@ void EditorLayer::OnAttach()
 
         /*
 ResourceManager::Get().LoadHDR(
-    Application::Get().GetSpecification().AssetDir +
-    "textures/hdr/dreifaltigkeitsberg_2k.hdr");
-    */
+Application::Get().GetSpecification().AssetDir +
+"textures/hdr/dreifaltigkeitsberg_2k.hdr");
+*/
 }
 
 void EditorLayer::OnDetach() {}
@@ -413,7 +413,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             DrawSceneHierarchy();
             ImGui::TreePop();
         }
-        
+
         DrawPropertiesPanel(activePath);
 
         if (ImGui::TreeNodeEx("Content Browser",
@@ -492,11 +492,13 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
         }
     }
     ImGui::Separator();
-    
-    if (ImGui::CollapsingHeader("Debug Information", ImGuiTreeNodeFlags_DefaultOpen))
+
+    if (ImGui::CollapsingHeader("Debug Information",
+                                ImGuiTreeNodeFlags_DefaultOpen))
     {
         // 1. Frame Statistics & Performance Graph
-        ImGui::TextColored(ImVec4(0, 1, 0, 1), "Frame Time: %.3f ms", m_AverageFrameTime);
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), "Frame Time: %.3f ms",
+                           m_AverageFrameTime);
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0, 1, 0, 1), "(%.1f FPS)", m_AverageFPS);
 
@@ -505,17 +507,20 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
         static int values_offset = 0;
         values[values_offset] = m_AverageFrameTime;
         values_offset = (values_offset + 1) % 100;
-        ImGui::PlotLines("##FrameTime", values, 100, values_offset, "Performance Analysis (ms)", 0.0f, 33.0f, ImVec2(0, 50));
+        ImGui::PlotLines("##FrameTime", values, 100, values_offset,
+                         "Performance Analysis (ms)", 0.0f, 33.0f,
+                         ImVec2(0, 50));
 
         const auto& stats = Application::Get().GetFrameStats();
-        ImGui::Text("Render Stats: %u Meshes (%u Visible, %u Culled)", stats.TotalMeshes,
-                    stats.DrawCalls, stats.CulledMeshes);
+        ImGui::Text("Render Stats: %u Meshes (%u Visible, %u Culled)",
+                    stats.TotalMeshes, stats.DrawCalls, stats.CulledMeshes);
 
         ImGui::Spacing();
         ImGui::Separator();
 
         // 2. Camera Parameters
-        if (ImGui::TreeNodeEx("Camera Parameters", ImGuiTreeNodeFlags_DefaultOpen))
+        if (ImGui::TreeNodeEx("Camera Parameters",
+                              ImGuiTreeNodeFlags_DefaultOpen))
         {
             glm::vec3 pos = m_EditorCamera.GetPosition();
             float fov = m_EditorCamera.GetFOV();
@@ -534,9 +539,11 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
         }
 
         // 4. Export RenderGraph
-        if (ImGui::Button("Export Render Graph (Mermaid)", ImVec2(-1, 0)) && activePath)
+        if (ImGui::Button("Export Render Graph (Mermaid)", ImVec2(-1, 0)) &&
+            activePath)
         {
-            ImGui::SetClipboardText(activePath->GetRenderGraph().ExportToMermaid().c_str());
+            ImGui::SetClipboardText(
+                activePath->GetRenderGraph().ExportToMermaid().c_str());
         }
     }
 

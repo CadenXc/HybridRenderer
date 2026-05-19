@@ -184,7 +184,7 @@ float MicrofacetDistribution(float Roughness, vec3 Normal, vec3 Halfway) {
     float Roughness2 = Roughness * Roughness;
     float Cosine2 = Cosine * Cosine;
     float denom = (Cosine2 * (Roughness2 - 1.0) + 1.0);
-    return Roughness2 / (PI_F * denom * denom);
+    return Roughness2 / max(PI_F * denom * denom, 1e-7);
 }
 
 float MicrofacetShadowing1(float Roughness, vec3 Normal, vec3 Halfway, vec3 Direction) {
@@ -193,7 +193,7 @@ float MicrofacetShadowing1(float Roughness, vec3 Normal, vec3 Halfway, vec3 Dire
     float CosineH = dot(Halfway, Direction);
     if (Cosine * CosineH <= 0.0) return 0.0;
     float Roughness2 = Roughness * Roughness;
-    return 2.0 / (sqrt(((Roughness2 * (1.0 - Cosine2)) + Cosine2) / Cosine2) + 1.0);
+    return 2.0 / (sqrt(max(0.0, ((Roughness2 * (1.0 - Cosine2)) + Cosine2) / max(Cosine2, 1e-7))) + 1.0);
 }
 
 float MicrofacetShadowing(float Roughness, vec3 Normal, vec3 Halfway, vec3 Outgoing, vec3 Incoming) {
@@ -213,7 +213,7 @@ vec3 EvalPbr(vec3 Colour, float IOR, float Roughness, float Metallic, vec3 Norma
 
     float Cosine = abs(dot(UpNormal, Incoming));
     vec3 Diffuse = Colour * (1.0 - Metallic) * (1.0 - F1) / PI_F;
-    vec3 Specular = F * D * G / (4.0 * abs(dot(UpNormal, Outgoing)) * abs(dot(UpNormal, Incoming)));
+    vec3 Specular = F * D * G / max(4.0 * abs(dot(UpNormal, Outgoing)) * abs(dot(UpNormal, Incoming)), 1e-7);
 
     return (Diffuse + Specular) * Cosine;
 }

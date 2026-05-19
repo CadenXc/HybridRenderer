@@ -116,10 +116,16 @@ void main()
     // 将当前物体在上一帧的位置通过变换还原至上一帧屏幕坐标，以实现降噪算法的重投影（Reprojection）
     vec4 clipPos = WorldToClip(vec4(worldPos, 1.0));
     vec4 prevClipPos = PrevWorldToClip(LocalToWorld(localPos, inst.prevTransform));
-    vec2 motion = (clipPos.xy / clipPos.w * 0.5 + 0.5) - (prevClipPos.xy / prevClipPos.w * 0.5 + 0.5);
+    
+    float safeW = abs(clipPos.w) < 1e-6 ? 1e-6 : clipPos.w;
+    float safePrevW = abs(prevClipPos.w) < 1e-6 ? 1e-6 : prevClipPos.w;
+    vec2 motion = (clipPos.xy / safeW * 0.5 + 0.5) - (prevClipPos.xy / safePrevW * 0.5 + 0.5);
 
     // 最终颜色合成
     vec3 totalRadiance = directLighting + ambient + mat.Emission;
+    
+    // [SAFETY] NaN 防御
+    if (any(isnan(totalRadiance)) || any(isinf(totalRadiance))) totalRadiance = vec3(0.0);
     
     // 将计算好的结果填回 Ray Payload 中，供 Raygen 阶段最终收集
     payload.color_dist = vec4(totalRadiance, gl_HitTEXT); // RGB + 命中距离

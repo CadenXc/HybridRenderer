@@ -77,6 +77,13 @@ void main()
 
     // --- 2. 预处理当前信号 ---
     vec4 curSignal = texture(gCurSignal, uv);
+    
+    // [SAFETY] NaN/Inf 防御：若当前采样非法，强行归零并防止污染历史
+    if (any(isnan(curSignal.rgb)) || any(isinf(curSignal.rgb))) {
+        curSignal.rgb = vec3(0.0);
+    }
+    curSignal.rgb = max(vec3(0.0), curSignal.rgb);
+
     if (pc.useAlbedoDemod == 1) // 若启用，则除以 Albedo 以解耦光照与纹理，利于滤波
     {
         vec3 albedo = texture(gAlbedo, uv).rgb;
@@ -104,11 +111,16 @@ void main()
         vec2 sampleUV = (vec2(prevCoordBase + offsets[i]) + 0.5) / displayData.xy;
         if (is_valid_reprojection(sampleUV, curNormal, curDepth, curID)) 
         {
-            historySignal += weights[i] * texture(gHistorySignal, sampleUV);
+            vec4 hSig = texture(gHistorySignal, sampleUV);
             vec4 hM = texture(gHistoryMoments, sampleUV);
-            historyMoments += weights[i] * hM.rg;
-            historyLen += weights[i] * hM.a;
-            weightSum += weights[i];
+
+            // [SAFETY] 历史记录防御：防止上一帧产生的 NaN 再次流入
+            if (!any(isnan(hSig.rgb)) && !any(isinf(hSig.rgb)) && !any(isnan(hM.rgb)) && !any(isinf(hM.rgb))) {
+                historySignal += weights[i] * hSig;
+                historyMoments += weights[i] * hM.rg;
+                historyLen += weights[i] * hM.a;
+                weightSum += weights[i];
+            }
         }
     }
 

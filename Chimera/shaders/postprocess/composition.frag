@@ -117,6 +117,12 @@ void main()
 
     // --- 6. 色调映射与输出 ---
     vec3 finalColor = directRadiance + indirectDiffuse + indirectSpecular + emissive; 
+
+    // [SAFETY] NaN/Inf 传染病终末检查
+    if (any(isnan(finalColor)) || any(isinf(finalColor))) {
+        finalColor = vec3(0.0); // 发现 NaN 强行归零，防止屏幕闪烁或扩散
+    }
+
     finalColor *= exposure;
     finalColor = pow(max(finalColor, vec3(0.0)), vec3(1.0 / 2.2)); // 伽马 2.2
 

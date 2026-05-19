@@ -48,10 +48,21 @@ void main()
     float kernelWeights[3] = { 3.0 / 8.0, 1.0 / 4.0, 1.0 / 16.0 };
 
     vec4 illuminationCenter = texture(gInputColor, uv);
+    // [SAFETY] NaN/Inf 防御
+    if (any(isnan(illuminationCenter)) || any(isinf(illuminationCenter))) {
+        illuminationCenter = vec4(0.0);
+    }
     float lumaCenter = CalculateLuminance(illuminationCenter.rgb);
     
     // Variance is stored in the alpha channel of the input signal
     float varianceCenter = illuminationCenter.a; 
+
+    // [OPTIMIZATION] Early Out: If variance is extremely low, skip spatial filtering
+    // (Only for step > 1 to allow initial blur of raw noise)
+    if (varianceCenter < 1e-6 && pc.step > 1) {
+        imageStore(outFiltered, ipos, illuminationCenter);
+        return;
+    }
 
     vec4 motionSample = texture(gMotion, uv);
     float depthCenter = motionSample.z;
@@ -66,9 +77,9 @@ void main()
 
     // --- SVGF Edge-Stopping Parameters ---
     // phiLuma is guided by the local standard deviation (sqrt of variance)
-    float phiLuma   = svgfPhi.y * sqrt(max(0.0, 1e-10 + varianceCenter)) + 1e-6;
+    float phiLuma   = svgfPhi.x * sqrt(max(0.0, 1e-10 + varianceCenter)) + 1e-6;
     float phiDepth  = max(depthDeriv, 1e-8) * float(pc.step) + 1e-6;
-    float phiNormal = svgfPhi.z; 
+    float phiNormal = svgfPhi.y; 
 
     float sumW = kernelWeights[0] * kernelWeights[0];
     vec4  sumIllumination = vec4(illuminationCenter.rgb, varianceCenter) * sumW;
@@ -87,6 +98,9 @@ void main()
             float kernel = kernelWeights[abs(x)] * kernelWeights[abs(y)];
 
             vec4  nData    = texture(gInputColor, nUV);
+            // [SAFETY] 邻域采样防御
+            if (any(isnan(nData)) || any(isinf(nData))) nData = vec4(0.0);
+
             float nLuma    = CalculateLuminance(nData.rgb);
             float nDepth   = texture(gMotion, nUV).z;
             vec3  nNormal  = texture(gNormal, nUV).xyz;
@@ -107,5 +121,11 @@ void main()
     }
 
     vec4 filtered = vec4(sumIllumination.rgb / sumW, sumIllumination.a / (sumW * sumW));
+    
+    // [SAFETY] 最终输出检查：若意外产生 NaN，则保留原样或归零，防止雪崩
+    if (any(isnan(filtered)) || any(isinf(filtered))) {
+        filtered = illuminationCenter;
+    }
+
     imageStore(outFiltered, ipos, filtered);
 }

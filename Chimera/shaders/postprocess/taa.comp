@@ -134,6 +134,10 @@ void main()
     
     // 4. Sample and Clip History
     vec3 historyRGB = texture(historyColor, prevUV).rgb;
+    
+    // [SAFETY] History NaN/Inf check
+    if (any(isnan(historyRGB)) || any(isinf(historyRGB))) historyRGB = currentRGB;
+
     vec3 historyYCoCg = RGBToYCoCg(ToneMap(historyRGB));
     
     historyYCoCg = ClipHistory(historyYCoCg, boxMin, boxMax);
@@ -150,6 +154,9 @@ void main()
     
     vec3 resolvedYCoCg = mix(historyYCoCg, currentYCoCg, alpha);
     vec3 resolvedRGB = UnToneMap(YCoCgToRGB(resolvedYCoCg));
+
+    // [SAFETY] Final output check
+    if (any(isnan(resolvedRGB)) || any(isinf(resolvedRGB))) resolvedRGB = currentRGB;
 
     imageStore(outFinal, pixel, vec4(resolvedRGB, 1.0));
 }

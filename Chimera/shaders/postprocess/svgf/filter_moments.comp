@@ -4,12 +4,12 @@
 
 /**
  * @file filter_moments.comp
- * @brief SVGF 矩平滑/方差估计着色器
+ * @brief SVGF 矩平滑/方差估计着色器 (Optimized with Shared Memory)
  * 
  * 主要职责：
  * 1. 对时域累积后的矩数据执行 7x7 空间滤波。
- * 2. 计算局部方差：Var(X) = E[X^2] - (E[X])^2。
- * 3. 针对累积长度较短的新像素，引入方差偏差补偿，强化空域降噪效果。
+ * 2. 利用 Shared Memory (LDS) 减少冗余采样带宽。
+ * 3. 计算局部方差并进行偏差补偿。
  */
 
 layout(local_size_x = 16, local_size_y = 16) in;
@@ -22,16 +22,20 @@ layout(set = 2, binding = 2) uniform sampler2D gNormal;
 layout(set = 2, binding = 3) uniform sampler2D gMotion;       
 layout(set = 2, binding = 4) uniform usampler2D gObjectID;     
 
-layout(set = 2, binding = 5, rgba16f) uniform image2D outSignal;  // [Output 0]: 包含平滑后亮度的信号
-layout(set = 2, binding = 6, rgba16f) uniform image2D outMoments; // [Output 1]: 包含估计方差的矩数据
+layout(set = 2, binding = 5, rgba16f) uniform image2D outSignal;  
+layout(set = 2, binding = 6, rgba16f) uniform image2D outMoments; 
+
+// --- Shared Memory Tiles ---
+// Tile size: (GroupSize + 2 * Radius) = (16 + 2 * 3) = 22x22
+const int TILE_SIZE = 22;
+shared vec4 s_IllumDepth[TILE_SIZE][TILE_SIZE]; // RGB: Illum, A: Depth
+shared vec4 s_NormalLuma[TILE_SIZE][TILE_SIZE]; // RGB: Normal, A: Luma
+shared vec2 s_Moments[TILE_SIZE][TILE_SIZE];    // RG: Moments
 
 float CalculateLuminance(vec3 color) {
     return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
 }
 
-/**
- * @brief 边缘保持权重计算 (基于联合双边滤波)
- */
 float computeWeight(
     float depthCenter, float depthP, float phiDepth,
     vec3 normalCenter, vec3 normalP, float phiNormal,
@@ -48,78 +52,93 @@ float computeWeight(
 void main()
 {
     ivec2 ipos = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 lpos = ivec2(gl_LocalInvocationID.xy);
+    
+    // --- 1. Cooperative Tile Loading ---
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++) {
+            ivec2 tileCoord = lpos + ivec2(i * 16, j * 16);
+            if (tileCoord.x < TILE_SIZE && tileCoord.y < TILE_SIZE) {
+                ivec2 loadPos = ivec2(gl_WorkGroupID.xy * 16) - 3 + tileCoord;
+                loadPos = clamp(loadPos, ivec2(0), ivec2(displayData.xy) - 1);
+                vec2 loadUV = (vec2(loadPos) + 0.5) / displayData.xy;
+                
+                vec4 illum = texture(gInputSignal, loadUV);
+                if (any(isnan(illum)) || any(isinf(illum))) illum = vec4(0.0);
+                
+                float depth = texture(gMotion, loadUV).z;
+                vec3 normal = texture(gNormal, loadUV).xyz;
+                vec2 moments = texture(gInputMoments, loadUV).rg;
+                if (any(isnan(moments)) || any(isinf(moments))) moments = vec2(0.0);
+
+                s_IllumDepth[tileCoord.y][tileCoord.x] = vec4(illum.rgb, depth);
+                s_NormalLuma[tileCoord.y][tileCoord.x] = vec4(normal, CalculateLuminance(illum.rgb));
+                s_Moments[tileCoord.y][tileCoord.x] = moments;
+            }
+        }
+    }
+    
+    barrier();
+
     if (ipos.x >= int(displayData.x) || ipos.y >= int(displayData.y)) return;
 
-    vec2 uv = (vec2(ipos) + 0.5) / displayData.xy;
+    // --- 2. Retrieve Center Data from Shared Memory ---
+    ivec2 centerInTile = lpos + 3;
+    vec4 centerData1 = s_IllumDepth[centerInTile.y][centerInTile.x];
+    vec4 centerData2 = s_NormalLuma[centerInTile.y][centerInTile.x];
     
-    // --- 1. 获取中心像素属性 ---
-    vec4 currentMoments = texture(gInputMoments, uv);
-    float hLen = currentMoments.a; 
+    float depthCenter = centerData1.a;
+    vec3 normalCenter = centerData2.rgb;
+    float lumaCenter = centerData2.a;
     
-    vec4 illuminationCenter = texture(gInputSignal, uv);
-    float lumaCenter = CalculateLuminance(illuminationCenter.rgb);
-
-    vec4 motionSample = texture(gMotion, uv);
-    float depthCenter = motionSample.z;
-    float depthDeriv  = motionSample.w; 
-    
-    if (depthCenter == 0.0) {
-        imageStore(outSignal, ipos, illuminationCenter);
+    if (depthCenter <= 0.0) {
+        imageStore(outSignal, ipos, vec4(centerData1.rgb, 0.0));
         return;
     }
 
-    vec3 normalCenter = texture(gNormal, uv).xyz;
-    
-    // --- 2. 边缘停止参数配置 ---
-    float phiLuma   = svgfPhi.x; 
-    float phiDepth  = max(depthDeriv, 1e-8) * 3.0; 
-    float phiNormal = svgfPhi.z;
+    float hLen = texture(gInputMoments, (vec2(ipos) + 0.5) / displayData.xy).a;
 
-    // --- 3. 执行 7x7 空间滤波 ---
+    // --- 3. Spatial Filter using Shared Memory ---
+    float phiLuma   = max(svgfPhi.x, 1e-6); 
+    float phiDepth  = max(svgfPhi.z, 1e-8) * 3.0; 
+    float phiNormal = svgfPhi.y;
+
     float sumW = 0.0;
     vec3  sumIllum = vec3(0.0);
     vec2  sumMoments = vec2(0.0);
 
-    const int radius = 3;
-    for (int yy = -radius; yy <= radius; yy++) {
-        for (int xx = -radius; xx <= radius; xx++) {
-            ivec2 p = ipos + ivec2(xx, yy);
-            if (p.x < 0 || p.x >= int(displayData.x) || p.y < 0 || p.y >= int(displayData.y)) continue;
-
-            vec2 pUV = (vec2(p) + 0.5) / displayData.xy;
-            vec3 illumP = texture(gInputSignal, pUV).rgb;
-            vec2 momP = texture(gInputMoments, pUV).rg; 
+    for (int yy = -3; yy <= 3; yy++) {
+        for (int xx = -3; xx <= 3; xx++) {
+            ivec2 pTile = centerInTile + ivec2(xx, yy);
             
-            float depthP = texture(gMotion, pUV).z;
-            vec3 normalP = texture(gNormal, pUV).xyz;
+            vec4 pData1 = s_IllumDepth[pTile.y][pTile.x];
+            vec4 pData2 = s_NormalLuma[pTile.y][pTile.x];
+            vec2 pMoments = s_Moments[pTile.y][pTile.x];
 
             float w = computeWeight(
-                depthCenter, depthP, phiDepth * length(vec2(xx, yy)) + 1e-6,
-                normalCenter, normalP, phiNormal,
-                lumaCenter, CalculateLuminance(illumP), phiLuma
+                depthCenter, pData1.a, phiDepth * length(vec2(xx, yy)) + 1e-6,
+                normalCenter, pData2.rgb, phiNormal,
+                lumaCenter, pData2.a, phiLuma
             );
 
             sumW += w;
-            sumIllum += illumP * w;
-            sumMoments += momP * w;
+            sumIllum += pData1.rgb * w;
+            sumMoments += pMoments * w;
         }
     }
 
-    // --- 4. 归一化与方差评估 ---
+    // --- 4. Final Output ---
     sumW = max(sumW, 1e-6);
     sumIllum /= sumW;
     sumMoments /= sumW;
 
     float variance = max(0.0, sumMoments.y - sumMoments.x * sumMoments.x);
+    if (isnan(variance) || isinf(variance)) variance = 0.0;
     
-    // SVGF 策略：针对历史帧数不足的情况，强行拉高方差以扩大空域滤波范围，加速信号收敛
     if (hLen < 4.0) {
         variance *= (4.0 / max(1.0, hLen));
     }
 
-    // [Output 0]: 存储平滑后的信号
     imageStore(outSignal, ipos, vec4(sumIllum, variance));
-    
-    // [Output 1]: 存储平滑后的矩数据 (B通道填入估算的方差)
     imageStore(outMoments, ipos, vec4(sumMoments, variance, hLen));
 }
