@@ -37,30 +37,65 @@ The architecture is heavily inspired by [Walnut](https://github.com/TheCherno/Wa
 
 ### Installation & Build
 
-1.  **Clone the repository**:
+1.  **Clone the repository and its dependencies**:
     ```bash
-    git clone https://github.com/Xiang-G/HybridRenderer.git
+    git clone --recursive https://github.com/Xiang-G/HybridRenderer.git
     cd HybridRenderer
     ```
 
-2.  **Initialize dependencies**:
+    If the repository was cloned without `--recursive`, initialize it from the repository root:
+
     ```bash
-    git submodule update --init --recursive
+    git submodule sync --recursive
+    git submodule update --init --recursive --checkout
     ```
 
-3.  **Generate Project Files**:
+    Submodules are pinned to exact commits by the parent repository. A detached `HEAD` inside a submodule is expected and preserves the dependency versions used by this project.
+
+2.  **Generate Project Files**:
     ```bash
     cmake -S . -B build
     ```
 
-4.  **Build**:
+3.  **Build**:
     ```bash
     cmake --build build --config Debug
     ```
     *Alternatively, open `build/HybridRenderer.sln` in Visual Studio and build the `Sandbox` project.*
 
-5.  **Run**:
+4.  **Run**:
     The executable will be located in `build/Sandbox/Debug/Sandbox.exe`.
+
+### Submodule Troubleshooting
+
+Check the current submodule state from the repository root:
+
+```bash
+git submodule status --recursive
+```
+
+*   A leading `-` means the submodule has not been initialized.
+*   A leading `+` means the checked-out commit differs from the commit recorded by the parent repository.
+*   No prefix means the submodule is at the recorded commit.
+
+For normal recovery, run:
+
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive --checkout
+```
+
+If disposable third-party working-tree changes prevent checkout, the recorded versions can be restored forcibly:
+
+```bash
+git submodule update --init --recursive --checkout --force
+```
+
+> **Warning:** `--force` discards local changes inside submodules. Back up any intentional dependency modifications first.
+
+Do not use `git submodule update --remote` or run `git pull` inside submodules when reproducing the recorded project state; those commands can move dependencies to newer upstream commits.
+
+Errors such as `not our ref` or `did not contain <SHA>` mean the configured upstream no longer provides the recorded commit. Recover that commit from a fork, archive, or older clone that still contains it.
 
 ## Controls
 
