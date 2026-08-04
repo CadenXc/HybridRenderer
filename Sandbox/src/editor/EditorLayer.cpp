@@ -156,19 +156,6 @@ void EditorLayer::OnUpdate(Timestep ts)
 
     Application::Get().SetFrameContext(context);
     Application::Get().SetActiveScene(GetActiveSceneRaw());
-
-    RenderPath* activePath = GetRenderPath();
-    if (activePath && Renderer::Get().IsFrameInProgress())
-    {
-        RenderFrameInfo frameInfo{};
-        frameInfo.commandBuffer = Renderer::Get().GetActiveCommandBuffer();
-        frameInfo.frameIndex = Renderer::Get().GetCurrentFrameIndex();
-        frameInfo.imageIndex = Renderer::Get().GetCurrentImageIndex();
-        frameInfo.globalSet =
-            Application::Get().GetRenderState()->GetDescriptorSet(
-                frameInfo.frameIndex);
-        activePath->Render(frameInfo);
-    }
 }
 
 void EditorLayer::OnEvent(Event& e)
