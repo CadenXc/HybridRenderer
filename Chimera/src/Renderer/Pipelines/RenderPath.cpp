@@ -91,8 +91,14 @@ VkSemaphore RenderPath::Render(const RenderFrameInfo& frameInfo)
                    VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     scDesc.flags = (RGResourceFlags)RGResourceFlagBits::External;
 
+    ResourceState swapchainState{};
+    swapchainState.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    swapchainState.access = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+                            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    swapchainState.stage = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+
     m_RenderGraph->SetExternalResource(RS::RENDER_OUTPUT, scImage, scView,
-                                       VK_IMAGE_LAYOUT_UNDEFINED, scDesc);
+                                       swapchainState, scDesc);
 
     // 6. Compile and execute
     m_RenderGraph->Compile();

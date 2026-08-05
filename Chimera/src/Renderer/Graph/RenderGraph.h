@@ -224,7 +224,7 @@ public:
     void DestroyResources(bool all = false);
 
     void SetExternalResource(const std::string& name, VkImage image,
-                             VkImageView view, VkImageLayout layout,
+                             VkImageView view, const ResourceState& initialState,
                              const ImageDescription& desc);
 
     RGResourceHandle GetResourceHandle(const std::string& name);
@@ -332,7 +332,6 @@ private:
     std::vector<PhysicalResource> m_Resources;
     std::unordered_map<std::string, RGResourceHandle> m_ResourceMap;
     std::unordered_map<std::string, HistoryResource> m_HistoryResources;
-    std::unordered_map<VkImage, ResourceState> m_ExternalImageStates;
     std::unordered_map<VkImage, ResourceState> m_PhysicalImageStates;
 
     VkCommandPool m_ComputeCommandPool = VK_NULL_HANDLE;

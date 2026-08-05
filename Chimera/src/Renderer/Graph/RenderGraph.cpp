@@ -568,7 +568,7 @@ ResourceHandleProxy& ResourceHandleProxy::SaveAsHistory(const std::string& n)
 }
 
 void RenderGraph::SetExternalResource(const std::string& name, VkImage image,
-                                      VkImageView view, VkImageLayout layout,
+                                      VkImageView view, const ResourceState& initialState,
                                       const ImageDescription& desc)
 {
     RGResourceHandle handle = GetResourceHandle(name);
@@ -591,16 +591,7 @@ void RenderGraph::SetExternalResource(const std::string& name, VkImage image,
     res.image.height = desc.height;
     res.image.format = desc.format;
 
-    if (m_ExternalImageStates.count(image))
-    {
-        res.currentState = m_ExternalImageStates[image];
-    }
-    else
-    {
-        res.currentState.layout = layout;
-        res.currentState.access = VK_ACCESS_2_NONE;
-        res.currentState.stage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    }
+    res.currentState = initialState;
 }
 
 RGResourceHandle RenderGraph::GetResourceHandle(const std::string& name)
