@@ -212,7 +212,7 @@ VkCommandBuffer Renderer::BeginFrame()
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     vkCmdPipelineBarrier(
-        frameResource.commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        frameResource.commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
     // 2. [DEBUG] Manually clear the swapchain to YELLOW
@@ -263,7 +263,7 @@ void Renderer::EndFrame()
     m_ActiveCommandBuffer = VK_NULL_HANDLE;
     VkSemaphore waitSemaphores[] = {frameResource.imageAvailableSemaphore};
     VkPipelineStageFlags waitStages[] = {
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        VK_PIPELINE_STAGE_TRANSFER_BIT};
     VkSemaphore signalSemaphores[] = {frameResource.renderFinishedSemaphore};
     VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO,
                             nullptr,
