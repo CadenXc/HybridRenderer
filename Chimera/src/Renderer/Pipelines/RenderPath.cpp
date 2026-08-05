@@ -30,14 +30,22 @@ void RenderPath::Init()
 
 VkSemaphore RenderPath::Render(const RenderFrameInfo& frameInfo)
 {
-        // 1. Handle resize and lazy initialization
+	if (!m_Context)
+	{
+		return VK_NULL_HANDLE;
+	}
+
+    VkExtent2D actualExtent = m_Context->GetSwapChainExtent();
+    if (m_Width != actualExtent.width || m_Height != actualExtent.height)
+    {
+        m_Width = actualExtent.width;
+        m_Height = actualExtent.height;
+        m_NeedsResize = true;
+    }
+
+	// 1. Handle resize and lazy initialization
     if (m_NeedsResize || m_NeedsRebuild || !m_RenderGraph)
     {
-        if (!m_Context)
-        {
-            return VK_NULL_HANDLE;
-        }
-
         CH_CORE_INFO(
             "RenderPath: Rebuilding RenderGraph (Resize: {}, Rebuild: {})...",
             m_NeedsResize, m_NeedsRebuild);
@@ -77,7 +85,7 @@ VkSemaphore RenderPath::Render(const RenderFrameInfo& frameInfo)
     }
 
     // 5. Set Swapchain as RENDER_OUTPUT
-    uint32_t imageIndex = frameInfo.imageIndex;
+	uint32_t imageIndex = frameInfo.imageIndex;
     auto swapchain = m_Context->GetSwapchain();
     VkImage scImage = swapchain->GetImages()[imageIndex];
     VkImageView scView = swapchain->GetImageViews()[imageIndex];

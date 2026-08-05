@@ -396,6 +396,10 @@ bool Application::OnWindowResize(WindowResizeEvent& e)
     m_Specification.Width = e.GetWidth();
     m_Specification.Height = e.GetHeight();
     m_Renderer->OnResize(e.GetWidth(), e.GetHeight());
+    if (m_RenderPath)
+    {
+        m_RenderPath->SetViewportSize(e.GetWidth(), e.GetHeight());
+    }
     return false;
 }
 

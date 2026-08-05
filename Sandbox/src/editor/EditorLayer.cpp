@@ -119,10 +119,6 @@ void EditorLayer::OnUpdate(Timestep ts)
     if (winW > 0 && (std::abs(winW - m_ViewportSize.x) > 0.1f ||
                      std::abs(winH - m_ViewportSize.y) > 0.1f))
     {
-        vkDeviceWaitIdle(VulkanContext::Get().GetDevice());
-        Renderer::Get().OnResize((uint32_t)winW, (uint32_t)winH);
-        if (GetRenderPath())
-            GetRenderPath()->SetViewportSize((uint32_t)winW, (uint32_t)winH);
         m_EditorCamera.SetViewportSize(winW, winH);
         m_ViewportSize = {winW, winH};
     }
