@@ -105,7 +105,6 @@ Application::~Application()
         try
         {
             VkDevice device = m_Context->GetDevice();
-            vkDeviceWaitIdle(device);
 
             if (m_Window)
             {
@@ -116,6 +115,14 @@ Application::~Application()
                 std::scoped_lock<std::mutex> lock(m_EventQueueMutex);
                 m_EventQueue.clear();
             }
+
+            if (m_TaskSystem)
+            {
+                m_TaskSystem->Shutdown();
+                m_TaskSystem.reset();
+            }
+
+            vkDeviceWaitIdle(device);
 
             m_RenderPath.reset();
 
