@@ -289,17 +289,25 @@ void RenderGraph::FetchQueryResults()
 
 VkSemaphore RenderGraph::Execute(VkCommandBuffer cmd)
 {
-    // 1. Try to fetch results from PREVIOUS frame (async)
+    if (m_PassStack.empty())
+    {
+        m_LastPassNames.clear();
+        m_LatestTimings.clear();
+        m_StatsReady = false;
+        return VK_NULL_HANDLE;
+    }
+
     FetchQueryResults();
-
-    // 2. Initialize pool (handles recreation if needed)
     InitQueryPool();
-    
-    // 3. GPU-side Reset for CURRENT frame
-    vkCmdResetQueryPool(cmd, m_TimestampQueryPool, 0, (uint32_t)m_PassStack.size() * 2);
 
+    if (m_TimestampQueryPool != VK_NULL_HANDLE)
+    {
+		vkCmdResetQueryPool(cmd, m_TimestampQueryPool, 0, static_cast<uint32_t>(m_PassStack.size()) * 2);
+    }
+    
     m_LastPassNames.clear();
-    for (const auto& pass : m_PassStack) m_LastPassNames.push_back(pass.name);
+    for (const auto& pass : m_PassStack)
+        m_LastPassNames.push_back(pass.name);
 
     for (const auto& layer : m_ParallelLayers)
     {
