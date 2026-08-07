@@ -112,7 +112,7 @@ void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
         m_RayTracingSupported = optional.empty();
 
         CH_CORE_INFO("Selected GPU: {}", m_DeviceProperties.deviceName);
-        CH_CORE_INFO("Hardware Ray Tracing Support: {}",
+        CH_CORE_INFO("Ray Tracing Extensions Available: {}",
                      m_RayTracingSupported ? "YES" : "NO");
 
         if (m_RayTracingSupported)
@@ -133,6 +133,136 @@ void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
 
 void VulkanDevice::CreateLogicalDevice(VkSurfaceKHR surface)
 {
+    VkPhysicalDeviceFeatures2 supported{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+
+    VkPhysicalDeviceVulkan12Features supported12{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+
+    VkPhysicalDeviceVulkan13Features supported13{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR supportedRT{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR supportedAS{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+
+    VkPhysicalDeviceRayQueryFeaturesKHR supportedRQ{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
+
+    supported.pNext = &supported13;
+    supported13.pNext = &supported12;
+
+    if (m_RayTracingSupported)
+    {
+        supported12.pNext = &supportedRT;
+        supportedRT.pNext = &supportedAS;
+        supportedAS.pNext = &supportedRQ;
+    }
+
+    vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &supported);
+
+    auto YesNo = [](VkBool32 value) { return value == VK_TRUE ? "YES" : "NO"; };
+
+    CH_CORE_INFO("========== Vulkan Capability Matrix ==========");
+
+    CH_CORE_INFO("[Core]");
+    CH_CORE_INFO("  samplerAnisotropy: {}",
+                 YesNo(supported.features.samplerAnisotropy));
+    CH_CORE_INFO("  shaderInt64: {}", YesNo(supported.features.shaderInt64));
+
+    CH_CORE_INFO("[Vulkan 1.2]");
+    CH_CORE_INFO("  bufferDeviceAddress: {}",
+                 YesNo(supported12.bufferDeviceAddress));
+    CH_CORE_INFO("  descriptorIndexing: {}",
+                 YesNo(supported12.descriptorIndexing));
+    CH_CORE_INFO("  shaderSampledImageArrayNonUniformIndexing: {}",
+                 YesNo(supported12.shaderSampledImageArrayNonUniformIndexing));
+    CH_CORE_INFO("  runtimeDescriptorArray: {}",
+                 YesNo(supported12.runtimeDescriptorArray));
+    CH_CORE_INFO("  descriptorBindingPartiallyBound: {}",
+                 YesNo(supported12.descriptorBindingPartiallyBound));
+    CH_CORE_INFO(
+        "  descriptorBindingSampledImageUpdateAfterBind: {}",
+        YesNo(supported12.descriptorBindingSampledImageUpdateAfterBind));
+    CH_CORE_INFO(
+        "  descriptorBindingStorageBufferUpdateAfterBind: {}",
+        YesNo(supported12.descriptorBindingStorageBufferUpdateAfterBind));
+    CH_CORE_INFO("  scalarBlockLayout: {}",
+                 YesNo(supported12.scalarBlockLayout));
+    CH_CORE_INFO("  hostQueryReset: {}", YesNo(supported12.hostQueryReset));
+
+    CH_CORE_INFO("[Vulkan 1.3]");
+    CH_CORE_INFO("  dynamicRendering: {}", YesNo(supported13.dynamicRendering));
+    CH_CORE_INFO("  synchronization2: {}", YesNo(supported13.synchronization2));
+    CH_CORE_INFO("  shaderDemoteToHelperInvocation: {}",
+                 YesNo(supported13.shaderDemoteToHelperInvocation));
+
+    CH_CORE_INFO("[Ray Tracing]");
+    CH_CORE_INFO("  required extensions: {}",
+                 m_RayTracingSupported ? "YES" : "NO");
+    CH_CORE_INFO("  rayTracingPipeline: {}",
+                 YesNo(supportedRT.rayTracingPipeline));
+    CH_CORE_INFO("  accelerationStructure: {}",
+                 YesNo(supportedAS.accelerationStructure));
+    CH_CORE_INFO(
+        "  descriptorBindingAccelerationStructureUpdateAfterBind: {}",
+        YesNo(
+            supportedAS.descriptorBindingAccelerationStructureUpdateAfterBind));
+    CH_CORE_INFO("  rayQuery: {}", YesNo(supportedRQ.rayQuery));
+
+    CH_CORE_INFO("[Limits]");
+    CH_CORE_INFO("  maxPushConstantsSize: {} bytes",
+                 m_DeviceProperties.limits.maxPushConstantsSize);
+
+    const bool baseCapabilitiesSupported =
+        supported.features.samplerAnisotropy &&
+        supported.features.shaderInt64 &&
+
+        supported12.bufferDeviceAddress && supported12.descriptorIndexing &&
+        supported12.shaderSampledImageArrayNonUniformIndexing &&
+        supported12.runtimeDescriptorArray &&
+        supported12.descriptorBindingPartiallyBound &&
+        supported12.descriptorBindingSampledImageUpdateAfterBind &&
+        supported12.descriptorBindingStorageBufferUpdateAfterBind &&
+        supported12.scalarBlockLayout && supported12.hostQueryReset &&
+        supported13.dynamicRendering && supported13.synchronization2 &&
+        supported13.shaderDemoteToHelperInvocation;
+
+    const bool rtFeaturesSupported =
+        supportedRT.rayTracingPipeline && supportedAS.accelerationStructure &&
+        supportedAS.descriptorBindingAccelerationStructureUpdateAfterBind &&
+        supportedRQ.rayQuery;
+
+    const bool rtCapabilitiesSupported =
+        m_RayTracingSupported && rtFeaturesSupported;
+
+
+    CH_CORE_INFO("[Requirements]");
+    CH_CORE_INFO("  Base renderer requirements: {}",
+                 baseCapabilitiesSupported ? "SUPPORTED" : "MISSING");
+    CH_CORE_INFO("  Ray tracing requirements: {}",
+                 rtCapabilitiesSupported ? "SUPPORTED" : "MISSING");
+
+    CH_CORE_INFO("==============================================");
+
+    if (!baseCapabilitiesSupported)
+    {
+        throw std::runtime_error(
+            "Selected GPU is missing required base Vulkan features; "
+            "see capability matrix");
+    }
+
+    m_RayTracingSupported = rtCapabilitiesSupported;
+
+    if (!m_RayTracingSupported)
+    {
+        CH_CORE_WARN(
+            "Complete ray tracing capability is unavailable. "
+            "Non-RT fallback is not yet fully validated.");
+    }
+
     QueueFamilyIndices indices = FindQueueFamilies(m_PhysicalDevice, surface);
 
     std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -196,10 +326,8 @@ void VulkanDevice::CreateLogicalDevice(VkSurfaceKHR surface)
     vulkan12Features.hostQueryReset = VK_TRUE;
     vulkan12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
     vulkan12Features.runtimeDescriptorArray = VK_TRUE;
-    vulkan12Features.descriptorBindingVariableDescriptorCount = VK_TRUE;
     vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
     vulkan12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-    vulkan12Features.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
     vulkan12Features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
 
     VkPhysicalDeviceVulkan13Features vulkan13Features{
