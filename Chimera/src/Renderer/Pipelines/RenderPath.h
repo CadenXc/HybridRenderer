@@ -50,6 +50,11 @@ public:
         return *m_RenderGraph;
     }
 
+    bool HasRenderGraph() const
+    {
+        return m_RenderGraph != nullptr;
+    }
+
 protected:
         // Pure virtual hook for specific render path logic
     virtual void BuildGraph(RenderGraph& graph,
