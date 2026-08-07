@@ -516,13 +516,77 @@ VkPipelineLayout PipelineManager::GetReflectionLayout(
     info.setLayoutCount = (uint32_t)layouts.size();
     info.pSetLayouts = layouts.data();
 
-    VkPushConstantRange range{VK_SHADER_STAGE_ALL, 0, 256};
-    info.pushConstantRangeCount = 1;
-    info.pPushConstantRanges = &range;
+    uint32_t pushConstantOffset = UINT32_MAX;
+    uint32_t pushConstantEnd = 0;
 
-    VkPipelineLayout layout;
-    vkCreatePipelineLayout(VulkanContext::Get().GetDevice(), &info, nullptr,
-                           &layout);
+    for (const Shader* shader : shaders)
+    {
+        if (!shader)
+            continue;
+
+        const auto& pc = shader->GetPushConstantInfo();
+        if (!pc.IsValid())
+			continue;
+
+        pushConstantOffset = std::min(pushConstantOffset, pc.offset);
+        pushConstantEnd = std::max(pushConstantEnd, pc.offset + pc.size);
+    }
+
+    const bool hasPushConstants = pushConstantEnd > 0;
+
+    VkPushConstantRange range{};
+    if (hasPushConstants)
+    {
+        if (pushConstantOffset != 0)
+        {
+            throw std::runtime_error(
+                "Non-zero push constant offset is not supported by "
+                "ExecutionContext yet");
+        }
+
+        const uint32_t pushConstantSize = pushConstantEnd - pushConstantOffset;
+
+        if ((pushConstantOffset % 4) != 0 || (pushConstantSize % 4) != 0)
+        {
+            throw std::runtime_error(
+				"Push constant offset and size must be multiples of 4 bytes");
+        }
+
+        const uint32_t limit = VulkanContext::Get()
+                                   .GetDeviceProperties()
+                                   .limits.maxPushConstantsSize;
+
+        if (pushConstantEnd > limit)
+        {
+            throw std::runtime_error(
+                "Push constant size exceeds the maximum allowed size");
+        }
+
+        // 当前所有调用都使用 VK_SHADER_STAGE_ALL.
+        range.stageFlags = VK_SHADER_STAGE_ALL;
+        range.offset = pushConstantOffset;
+        range.size = pushConstantSize;
+
+        info.pushConstantRangeCount = 1;
+        info.pPushConstantRanges = &range;
+    }
+    else
+    {
+        info.pushConstantRangeCount = 0;
+        info.pPushConstantRanges = nullptr;
+    }
+
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+
+    VkResult result = vkCreatePipelineLayout(VulkanContext::Get().GetDevice(),
+                                             &info, nullptr, &layout);
+
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error(
+            "vkCreatePipelineLayout failed with VkResult: " +
+            std::to_string(result));
+    }
 
     m_LayoutCache[hash] = layout;
     return layout;

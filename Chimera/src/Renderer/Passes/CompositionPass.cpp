@@ -44,21 +44,6 @@ void CompositionPass::Execute(const PassData& data,
     desc.depth_write = false;
     desc.cull_mode = VK_CULL_MODE_NONE;
 
-    struct PushConstants
-    {
-        int skyboxIndex;
-        int displayMode;
-    } pc;
-
-    pc.skyboxIndex = -1;
-    if (auto scene = ResourceManager::Get().GetActiveScene())
-    {
-        pc.skyboxIndex = (int)scene->GetSkyboxTextureIndex();
-    }
-    pc.displayMode = (int)Application::Get().GetFrameContext().DisplayMode;
-
-    ctx.BindPipeline(desc);
-    ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
     ctx.DrawMeshes(desc, nullptr);
 }
 } // namespace Chimera

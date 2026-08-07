@@ -88,6 +88,67 @@ void Shader::Reflect()
         m_ReflectionData[res.name] = res;
     }
 
+    uint32_t pushConstantCount = 0;
+    result = spvReflectEnumeratePushConstantBlocks(&module, &pushConstantCount,
+                                                   nullptr);
+
+    if (result != SPV_REFLECT_RESULT_SUCCESS)
+    {
+        spvReflectDestroyShaderModule(&module);
+        throw std::runtime_error(
+            "Failed to enumerate push constant blocks for shader: " + m_Path);
+    }
+
+    std::vector<SpvReflectBlockVariable*> pushConstantBlocks(pushConstantCount);
+
+    result = spvReflectEnumeratePushConstantBlocks(&module, &pushConstantCount,
+                                                   pushConstantBlocks.data());
+
+    if (result != SPV_REFLECT_RESULT_SUCCESS)
+    {
+        spvReflectDestroyShaderModule(&module);
+        throw std::runtime_error(
+            "Failed to enumerate push constant blocks for shader: " + m_Path);
+    }
+
+    // Process the push constant blocks
+    for (auto* block : pushConstantBlocks)
+    {
+        if (!block) 
+            continue;
+
+        if (!m_PushConstantInfo.IsValid())
+        {
+            m_PushConstantInfo.offset = block->offset;
+            m_PushConstantInfo.size = block->size;
+        }
+        else
+        {
+            const uint32_t currentEnd =
+                m_PushConstantInfo.offset + m_PushConstantInfo.size;
+            const uint32_t blockEnd = block->offset + block->size;
+            const uint32_t mergedStart =
+                std::min(m_PushConstantInfo.offset, block->offset);
+            const uint32_t mergedEnd = std::max(currentEnd, blockEnd);
+
+            m_PushConstantInfo.offset = mergedStart;
+            m_PushConstantInfo.size = mergedEnd - mergedStart;
+        }
+
+        m_PushConstantInfo.stages |=
+            static_cast<VkShaderStageFlags>(module.shader_stage);
+
+
+    }
+
+    if (m_PushConstantInfo.IsValid())
+    {
+        CH_CORE_INFO(
+            "Shader push constants: '{}' offset={} size={} stages=0x{:x}",
+            m_Name, m_PushConstantInfo.offset, m_PushConstantInfo.size,
+            m_PushConstantInfo.stages);
+    }
+
     spvReflectDestroyShaderModule(&module);
 }
 
