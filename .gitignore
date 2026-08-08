@@ -24,7 +24,13 @@ cmake-build-release/
 Thumbs.db
 
 # 资源文件
-SandBox/assets/
+Sandbox/assets/*
+!Sandbox/assets/models/
+Sandbox/assets/models/*
+!Sandbox/assets/models/smoke_test/
+!Sandbox/assets/models/smoke_test/Box.gltf
+!Sandbox/assets/models/smoke_test/LICENSE.md
+!Sandbox/assets/models/smoke_test/README.md
 
 # Agents
 

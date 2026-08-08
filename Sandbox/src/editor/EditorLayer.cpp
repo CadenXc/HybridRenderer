@@ -66,7 +66,7 @@ void EditorLayer::OnAttach()
 
     ResourceManager::Get().LoadScene(
         Application::Get().GetSpecification().AssetDir +
-        "models/Sponza/glTF/Sponza.gltf");
+        "models/smoke_test/Box.gltf");
 
         /*
 ResourceManager::Get().LoadHDR(
