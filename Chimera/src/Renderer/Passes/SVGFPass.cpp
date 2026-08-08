@@ -165,7 +165,7 @@ void SVGFCombinePass::Setup(SVGFCombineData& data,
                             RenderGraph::PassBuilder& builder)
 {
     data.current = builder.ReadCompute(m_CurrentInputColor);
-    data.history = builder.ReadHistory(m_Config.historyBaseName);
+    data.history = builder.ReadHistorySafe( m_Config.historyBaseName, m_CurrentInputColor);
     data.moments = builder.ReadCompute(m_TemporalMomentsName);
     data.output = builder.WriteStorage(m_Config.prefix + "_Filtered_Final")
                       .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
