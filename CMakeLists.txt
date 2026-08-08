@@ -13,3 +13,9 @@ add_subdirectory(Sandbox)
 
 # Set Sandbox as the startup project for Visual Studio
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Sandbox)
+
+include(CTest)
+
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

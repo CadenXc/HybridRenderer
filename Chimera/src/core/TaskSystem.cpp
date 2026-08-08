@@ -45,38 +45,60 @@ void TaskSystem::Shutdown()
     CH_CORE_INFO("TaskSystem: Shutdown complete.");
 }
 
+bool TaskSystem::TryExecuteOneTask()
+{
+    std::function<void()> task;
+
+    {
+        std::lock_guard<std::mutex> lock(m_QueueMutex);
+
+        if (m_Tasks.empty()) return false;
+
+        task = std::move(m_Tasks.front());
+        m_Tasks.pop();
+    }
+
+    // 必须在释放 m_QueueMutex 后执行。
+    // 任务内部可能再次调用 Enqueue()，它也需要获取 m_QueueMutex。
+    try
+    {
+        task();
+    }
+    catch (const std::exception& e)
+    {
+        CH_CORE_ERROR("TaskSystem: Task exception: {0}", e.what());
+    }
+    catch (...)
+    {
+        CH_CORE_ERROR("TaskSystem: Task threw an unknown exception.");
+    }
+
+    return true;
+}
+
 void TaskSystem::WorkerThread()
 {
+    s_CurrentWorkerPool = this;
+
     while (true)
     {
-        std::function<void()> task;
-
         {
             std::unique_lock<std::mutex> lock(m_QueueMutex);
-            // 线程在这里沉睡，直到有新任务进来，或者系统要求停止
-            m_Condition.wait(lock,
-                             [this] { return m_Stop || !m_Tasks.empty(); });
 
-            // 如果要求停止且队列空了，线程结束生命周期
-            if (m_Stop && m_Tasks.empty()) return;
+            m_Condition.wait(
+                lock,
+                [this]
+                {
+                    return m_Stop || !m_Tasks.empty();
+                });
 
-            // 取出最前面的任务
-            task = std::move(m_Tasks.front());
-            m_Tasks.pop();
+            if (m_Stop && m_Tasks.empty())
+                break;
         }
 
-        // 执行任务
-        if (task)
-        {
-            try
-            {
-                task();
-            }
-            catch (const std::exception& e)
-            {
-                CH_CORE_ERROR("TaskSystem: Task exception: {0}", e.what());
-            }
-        }
+        TryExecuteOneTask();
     }
+
+    s_CurrentWorkerPool = nullptr;
 }
 } // namespace Chimera

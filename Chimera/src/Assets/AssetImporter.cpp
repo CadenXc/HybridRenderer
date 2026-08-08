@@ -197,7 +197,11 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
             QueueTexture(texPath, false);
     }
 
-    for (auto& f : textureFutures) f.wait();
+    TaskSystem* taskSystem = Application::Get().GetTaskSystem();
+    for (auto& future : textureFutures)
+    {
+        taskSystem->Wait(future);
+    }
 
     auto GetTexHandle = [&](aiMaterial* mat, aiTextureType type, bool srgb)
     {

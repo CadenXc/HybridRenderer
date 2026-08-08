@@ -23,17 +23,40 @@ public:
     template <class F, class... Args>
     auto Enqueue(F&& f, Args&&... args)
         -> std::future<typename std::invoke_result<F, Args...>::type>;
+    
+	template <class T>
+    void Wait(std::future<T>& future)
+    {
+        if (s_CurrentWorkerPool != this)
+        {
+        // 普通线程不参与执行后台任务。
+            future.wait();
+            return;
+        }
+
+    // 当前线程是这个 TaskSystem 的 worker.
+    // 等待 future 时，继续帮助执行队列里的任务。
+        while (future.wait_for(std::chrono::milliseconds(0)) !=
+               std::future_status::ready)
+        {
+            if (!TryExecuteOneTask())
+                future.wait_for(std::chrono::milliseconds(1));
+        }
+    }
+
 
     // 停止所有任务（退出引擎时调用）
     void Shutdown();
 
 private:
+    bool TryExecuteOneTask();
     // 工作线程的主循环
     void WorkerThread();
 
 private:
     std::vector<std::thread> m_Workers;
     std::queue<std::function<void()>> m_Tasks;
+    inline static thread_local TaskSystem* s_CurrentWorkerPool = nullptr;
 
     std::mutex m_QueueMutex;
     std::condition_variable m_Condition;
