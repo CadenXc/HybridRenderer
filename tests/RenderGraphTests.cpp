@@ -1,4 +1,7 @@
+#include "Core/Log.h"
 #include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Passes/TAAPass.h"
 
 #include <exception>
 #include <iostream>
@@ -282,10 +285,69 @@ void TestSelfDependencyIsRejected()
     Require(rejected, "self dependency must be rejected as a cycle");
 }
 
+void TestTAAFirstFramePreservesHistoryBinding()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    // 建立 TAA 所需的当前帧资源。
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(
+        graph,
+        producerPass);
+
+    producerBuilder.Write(Chimera::RS::FinalColor)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+
+    producerBuilder.Write(Chimera::RS::Motion)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+
+    producerBuilder.Write(Chimera::RS::Depth)
+        .Format(VK_FORMAT_D32_SFLOAT);
+
+    // 此时 graph 中还不存在 TAAOutput history。
+    Chimera::RenderGraphPass taaGraphPass;
+    taaGraphPass.name = "TAAPass";
+    taaGraphPass.isCompute = true;
+
+    Chimera::RenderGraph::PassBuilder taaBuilder(
+        graph,
+        taaGraphPass);
+
+    Chimera::TAAPass taaPass;
+    Chimera::TAAPassData data{};
+
+    taaPass.Setup(data, taaBuilder);
+
+    Require(
+        taaGraphPass.inputs.size() == 4,
+        "TAA first frame must preserve all four input bindings");
+
+    Require(
+        data.history == data.current,
+        "TAA first frame should use current color as history fallback");
+
+    Require(
+        taaGraphPass.inputs[0].handle == data.current,
+        "TAA binding 0 should contain current color");
+
+    Require(
+        taaGraphPass.inputs[1].handle == data.history,
+        "TAA binding 1 should contain history fallback");
+
+    Require(
+        taaGraphPass.inputs[2].handle == data.motion,
+        "TAA binding 2 should contain motion");
+
+    Require(
+        taaGraphPass.inputs[3].handle == data.depth,
+        "TAA binding 3 should contain depth");
+}
+
 } // namespace
 
 int main()
 {
+    Chimera::Log::Init();
     try
     {
         TestEmptyGraphCompilesAndExecutesSafely();
@@ -323,6 +385,9 @@ int main()
 
         TestSelfDependencyIsRejected();
         std::cout << "[PASS] self dependencies are rejected\n";
+
+        TestTAAFirstFramePreservesHistoryBinding();
+        std::cout << "[PASS] TAA first frame preserves history binding\n";
 
         return 0;
     }

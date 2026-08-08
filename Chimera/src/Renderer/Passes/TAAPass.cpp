@@ -17,7 +17,7 @@ void TAAPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
     data.current = builder.ReadCompute(RS::FinalColor);
 
         // previous frame's accumulated result (Feedback)
-    data.history = builder.ReadHistory("TAAOutput");
+    data.history = builder.ReadHistorySafe("TAAOutput", RS::FinalColor);
 
     data.motion = builder.ReadCompute(RS::Motion);
     data.depth = builder.ReadCompute(RS::Depth);
