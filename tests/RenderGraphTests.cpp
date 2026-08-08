@@ -344,12 +344,11 @@ void TestTAAFirstFramePreservesHistoryBinding()
         "TAA binding 3 should contain depth");
 }
 
-void TestSVGFCombineFirstFramePreservesHistoryBinding()
+void TestSVGFCombineUsesOnlyShaderInputs()
 {
     Chimera::RenderGraph graph(1280, 720);
 
     const std::string currentName = "TestFiltered";
-    const std::string momentsName = "TestMoments";
 
     Chimera::RenderGraphPass producerPass;
     Chimera::RenderGraph::PassBuilder producerBuilder(
@@ -359,14 +358,10 @@ void TestSVGFCombineFirstFramePreservesHistoryBinding()
     producerBuilder.WriteStorage(currentName)
         .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
 
-    producerBuilder.WriteStorage(momentsName)
-        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-
     producerBuilder.Write(Chimera::RS::Albedo)
         .Format(VK_FORMAT_R8G8B8A8_UNORM);
 
     Chimera::SVGFPass::Config config;
-    config.historyBaseName = "TestAccumulated";
 
     Chimera::RenderGraphPass combineGraphPass;
     combineGraphPass.name = "SVGFCombinePass";
@@ -378,36 +373,19 @@ void TestSVGFCombineFirstFramePreservesHistoryBinding()
 
     Chimera::SVGFCombinePass combinePass(
         config,
-        currentName,
-        momentsName);
+        currentName);
 
     Chimera::SVGFCombineData data{};
     combinePass.Setup(data, combineBuilder);
 
-    Require(
-        combineGraphPass.inputs.size() == 4,
-        "SVGF Combine first frame must preserve all input bindings");
+    Require(combineGraphPass.inputs.size() == 2,
+            "SVGF Combine should declare only current signal and albedo");
 
-    Require(
-        data.history == data.current,
-        "SVGF Combine should use current filtered signal as history fallback");
+    Require(combineGraphPass.inputs[0].handle == data.current,
+            "SVGF Combine binding 0 should contain current signal");
 
-    Require(
-        combineGraphPass.inputs[0].handle == data.current,
-        "SVGF Combine binding 0 should contain current signal");
-
-    Require(
-        combineGraphPass.inputs[1].handle == data.history,
-        "SVGF Combine binding 1 should contain history fallback");
-
-    Require(
-        combineGraphPass.inputs[2].handle == data.moments,
-        "SVGF Combine binding 2 should contain moments");
-
-    Require(
-        combineGraphPass.inputs[3].handle ==
-            graph.GetResourceHandle(Chimera::RS::Albedo),
-        "SVGF Combine binding 4 should contain albedo");
+    Require(combineGraphPass.inputs[1].handle == data.albedo,
+            "SVGF Combine binding 4 should contain albedo");
 }
 
 } // namespace
@@ -456,8 +434,8 @@ int main()
         TestTAAFirstFramePreservesHistoryBinding();
         std::cout << "[PASS] TAA first frame preserves history binding\n";
 
-        TestSVGFCombineFirstFramePreservesHistoryBinding();
-        std::cout << "[PASS] SVGF Combine first frame preserves history binding\n";
+        TestSVGFCombineUsesOnlyShaderInputs();
+        std::cout << "[PASS] SVGF Combine declares only used shader inputs\n";
 
         return 0;
     }

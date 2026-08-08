@@ -153,23 +153,21 @@ void SVGFAtrousPass::Execute(const SVGFAtrousData& data,
 }
 
     // --- Combine Pass ---
-SVGFCombinePass::SVGFCombinePass(const SVGFPass::Config& config,
-                                 const std::string& currentInputColor,
-                                 const std::string& temporalMomentsName)
+SVGFCombinePass::SVGFCombinePass(
+    const SVGFPass::Config& config,
+    const std::string& currentInputColor)
     : m_Config(config),
-      m_CurrentInputColor(currentInputColor),
-      m_TemporalMomentsName(temporalMomentsName)
+      m_CurrentInputColor(currentInputColor)
 {
 }
+
 void SVGFCombinePass::Setup(SVGFCombineData& data,
                             RenderGraph::PassBuilder& builder)
 {
     data.current = builder.ReadCompute(m_CurrentInputColor);
-    data.history = builder.ReadHistorySafe( m_Config.historyBaseName, m_CurrentInputColor);
-    data.moments = builder.ReadCompute(m_TemporalMomentsName);
     data.output = builder.WriteStorage(m_Config.prefix + "_Filtered_Final")
                       .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-    builder.ReadCompute(RS::Albedo);
+    data.albedo = builder.ReadCompute(RS::Albedo);
 }
 void SVGFCombinePass::Execute(const SVGFCombineData& data,
                               ComputeExecutionContext& ctx)
@@ -235,8 +233,7 @@ void SVGFPass::Add(RenderGraph& graph, std::shared_ptr<Scene> scene,
 
     if (config.temporalEnabled || config.spatialEnabled)
     {
-        graph.AddPass<SVGFCombinePass>(config, currentInputColor,
-                                       currentInputMoments);
+        graph.AddPass<SVGFCombinePass>(config, currentInputColor);
     }
 }
 } // namespace Chimera

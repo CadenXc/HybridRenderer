@@ -10,8 +10,6 @@ layout(push_constant) uniform PushConstants
 } pc;
 
 layout(set = 2, binding = 0) uniform sampler2D gCurrentFiltered; // vec4
-layout(set = 2, binding = 1) uniform sampler2D gHistorySignal;
-layout(set = 2, binding = 2) uniform sampler2D gHistoryMoments;
 layout(set = 2, binding = 3, rgba16f) uniform image2D outFinal;
 layout(set = 2, binding = 4) uniform sampler2D gAlbedo; 
 

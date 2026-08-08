@@ -64,9 +64,8 @@ struct SVGFAtrousData
 struct SVGFCombineData
 {
     RGResourceHandle current;
-    RGResourceHandle history;
-    RGResourceHandle moments;
     RGResourceHandle output;
+    RGResourceHandle albedo;
 };
 
     /**
@@ -176,8 +175,7 @@ class SVGFCombinePass : public ComputePass<SVGFCombineData>
 public:
     static constexpr const char* Name = "SVGFCombinePass";
     SVGFCombinePass(const SVGFPass::Config& config,
-                    const std::string& currentInputColor,
-                    const std::string& temporalMomentsName);
+                    const std::string& currentInputColor);
     virtual void Setup(SVGFCombineData& data,
                        RenderGraph::PassBuilder& builder) override;
     virtual void Execute(const SVGFCombineData& data,
@@ -185,6 +183,6 @@ public:
 
 private:
     SVGFPass::Config m_Config;
-    std::string m_CurrentInputColor, m_TemporalMomentsName;
+    std::string m_CurrentInputColor;
 };
 } // namespace Chimera
