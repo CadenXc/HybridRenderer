@@ -35,3 +35,6 @@ Sandbox/assets/models/*
 # Agents
 
 docs/
+
+# Local CMake preset overrides
+CMakeUserPresets.json
