@@ -1,12 +1,11 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.24)
 
 project(HybridRenderer LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Dependencies (Vulkan is still system-wide usually)
-find_package(Vulkan REQUIRED)
+find_package(Vulkan COMPONENTS glslc REQUIRED)
 
 # Modules
 add_subdirectory(Chimera)

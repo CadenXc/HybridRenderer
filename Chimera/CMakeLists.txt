@@ -69,10 +69,6 @@ target_link_libraries(Chimera PUBLIC
 )
 
 # 7. Modern Shader Compilation System
-find_program(GLSLC_EXECUTABLE NAMES glslc HINTS ENV VULKAN_SDK PATH_SUFFIXES Bin)
-
-if(GLSLC_EXECUTABLE)
-    message(STATUS "Found glslc: ${GLSLC_EXECUTABLE}")
     
     set(SHADER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
     set(SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders_compiled")
@@ -103,7 +99,7 @@ if(GLSLC_EXECUTABLE)
         
         add_custom_command(
             OUTPUT ${SPIRV_BINARY}
-            COMMAND ${GLSLC_EXECUTABLE} --target-env=vulkan1.3 -I "${CMAKE_CURRENT_SOURCE_DIR}/src/Renderer/Backend" -I "${SHADER_SOURCE_DIR}/common" -I "${SHADER_SOURCE_DIR}" ${SHADER_FILE} -o ${SPIRV_BINARY}
+            COMMAND Vulkan::glslc --target-env=vulkan1.3 -I "${CMAKE_CURRENT_SOURCE_DIR}/src/Renderer/Backend" -I "${SHADER_SOURCE_DIR}/common" -I "${SHADER_SOURCE_DIR}" ${SHADER_FILE} -o ${SPIRV_BINARY}
             DEPENDS ${SHADER_FILE}
             COMMENT "Compiling Chimera Shader: ${REL_PATH} to SPIR-V..."
         )
@@ -111,6 +107,3 @@ if(GLSLC_EXECUTABLE)
     endforeach()
 
     add_custom_target(ChimeraShaders ALL DEPENDS ${SPIRV_BINARIES})
-else()
-    message(FATAL_ERROR "glslc not found!")
-endif()
