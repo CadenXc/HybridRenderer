@@ -223,6 +223,58 @@ void TestSameStateReadDoesNotRequireBarrier()
         "same-state read-after-read should not require a barrier");
 }
 
+void TestTopologicalLayersIgnorePassIndexOrder()
+{
+    const std::vector<std::vector<uint32_t>> dependencies{
+        {1}, // pass 0 waits for pass 1
+        {2}, // pass 1 waits for pass 2
+        {}   // pass 2 has no predecessor
+    };
+
+    const auto layers =
+        Chimera::RenderGraph::BuildExecutionLayers(dependencies);
+
+    Require(
+        layers.size() == 3,
+        "transitive dependency chain should produce three layers");
+
+    Require(
+        layers[0] == std::vector<uint32_t>{2},
+        "pass 2 should execute first");
+
+    Require(
+        layers[1] == std::vector<uint32_t>{1},
+        "pass 1 should execute second");
+
+    Require(
+        layers[2] == std::vector<uint32_t>{0},
+        "pass 0 should execute last");
+}
+
+void TestDependencyCycleIsRejected()
+{
+    bool rejected = false;
+
+    try
+    {
+        Chimera::RenderGraph::BuildExecutionLayers({
+            {1}, // pass 0 waits for pass 1
+            {0}  // pass 1 waits for pass 0
+        });
+    }
+    catch (const std::logic_error& error)
+    {
+        rejected =
+            std::string(error.what()).find("cycle") !=
+            std::string::npos;
+    }
+
+    Require(
+        rejected,
+        "dependency cycle must be rejected");
+}
+
+
 }
 
 int main()
@@ -248,6 +300,12 @@ int main()
 
         TestWriterWaitsForEarlierReader();
         std::cout << "[PASS] writers wait for earlier readers\n";
+
+        TestTopologicalLayersIgnorePassIndexOrder();
+        std::cout << "[PASS] topological layers ignore pass index order\n";
+
+        TestDependencyCycleIsRejected();
+        std::cout << "[PASS] dependency cycles are rejected\n";
 
         return 0;
     }

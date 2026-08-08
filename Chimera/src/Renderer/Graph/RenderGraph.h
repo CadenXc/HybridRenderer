@@ -251,7 +251,9 @@ public:
     void DrawPerformanceStatistics();
     std::string ExportToMermaid() const;
 
-    // --- Multi-threaded Extension ---
+    static std::vector<std::vector<uint32_t>> BuildExecutionLayers(
+        const std::vector<std::vector<uint32_t>>& dependencies);
+
     void BuildDependencyGraph();
     const std::vector<std::vector<uint32_t>>& GetParallelLayers() const
     {

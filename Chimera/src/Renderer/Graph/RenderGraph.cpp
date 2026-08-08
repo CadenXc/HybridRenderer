@@ -205,6 +205,79 @@ void RenderGraph::Compile()
     BuildDependencyGraph();
 }
 
+std::vector<std::vector<uint32_t>> RenderGraph::BuildExecutionLayers(
+    const std::vector<std::vector<uint32_t>>& dependencies)
+{
+    const uint32_t passCount = static_cast<uint32_t>(dependencies.size());
+
+    std::vector<std::vector<uint32_t>> successors(passCount);
+    std::vector<uint32_t> indegrees(passCount, 0);
+
+    // predecessor table 转换为 successor table 和 indegree。
+    for (uint32_t dependent = 0; dependent < passCount; ++dependent)
+    {
+        for (uint32_t predecessor : dependencies[dependent])
+        {
+            if (predecessor >= passCount)
+            {
+                throw std::logic_error(
+                    "RenderGraph dependency references an invalid pass");
+            }
+
+            auto& outgoing = successors[predecessor];
+
+            // 防止重复 edge 被重复计入 indegree。
+            if (std::find(outgoing.begin(), outgoing.end(), dependent) ==
+                outgoing.end())
+            {
+                outgoing.push_back(dependent);
+                ++indegrees[dependent];
+            }
+        }
+    }
+
+    std::vector<uint32_t> currentLayer;
+
+    for (uint32_t pass = 0; pass < passCount; ++pass)
+    {
+        if (indegrees[pass] == 0) currentLayer.push_back(pass);
+    }
+
+    std::vector<std::vector<uint32_t>> layers;
+    uint32_t processedPasses = 0;
+
+    while (!currentLayer.empty())
+    {
+        // 稳定输出，便于测试和调试。
+        std::sort(currentLayer.begin(), currentLayer.end());
+
+        layers.push_back(currentLayer);
+
+        std::vector<uint32_t> nextLayer;
+
+        for (uint32_t predecessor : currentLayer)
+        {
+            ++processedPasses;
+
+            for (uint32_t dependent : successors[predecessor])
+            {
+                --indegrees[dependent];
+
+                if (indegrees[dependent] == 0) nextLayer.push_back(dependent);
+            }
+        }
+
+        currentLayer = std::move(nextLayer);
+    }
+
+    if (processedPasses != passCount)
+    {
+        throw std::logic_error("RenderGraph dependency cycle detected");
+    }
+
+    return layers;
+}
+
 void RenderGraph::BuildDependencyGraph()
 {
     m_ParallelLayers.clear();
@@ -217,7 +290,6 @@ void RenderGraph::BuildDependencyGraph()
 
     m_PassDependencies.resize(numPasses);
 
-    std::vector<uint32_t> passDepths(numPasses, 0);
     std::unordered_map<RGResourceHandle, uint32_t> lastWriter;
     std::unordered_map<RGResourceHandle, std::vector<uint32_t>>
         readersSinceLastWrite;
@@ -236,7 +308,6 @@ void RenderGraph::BuildDependencyGraph()
     for (uint32_t i = 0; i < numPasses; ++i)
     {
         auto& pass = m_PassStack[i];
-        uint32_t maxDepth = 0;
 
     // RAW：当前 pass 读取此前 writer 的结果。
         for (const auto& input : pass.inputs)
@@ -247,7 +318,6 @@ void RenderGraph::BuildDependencyGraph()
             {
                 addDependency(writer->second, i);
 
-                maxDepth = std::max(maxDepth, passDepths[writer->second] + 1);
             }
         }
 
@@ -260,7 +330,6 @@ void RenderGraph::BuildDependencyGraph()
             {
                 addDependency(writer->second, i);
 
-                maxDepth = std::max(maxDepth, passDepths[writer->second] + 1);
             }
 
             auto readers = readersSinceLastWrite.find(output.handle);
@@ -271,12 +340,10 @@ void RenderGraph::BuildDependencyGraph()
                 {
 					addDependency(readerIdx, i);
 
-                    maxDepth = std::max(maxDepth, passDepths[readerIdx] + 1);
                 }
             }
         }
 
-        passDepths[i] = maxDepth;
 
 		// 必须先完成依赖计算，再登记当前 pass。
 		// 否则 read-write pass 可能错误地依赖自己。
@@ -298,12 +365,7 @@ void RenderGraph::BuildDependencyGraph()
         }
     }
 
-    uint32_t totalLayers = 0;
-    for (uint32_t d : passDepths) totalLayers = std::max(totalLayers, d + 1);
-
-    m_ParallelLayers.resize(totalLayers);
-    for (uint32_t i = 0; i < numPasses; ++i)
-        m_ParallelLayers[passDepths[i]].push_back(i);
+        m_ParallelLayers = BuildExecutionLayers(m_PassDependencies);
 }
 
 void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderGraphPass& pass, uint32_t passIdx)
