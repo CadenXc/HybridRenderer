@@ -14,3 +14,20 @@ add_test(
 set_tests_properties(TaskSystemTests PROPERTIES
     TIMEOUT 10
 )
+
+add_executable(RenderGraphTests
+    RenderGraphTests.cpp
+)
+
+target_link_libraries(RenderGraphTests
+    PRIVATE Chimera
+)
+
+add_test(
+    NAME RenderGraphTests
+    COMMAND RenderGraphTests
+)
+
+set_tests_properties(RenderGraphTests PROPERTIES
+    TIMEOUT 10
+)

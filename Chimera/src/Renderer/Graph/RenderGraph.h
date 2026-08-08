@@ -61,6 +61,7 @@ public:
     };
 
     RenderGraph(VulkanContext& context, uint32_t w, uint32_t h);
+    RenderGraph(uint32_t w, uint32_t h);
     ~RenderGraph();
 
         /**
@@ -326,7 +327,7 @@ private:
     void UpdatePersistentResources(VkCommandBuffer cmd);
 
 private:
-    VulkanContext& m_Context;
+    VulkanContext* m_Context = nullptr;
     uint32_t m_Width, m_Height;
     std::vector<struct RenderGraphPass> m_PassStack;
     std::vector<PhysicalResource> m_Resources;

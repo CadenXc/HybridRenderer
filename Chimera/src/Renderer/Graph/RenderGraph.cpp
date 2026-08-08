@@ -85,22 +85,38 @@ static ResourceState GetStateFromUsage(ResourceUsage usage, bool isDepth)
     return state;
 }
 
-RenderGraph::RenderGraph(VulkanContext& context, uint32_t w, uint32_t h)
-    : m_Context(context), m_Width(w), m_Height(h)
+RenderGraph::RenderGraph(
+    VulkanContext& context,
+    uint32_t w,
+    uint32_t h)
+    : m_Context(&context),
+      m_Width(w),
+      m_Height(h)
+{
+}
+
+RenderGraph::RenderGraph(uint32_t w, uint32_t h)
+    : m_Width(w),
+      m_Height(h)
 {
 }
 
 RenderGraph::~RenderGraph()
 {
-    if (m_TimestampQueryPool != VK_NULL_HANDLE)
-    {
-        vkDestroyQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, nullptr);
-    }
+    if (m_Context && m_TimestampQueryPool != VK_NULL_HANDLE)
+	{
+		vkDestroyQueryPool( m_Context->GetDevice(), m_TimestampQueryPool, nullptr);
+	}
     DestroyResources(true);
 }
 
 void RenderGraph::Compile()
 {
+    if (!m_Context && !m_Resources.empty())
+    {
+        throw std::logic_error(
+            "Compile-only RenderGraph cannot allocate GPU resources");
+    }
     for (auto& res : m_Resources)
     {
         res.firstPass = 0xFFFFFFFF;
@@ -235,16 +251,16 @@ void RenderGraph::InitQueryPool()
     if (m_TimestampQueryPool == VK_NULL_HANDLE || m_PreviousPassCount < passCount)
     {
         if (m_TimestampQueryPool != VK_NULL_HANDLE)
-            vkDestroyQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, nullptr);
-
+            vkDestroyQueryPool(m_Context->GetDevice(), m_TimestampQueryPool, nullptr);
+        
         VkQueryPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         poolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
         poolInfo.queryCount = std::max(64u, passCount * 2);
-        vkCreateQueryPool(m_Context.GetDevice(), &poolInfo, nullptr, &m_TimestampQueryPool);
+        vkCreateQueryPool(m_Context->GetDevice(), &poolInfo, nullptr, &m_TimestampQueryPool);
         
         // [FIX] Perform an immediate Host Reset upon creation.
         // This ensures the pool is in a valid state even before the first GPU command buffer executes.
-        vkResetQueryPool(m_Context.GetDevice(), m_TimestampQueryPool, 0, poolInfo.queryCount);
+        vkResetQueryPool(m_Context->GetDevice(), m_TimestampQueryPool, 0, poolInfo.queryCount);
         
         m_PreviousPassCount = passCount;
         m_StatsReady = false;
@@ -269,14 +285,14 @@ void RenderGraph::FetchQueryResults()
     // We don't use WAIT_BIT here to avoid any chance of blocking the main thread.
     // If results aren't ready (VK_NOT_READY), we simply skip this frame's update.
     VkResult res = vkGetQueryPoolResults(
-        m_Context.GetDevice(), m_TimestampQueryPool, 0, queryCount,
+        m_Context->GetDevice(), m_TimestampQueryPool, 0, queryCount,
         results.size() * sizeof(uint64_t), results.data(), sizeof(uint64_t),
         VK_QUERY_RESULT_64_BIT);
 
     if (res == VK_SUCCESS)
     {
         m_LatestTimings.clear();
-        float period = m_Context.GetDeviceProperties().limits.timestampPeriod;
+        float period = m_Context->GetDeviceProperties().limits.timestampPeriod;
         for (uint32_t i = 0; i < (uint32_t)m_LastPassNames.size(); ++i)
         {
             uint64_t start = results[i * 2];
@@ -295,6 +311,12 @@ VkSemaphore RenderGraph::Execute(VkCommandBuffer cmd)
         m_LatestTimings.clear();
         m_StatsReady = false;
         return VK_NULL_HANDLE;
+    }
+
+    if (!m_Context)
+    {
+        throw std::logic_error(
+            "Compile-only RenderGraph cannot execute GPU passes");
     }
 
     FetchQueryResults();
