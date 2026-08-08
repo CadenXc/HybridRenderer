@@ -38,23 +38,36 @@ void HybridRenderPath::BuildGraph(RenderGraph& graph,
     bool useSVGFMaster = renderFlags & RenderFlags_SVGFBit;
     bool doTemporal = renderFlags & RenderFlags_SVGFTemporalBit;
     bool doSpatial = renderFlags & RenderFlags_SVGFSpatialBit;
-    bool svgfActive = useSVGFMaster && (doTemporal || doSpatial);
 
     // 2. Ray Tracing Passes (Shadows, AO, Reflections, GI)
     bool hasTLAS = scene && scene->GetTLAS() != VK_NULL_HANDLE;
-    if (rtSupported && hasTLAS)
+
+    bool useRayTracing = rtSupported && hasTLAS;
+
+    bool svgfActive = useRayTracing && useSVGFMaster && (doTemporal || doSpatial);
+
+    if (useRayTracing)
     {
-        // RTShadowPass now handles both Shadows and AO (Packed into R and G
-        // channels)
         graph.AddPass<RTShadowPass>(scene);
 
-        // RTReflectionPass and RTDiffuseGIPass still separate for now
         graph.AddPass<RTReflectionPass>(scene);
         graph.AddPass<RTDiffuseGIPass>(scene);
     }
+    else
+    {
+        VkClearColorValue fullyVisible = {{1.0f, 1.0f, 0.0f, 0.0f}};
+
+        VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+        StandardPasses::AddClearPass(graph, RS::ShadowAO, fullyVisible);
+
+        StandardPasses::AddClearPass(graph, "ReflectionRaw", black);
+
+        StandardPasses::AddClearPass(graph, "GIRaw", black);
+    }
 
     // 3. SVGF Denoising Passes (Conditional)
-    if (rtSupported && scene && svgfActive)
+    if (svgfActive)
     {
         SVGFPass::Config baseConfig;
         baseConfig.temporalEnabled = doTemporal;

@@ -14,7 +14,7 @@ CompositionPass::CompositionPass(const Config& config) : m_Config(config) {}
 void CompositionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
     // MUST STRICTLY MATCH binding order in composition.frag (Set 2, Bindings
-    // 0-11)
+    // 0-9)
     data.albedo = builder.Read(RS::Albedo); // 0
     data.normal = builder.Read(RS::Normal);     // 1
     data.material = builder.Read(RS::MaterialParams); // 2
@@ -26,8 +26,6 @@ void CompositionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
     data.reflection_raw = builder.Read(m_Config.reflectionName); // 7
     data.shadow_raw = builder.Read(m_Config.shadowName); // 8
     data.ao_raw = builder.Read(m_Config.aoName); // 9
-    data.shadow_debug_raw = builder.Read("ShadowRaw"); // 10
-    data.shadow_moments = builder.Read("Shadow_TemporalMoments"); // 11
 
     data.output =
         builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);

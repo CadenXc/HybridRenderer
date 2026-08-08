@@ -112,6 +112,19 @@ RenderGraph::~RenderGraph()
 
 void RenderGraph::Compile()
 {
+    for (const auto& pass : m_PassStack)
+    {
+        for (const auto& input : pass.inputs)
+        {
+            if (input.handle == INVALID_RESOURCE ||
+                input.handle >= m_Resources.size())
+            {
+                throw std::logic_error(
+                    "RenderGraph compile error: pass '" + pass.name +
+                    "' reads undeclared resource '" + input.name + "'");
+            }
+        }
+    }
     if (!m_Context && !m_Resources.empty())
     {
         throw std::logic_error(
@@ -430,17 +443,34 @@ void RenderGraph::DestroyResources(bool all)
 
 RGResourceHandle RenderGraph::PassBuilder::Read(const std::string& name)
 {
-    RGResourceHandle h = graph.GetResourceHandle(name);
-    pass.inputs.push_back({h, ResourceUsage::GraphicsSampled});
-    return h;
+    RGResourceHandle handle = graph.GetResourceHandle(name);
+
+    ResourceRequest request{handle, ResourceUsage::GraphicsSampled};
+
+    request.name = name;
+
+    pass.inputs.push_back(std::move(request));
+
+    return handle;
 }
 
-RGResourceHandle RenderGraph::PassBuilder::ReadCompute(const std::string& name)
+RGResourceHandle RenderGraph::PassBuilder::ReadCompute(
+    const std::string& name)
 {
-    RGResourceHandle h = graph.GetResourceHandle(name);
-    pass.inputs.push_back({h, ResourceUsage::ComputeSampled});
-    return h;
+    RGResourceHandle handle =
+        graph.GetResourceHandle(name);
+
+    ResourceRequest request{
+        handle,
+        ResourceUsage::ComputeSampled
+    };
+
+    request.name = name;
+    pass.inputs.push_back(std::move(request));
+
+    return handle;
 }
+
 
 RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
 {

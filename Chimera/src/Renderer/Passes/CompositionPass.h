@@ -22,10 +22,7 @@ struct CompositionPassData
     RGResourceHandle gi_raw;
     RGResourceHandle reflection_raw;
     RGResourceHandle shadow_raw;
-    RGResourceHandle shadow_moments; // NEW: For debugging history length
     RGResourceHandle ao_raw;
-    RGResourceHandle
-        shadow_debug_raw; // NEW: Always points to the raw, un-denoised signal
 
     RGResourceHandle output;
 };
