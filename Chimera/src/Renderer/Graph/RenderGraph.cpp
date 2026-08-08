@@ -213,6 +213,8 @@ void RenderGraph::BuildDependencyGraph()
 
     std::vector<uint32_t> passDepths(numPasses, 0);
     std::unordered_map<RGResourceHandle, uint32_t> lastWriter;
+    std::unordered_map< RGResourceHandle, std::vector<uint32_t>> readersSinceLastWrite;
+
     for (uint32_t i = 0; i < numPasses; ++i)
     {
         auto& pass = m_PassStack[i];
@@ -238,15 +240,37 @@ void RenderGraph::BuildDependencyGraph()
             {
                 maxDepth = std::max(maxDepth, passDepths[writer->second] + 1);
             }
+
+            auto readers = readersSinceLastWrite.find(output.handle);
+
+            if (readers != readersSinceLastWrite.end())
+            {
+                for (uint32_t readerIdx : readers->second)
+                {
+                    maxDepth = std::max(maxDepth, passDepths[readerIdx] + 1);
+                }
+            }
         }
 
         passDepths[i] = maxDepth;
 
-    // 必须在计算完当前 pass 的依赖之后，
-    // 才能把它登记为最新 writer。
+		// 必须先完成依赖计算，再登记当前 pass。
+		// 否则 read-write pass 可能错误地依赖自己。
+        for (const auto& input : pass.inputs)
+        {
+            if (input.handle != INVALID_RESOURCE)
+            {
+                readersSinceLastWrite[input.handle].push_back(i);
+            }
+        }
+
         for (const auto& output : pass.outputs)
         {
             lastWriter[output.handle] = i;
+
+			// 新写入覆盖旧版本。此前 reader 已经成为该 writer
+			// 的依赖，不应继续约束下一代资源版本。
+            readersSinceLastWrite[output.handle].clear();
         }
     }
 

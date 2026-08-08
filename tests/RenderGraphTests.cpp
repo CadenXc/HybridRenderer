@@ -102,6 +102,54 @@ void AddWriter(
         });
 }
 
+struct ReadPassData
+{
+    Chimera::RGResourceHandle input;
+};
+
+void AddReader(
+    Chimera::RenderGraph& graph,
+    const std::string& passName)
+{
+    graph.AddPassRaw<ReadPassData>(
+        passName,
+        [](ReadPassData& data,
+           Chimera::RenderGraph::PassBuilder& builder)
+        {
+            data.input = builder.Read("SharedImage");
+        },
+        [](const ReadPassData&,
+           Chimera::RenderGraphRegistry&,
+           VkCommandBuffer)
+        {
+        });
+}
+
+void TestWriterWaitsForEarlierReader()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    AddWriter(graph, "WriterA");
+    AddReader(graph, "ReaderA");
+    AddReader(graph, "ReaderB");
+    AddWriter(graph, "WriterB");
+
+    graph.Compile();
+
+    const auto& layers = graph.GetParallelLayers();
+
+    Require(layers.size() == 3, "a writer must wait for all earlier readers");
+
+    Require(layers[0].size() == 1 && layers[0][0] == 0,
+            "WriterA should be the only pass in layer 0");
+
+    Require(layers[1].size() == 2 && layers[1][0] == 1 && layers[1][1] == 2,
+            "independent readers should share layer 1");
+
+    Require(layers[2].size() == 1 && layers[2][0] == 3,
+            "WriterB should wait in layer 2");
+}
+
 void TestWritersArePlacedInSeparateLayers()
 {
     Chimera::RenderGraph graph(1280, 720);
@@ -181,6 +229,9 @@ int main()
 
         TestSameStateReadDoesNotRequireBarrier();
         std::cout << "[PASS] same-state read-read skips the barrier\n";
+
+        TestWriterWaitsForEarlierReader();
+        std::cout << "[PASS] writers wait for earlier readers\n";
 
         return 0;
     }
