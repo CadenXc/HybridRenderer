@@ -148,6 +148,22 @@ void TestWriterWaitsForEarlierReader()
 
     Require(layers[2].size() == 1 && layers[2][0] == 3,
             "WriterB should wait in layer 2");
+
+    const auto& dependencies = graph.GetPassDependencies();
+
+    Require(dependencies.size() == 4,
+            "dependency table must contain one entry per pass");
+
+    Require(dependencies[0].empty(), "WriterA should have no predecessors");
+
+    Require(dependencies[1] == std::vector<uint32_t>{0},
+            "ReaderA should depend on WriterA");
+
+    Require(dependencies[2] == std::vector<uint32_t>{0},
+            "ReaderB should depend on WriterA");
+
+    Require(dependencies[3] == std::vector<uint32_t>{0, 1, 2},
+            "WriterB should depend on WriterA and both readers");
 }
 
 void TestWritersArePlacedInSeparateLayers()

@@ -258,6 +258,11 @@ public:
         return m_ParallelLayers;
     }
 
+    const std::vector<std::vector<uint32_t>>& GetPassDependencies() const
+    {
+        return m_PassDependencies;
+    }
+
 private:
     void InitQueryPool();
     void FetchQueryResults();
@@ -265,6 +270,10 @@ private:
     // Parallel execution layers: each inner vector contains indices of passes
     // that can run concurrently
     std::vector<std::vector<uint32_t>> m_ParallelLayers;
+
+    // m_PassDependencies[i] contains the pass indices
+    // that pass i must wait for.
+    std::vector<std::vector<uint32_t>> m_PassDependencies;
 
     template <typename T, typename = void>
     struct HasPassData : std::false_type

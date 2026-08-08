@@ -208,12 +208,30 @@ void RenderGraph::Compile()
 void RenderGraph::BuildDependencyGraph()
 {
     m_ParallelLayers.clear();
+    m_PassDependencies.clear();
+
     uint32_t numPasses = (uint32_t)m_PassStack.size();
-    if (numPasses == 0) return;
+
+    if (numPasses == 0)
+        return;
+
+    m_PassDependencies.resize(numPasses);
 
     std::vector<uint32_t> passDepths(numPasses, 0);
     std::unordered_map<RGResourceHandle, uint32_t> lastWriter;
-    std::unordered_map< RGResourceHandle, std::vector<uint32_t>> readersSinceLastWrite;
+    std::unordered_map<RGResourceHandle, std::vector<uint32_t>>
+        readersSinceLastWrite;
+
+    auto addDependency = [&](uint32_t predecessor, uint32_t dependent)
+    {
+        auto& dependencies = m_PassDependencies[dependent];
+
+        if (std::find(dependencies.begin(), dependencies.end(), predecessor) ==
+            dependencies.end())
+        {
+            dependencies.push_back(predecessor);
+        }
+    };
 
     for (uint32_t i = 0; i < numPasses; ++i)
     {
@@ -227,6 +245,8 @@ void RenderGraph::BuildDependencyGraph()
 
             if (writer != lastWriter.end())
             {
+                addDependency(writer->second, i);
+
                 maxDepth = std::max(maxDepth, passDepths[writer->second] + 1);
             }
         }
@@ -238,6 +258,8 @@ void RenderGraph::BuildDependencyGraph()
 
             if (writer != lastWriter.end())
             {
+                addDependency(writer->second, i);
+
                 maxDepth = std::max(maxDepth, passDepths[writer->second] + 1);
             }
 
@@ -247,6 +269,8 @@ void RenderGraph::BuildDependencyGraph()
             {
                 for (uint32_t readerIdx : readers->second)
                 {
+					addDependency(readerIdx, i);
+
                     maxDepth = std::max(maxDepth, passDepths[readerIdx] + 1);
                 }
             }
