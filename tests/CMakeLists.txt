@@ -31,3 +31,16 @@ add_test(
 set_tests_properties(RenderGraphTests PROPERTIES
     TIMEOUT 10
 )
+
+add_executable(ShaderAbiTests
+    ShaderAbiTests.cpp
+)
+
+target_link_libraries(ShaderAbiTests
+    PRIVATE Chimera
+)
+
+add_test(
+    NAME ShaderAbiTests
+    COMMAND ShaderAbiTests
+)
