@@ -85,6 +85,31 @@ static ResourceState GetStateFromUsage(ResourceUsage usage, bool isDepth)
     return state;
 }
 
+static bool HasImageWriteAccess(VkAccessFlags2 access)
+{
+    constexpr VkAccessFlags2 writeMask =
+        VK_ACCESS_2_SHADER_WRITE_BIT |
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+        VK_ACCESS_2_TRANSFER_WRITE_BIT |
+        VK_ACCESS_2_MEMORY_WRITE_BIT;
+
+    return (access & writeMask) != 0;
+}
+
+bool RequiresImageMemoryBarrier(
+    const ResourceState& current,
+    const ResourceState& target)
+{
+    const bool stateChanged =
+        current.layout != target.layout ||
+        (current.access & target.access) != target.access;
+
+    return stateChanged ||
+           HasImageWriteAccess(current.access) ||
+           HasImageWriteAccess(target.access);
+}
+
 RenderGraph::RenderGraph(
     VulkanContext& context,
     uint32_t w,
@@ -125,17 +150,12 @@ void RenderGraph::Compile()
             }
         }
     }
-    if (!m_Context && !m_Resources.empty())
-    {
-        throw std::logic_error(
-            "Compile-only RenderGraph cannot allocate GPU resources");
-    }
     for (auto& res : m_Resources)
     {
         res.firstPass = 0xFFFFFFFF;
         res.lastPass = 0;
 
-        if (res.image.handle == VK_NULL_HANDLE)
+        if (res.image.handle == VK_NULL_HANDLE && m_Context != nullptr)
         {
             bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
             VkImageUsageFlags finalUsage = res.desc.usage;
@@ -193,19 +213,41 @@ void RenderGraph::BuildDependencyGraph()
 
     std::vector<uint32_t> passDepths(numPasses, 0);
     std::unordered_map<RGResourceHandle, uint32_t> lastWriter;
-
     for (uint32_t i = 0; i < numPasses; ++i)
     {
         auto& pass = m_PassStack[i];
         uint32_t maxDepth = 0;
-        for (auto& input : pass.inputs)
+
+    // RAW：当前 pass 读取此前 writer 的结果。
+        for (const auto& input : pass.inputs)
         {
-            if (lastWriter.count(input.handle))
-                maxDepth = std::max(maxDepth, passDepths[lastWriter[input.handle]] + 1);
+            auto writer = lastWriter.find(input.handle);
+
+            if (writer != lastWriter.end())
+            {
+                maxDepth = std::max(maxDepth, passDepths[writer->second] + 1);
+            }
         }
+
+    // WAW：当前 pass 再次写入此前 writer 写过的资源。
+        for (const auto& output : pass.outputs)
+        {
+            auto writer = lastWriter.find(output.handle);
+
+            if (writer != lastWriter.end())
+            {
+                maxDepth = std::max(maxDepth, passDepths[writer->second] + 1);
+            }
+        }
+
         passDepths[i] = maxDepth;
-        for (auto& output : pass.outputs)
+
+    // 必须在计算完当前 pass 的依赖之后，
+    // 才能把它登记为最新 writer。
+        for (const auto& output : pass.outputs)
+        {
             lastWriter[output.handle] = i;
+        }
     }
 
     uint32_t totalLayers = 0;
@@ -228,7 +270,7 @@ void RenderGraph::BuildBarriers(VkCommandBuffer cmd, RenderGraphPass& pass, uint
             bool isDepth = VulkanUtils::IsDepthFormat(res.desc.format);
             ResourceState target = GetStateFromUsage(req.usage, isDepth);
 
-            if (res.currentState.layout != target.layout || (res.currentState.access & target.access) != target.access)
+			if (RequiresImageMemoryBarrier( res.currentState, target))
             {
                 VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
                 b.srcStageMask = res.currentState.stage;

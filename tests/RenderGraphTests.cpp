@@ -76,6 +76,89 @@ void TestInvalidReadIsRejected()
         rejected,
         "Compile accepted a read of an undeclared resource");
 }
+
+struct WritePassData
+{
+    Chimera::RGResourceHandle output;
+};
+
+void AddWriter(
+    Chimera::RenderGraph& graph,
+    const std::string& passName)
+{
+    graph.AddPassRaw<WritePassData>(
+        passName,
+        [](WritePassData& data,
+           Chimera::RenderGraph::PassBuilder& builder)
+        {
+            data.output =
+                builder.Write("SharedImage")
+                    .Format(VK_FORMAT_R8G8B8A8_UNORM);
+        },
+        [](const WritePassData&,
+           Chimera::RenderGraphRegistry&,
+           VkCommandBuffer)
+        {
+        });
+}
+
+void TestWritersArePlacedInSeparateLayers()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    AddWriter(graph, "WriterA");
+    AddWriter(graph, "WriterB");
+
+    graph.Compile();
+
+    const auto& layers =
+        graph.GetParallelLayers();
+
+    Require(
+        layers.size() == 2,
+        "two writers of the same resource must have a WAW dependency");
+
+    Require(
+        layers[0].size() == 1 &&
+        layers[0][0] == 0,
+        "WriterA should be the only pass in layer 0");
+
+    Require(
+        layers[1].size() == 1 &&
+        layers[1][0] == 1,
+        "WriterB should be the only pass in layer 1");
+}
+
+void TestSameStateWriteRequiresBarrier()
+{
+    Chimera::ResourceState writeState{
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+    };
+
+    Require(
+        Chimera::RequiresImageMemoryBarrier(
+            writeState,
+            writeState),
+        "same-state write-after-write must require a barrier");
+}
+
+void TestSameStateReadDoesNotRequireBarrier()
+{
+    Chimera::ResourceState readState{
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_2_SHADER_READ_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+    };
+
+    Require(
+        !Chimera::RequiresImageMemoryBarrier(
+            readState,
+            readState),
+        "same-state read-after-read should not require a barrier");
+}
+
 }
 
 int main()
@@ -89,6 +172,15 @@ int main()
         TestInvalidReadIsRejected();
         std::cout
             << "[PASS] invalid resource read is rejected\n";
+
+        TestWritersArePlacedInSeparateLayers();
+        std::cout << "[PASS] same-resource writers are serialized\n";
+
+        TestSameStateWriteRequiresBarrier();
+        std::cout << "[PASS] same-state WAW requires a barrier\n";
+
+        TestSameStateReadDoesNotRequireBarrier();
+        std::cout << "[PASS] same-state read-read skips the barrier\n";
 
         return 0;
     }

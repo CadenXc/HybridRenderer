@@ -69,6 +69,8 @@ struct GraphImage
     bool is_external = false;
 };
 
+bool RequiresImageMemoryBarrier( const ResourceState& current, const ResourceState& target);
+
 enum class RGResourceFlagBits
 {
     None = 0,
