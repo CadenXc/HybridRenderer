@@ -27,4 +27,4 @@
 	url = https://github.com/KhronosGroup/SPIRV-Reflect
 [submodule "Chimera/third_party/assimp"]
 	path = Chimera/third_party/assimp
-	url = git@github.com:assimp/assimp.git
+	url = https://github.com/assimp/assimp.git
