@@ -9,8 +9,7 @@ namespace
 {
 void Require(bool condition, const std::string& message)
 {
-    if (!condition)
-        throw std::runtime_error(message);
+    if (!condition) throw std::runtime_error(message);
 }
 
 void TestEmptyGraphCompilesAndExecutesSafely()
@@ -21,13 +20,10 @@ void TestEmptyGraphCompilesAndExecutesSafely()
 
     VkSemaphore result = graph.Execute(VK_NULL_HANDLE);
 
-    Require(
-        result == VK_NULL_HANDLE,
-        "empty graph should not submit GPU work");
+    Require(result == VK_NULL_HANDLE, "empty graph should not submit GPU work");
 
-    Require(
-        graph.GetParallelLayers().empty(),
-        "empty graph should not contain execution layers");
+    Require(graph.GetParallelLayers().empty(),
+            "empty graph should not contain execution layers");
 }
 
 struct EmptyPassData
@@ -40,16 +36,10 @@ void TestInvalidReadIsRejected()
 
     graph.AddPassRaw<EmptyPassData>(
         "InvalidReadPass",
-        [](EmptyPassData&,
-           Chimera::RenderGraph::PassBuilder& builder)
-        {
-            builder.Read("MissingInput");
-        },
-        [](const EmptyPassData&,
-           Chimera::RenderGraphRegistry&,
-           VkCommandBuffer)
-        {
-        });
+        [](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
+        { builder.Read("MissingInput"); },
+        [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
 
     bool rejected = false;
 
@@ -61,20 +51,16 @@ void TestInvalidReadIsRejected()
     {
         const std::string message = e.what();
 
-        Require(
-            message.find("InvalidReadPass") != std::string::npos,
-            "diagnostic does not contain the pass name");
+        Require(message.find("InvalidReadPass") != std::string::npos,
+                "diagnostic does not contain the pass name");
 
-        Require(
-            message.find("MissingInput") != std::string::npos,
-            "diagnostic does not contain the resource name");
+        Require(message.find("MissingInput") != std::string::npos,
+                "diagnostic does not contain the resource name");
 
         rejected = true;
     }
 
-    Require(
-        rejected,
-        "Compile accepted a read of an undeclared resource");
+    Require(rejected, "Compile accepted a read of an undeclared resource");
 }
 
 struct WritePassData
@@ -82,24 +68,17 @@ struct WritePassData
     Chimera::RGResourceHandle output;
 };
 
-void AddWriter(
-    Chimera::RenderGraph& graph,
-    const std::string& passName)
+void AddWriter(Chimera::RenderGraph& graph, const std::string& passName)
 {
     graph.AddPassRaw<WritePassData>(
         passName,
-        [](WritePassData& data,
-           Chimera::RenderGraph::PassBuilder& builder)
+        [](WritePassData& data, Chimera::RenderGraph::PassBuilder& builder)
         {
             data.output =
-                builder.Write("SharedImage")
-                    .Format(VK_FORMAT_R8G8B8A8_UNORM);
+                builder.Write("SharedImage").Format(VK_FORMAT_R8G8B8A8_UNORM);
         },
-        [](const WritePassData&,
-           Chimera::RenderGraphRegistry&,
-           VkCommandBuffer)
-        {
-        });
+        [](const WritePassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
 }
 
 struct ReadPassData
@@ -107,22 +86,14 @@ struct ReadPassData
     Chimera::RGResourceHandle input;
 };
 
-void AddReader(
-    Chimera::RenderGraph& graph,
-    const std::string& passName)
+void AddReader(Chimera::RenderGraph& graph, const std::string& passName)
 {
     graph.AddPassRaw<ReadPassData>(
         passName,
-        [](ReadPassData& data,
-           Chimera::RenderGraph::PassBuilder& builder)
-        {
-            data.input = builder.Read("SharedImage");
-        },
-        [](const ReadPassData&,
-           Chimera::RenderGraphRegistry&,
-           VkCommandBuffer)
-        {
-        });
+        [](ReadPassData& data, Chimera::RenderGraph::PassBuilder& builder)
+        { data.input = builder.Read("SharedImage"); },
+        [](const ReadPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
 }
 
 void TestWriterWaitsForEarlierReader()
@@ -175,22 +146,16 @@ void TestWritersArePlacedInSeparateLayers()
 
     graph.Compile();
 
-    const auto& layers =
-        graph.GetParallelLayers();
+    const auto& layers = graph.GetParallelLayers();
 
-    Require(
-        layers.size() == 2,
-        "two writers of the same resource must have a WAW dependency");
+    Require(layers.size() == 2,
+            "two writers of the same resource must have a WAW dependency");
 
-    Require(
-        layers[0].size() == 1 &&
-        layers[0][0] == 0,
-        "WriterA should be the only pass in layer 0");
+    Require(layers[0].size() == 1 && layers[0][0] == 0,
+            "WriterA should be the only pass in layer 0");
 
-    Require(
-        layers[1].size() == 1 &&
-        layers[1][0] == 1,
-        "WriterB should be the only pass in layer 1");
+    Require(layers[1].size() == 1 && layers[1][0] == 1,
+            "WriterB should be the only pass in layer 1");
 }
 
 void TestSameStateWriteRequiresBarrier()
@@ -198,29 +163,20 @@ void TestSameStateWriteRequiresBarrier()
     Chimera::ResourceState writeState{
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
-    };
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT};
 
-    Require(
-        Chimera::RequiresImageMemoryBarrier(
-            writeState,
-            writeState),
-        "same-state write-after-write must require a barrier");
+    Require(Chimera::RequiresImageMemoryBarrier(writeState, writeState),
+            "same-state write-after-write must require a barrier");
 }
 
 void TestSameStateReadDoesNotRequireBarrier()
 {
-    Chimera::ResourceState readState{
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_ACCESS_2_SHADER_READ_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
-    };
+    Chimera::ResourceState readState{VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                     VK_ACCESS_2_SHADER_READ_BIT,
+                                     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT};
 
-    Require(
-        !Chimera::RequiresImageMemoryBarrier(
-            readState,
-            readState),
-        "same-state read-after-read should not require a barrier");
+    Require(!Chimera::RequiresImageMemoryBarrier(readState, readState),
+            "same-state read-after-read should not require a barrier");
 }
 
 void TestTopologicalLayersIgnorePassIndexOrder()
@@ -234,21 +190,17 @@ void TestTopologicalLayersIgnorePassIndexOrder()
     const auto layers =
         Chimera::RenderGraph::BuildExecutionLayers(dependencies);
 
-    Require(
-        layers.size() == 3,
-        "transitive dependency chain should produce three layers");
+    Require(layers.size() == 3,
+            "transitive dependency chain should produce three layers");
 
-    Require(
-        layers[0] == std::vector<uint32_t>{2},
-        "pass 2 should execute first");
+    Require(layers[0] == std::vector<uint32_t>{2},
+            "pass 2 should execute first");
 
-    Require(
-        layers[1] == std::vector<uint32_t>{1},
-        "pass 1 should execute second");
+    Require(layers[1] == std::vector<uint32_t>{1},
+            "pass 1 should execute second");
 
-    Require(
-        layers[2] == std::vector<uint32_t>{0},
-        "pass 0 should execute last");
+    Require(layers[2] == std::vector<uint32_t>{0},
+            "pass 0 should execute last");
 }
 
 void TestDependencyCycleIsRejected()
@@ -264,30 +216,83 @@ void TestDependencyCycleIsRejected()
     }
     catch (const std::logic_error& error)
     {
-        rejected =
-            std::string(error.what()).find("cycle") !=
-            std::string::npos;
+        rejected = std::string(error.what()).find("cycle") != std::string::npos;
     }
 
-    Require(
-        rejected,
-        "dependency cycle must be rejected");
+    Require(rejected, "dependency cycle must be rejected");
 }
 
+void TestEmptyDependenciesProduceNoLayers()
+{
+    const std::vector<std::vector<uint32_t>> dependencies;
 
+    const auto layers =
+        Chimera::RenderGraph::BuildExecutionLayers(dependencies);
+
+    Require(layers.empty(), "empty dependency graph should produce no layers");
 }
+
+void TestInvalidPredecessorIsRejected()
+{
+    bool rejected = false;
+
+    try
+    {
+        Chimera::RenderGraph::BuildExecutionLayers({{1}});
+    }
+    catch (const std::logic_error& error)
+    {
+        rejected =
+            std::string(error.what()).find("invalid pass") != std::string::npos;
+    }
+
+    Require(rejected, "invalid predecessor index must be rejected");
+}
+
+void TestDuplicateDependencyIsCountedOnce()
+{
+    const std::vector<std::vector<uint32_t>> dependencies{{}, {0, 0}};
+
+    const auto layers =
+        Chimera::RenderGraph::BuildExecutionLayers(dependencies);
+
+    Require(layers.size() == 2,
+            "duplicate dependency should not create extra layers");
+
+    Require(layers[0] == std::vector<uint32_t>{0},
+            "pass 0 should execute first");
+
+    Require(layers[1] == std::vector<uint32_t>{1},
+            "duplicate edge must be counted once");
+}
+
+void TestSelfDependencyIsRejected()
+{
+    bool rejected = false;
+
+    try
+    {
+        Chimera::RenderGraph::BuildExecutionLayers({{0}});
+    }
+    catch (const std::logic_error& error)
+    {
+        rejected = std::string(error.what()).find("cycle") != std::string::npos;
+    }
+
+    Require(rejected, "self dependency must be rejected as a cycle");
+}
+
+} // namespace
 
 int main()
 {
     try
     {
         TestEmptyGraphCompilesAndExecutesSafely();
-        std::cout
-            << "[PASS] empty graph compiles and executes safely\n";
+        std::cout << "[PASS] empty graph compiles and executes safely\n";
 
         TestInvalidReadIsRejected();
-        std::cout
-            << "[PASS] invalid resource read is rejected\n";
+        std::cout << "[PASS] invalid resource read is rejected\n";
 
         TestWritersArePlacedInSeparateLayers();
         std::cout << "[PASS] same-resource writers are serialized\n";
@@ -306,6 +311,18 @@ int main()
 
         TestDependencyCycleIsRejected();
         std::cout << "[PASS] dependency cycles are rejected\n";
+
+        TestEmptyDependenciesProduceNoLayers();
+        std::cout << "[PASS] empty dependency graph produces no layers\n";
+
+        TestInvalidPredecessorIsRejected();
+        std::cout << "[PASS] invalid predecessors are rejected\n";
+
+        TestDuplicateDependencyIsCountedOnce();
+        std::cout << "[PASS] duplicate dependencies are counted once\n";
+
+        TestSelfDependencyIsRejected();
+        std::cout << "[PASS] self dependencies are rejected\n";
 
         return 0;
     }
