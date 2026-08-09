@@ -50,7 +50,6 @@ struct SVGFVarianceEstimateData
 struct SVGFAtrousData
 {
     RGResourceHandle input;
-    RGResourceHandle moments;
     RGResourceHandle normal;
     RGResourceHandle depth;
     RGResourceHandle objectID;
@@ -157,7 +156,6 @@ public:
     static constexpr const char* Name = "SVGFAtrousPass";
     SVGFAtrousPass(const SVGFPass::Config& config, int iteration,
                    const std::string& inputName, const std::string& outputName,
-                   const std::string& momentsName,
                    const std::string& historyName = "");
     virtual void Setup(SVGFAtrousData& data,
                        RenderGraph::PassBuilder& builder) override;
@@ -167,7 +165,7 @@ public:
 private:
     SVGFPass::Config m_Config;
     int m_Iteration;
-    std::string m_InputName, m_OutputName, m_MomentsName, m_HistoryName;
+    std::string m_InputName, m_OutputName, m_HistoryName;
 };
 
 class SVGFCombinePass : public ComputePass<SVGFCombineData>

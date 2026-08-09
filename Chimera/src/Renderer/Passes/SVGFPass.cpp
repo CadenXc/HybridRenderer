@@ -20,8 +20,15 @@ void SVGFTemporalPass::Setup(SVGFTemporalData& data,
         builder.ReadHistorySafe(m_Config.historyBaseName, m_Config.inputName);
     data.historyMoments = builder.ReadHistorySafe(m_Config.prefix + "Moments",
                                                   m_Config.inputName);
-    data.output = builder.WriteStorage(m_Config.prefix + "_TemporalColor")
-                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+
+    auto outputProxy = builder.WriteStorage(m_Config.prefix + "_TemporalColor")
+                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    if (!m_Config.spatialEnabled)
+    {
+        outputProxy.SaveAsHistory(m_Config.historyBaseName);
+    }
+    data.output = outputProxy;
+
     data.outMoments = builder.WriteStorage(m_Config.prefix + "_TemporalMoments")
                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
                           .SaveAsHistory(m_Config.prefix + "Moments");
@@ -107,13 +114,11 @@ void SVGFVarianceBlurPass::Execute(const SVGFVarianceBlurData& data,
 SVGFAtrousPass::SVGFAtrousPass(const SVGFPass::Config& config, int iteration,
                                const std::string& inputName,
                                const std::string& outputName,
-                               const std::string& momentsName,
                                const std::string& historyName)
     : m_Config(config),
       m_Iteration(iteration),
       m_InputName(inputName),
       m_OutputName(outputName),
-      m_MomentsName(momentsName),
       m_HistoryName(historyName)
 {
 }
@@ -121,7 +126,6 @@ void SVGFAtrousPass::Setup(SVGFAtrousData& data,
                            RenderGraph::PassBuilder& builder)
 {
     data.input = builder.ReadCompute(m_InputName);
-    data.moments = builder.ReadCompute(m_MomentsName);
     data.normal = builder.ReadCompute(RS::Normal);
     data.depth = builder.ReadCompute(RS::Motion);
     data.objectID = builder.ReadCompute(RS::ObjectID);
@@ -207,25 +211,21 @@ void SVGFPass::Add(RenderGraph& graph, std::shared_ptr<Scene> scene,
 
     if (config.spatialEnabled)
     {
-        if (currentInputMoments.empty())
-        {
-            currentInputMoments = config.prefix + "_TemporalMoments";
-        }
-
         for (int i = 0; i < config.atrousIterations; ++i)
         {
             std::string outputName =
                 config.prefix + "_Filtered_" + std::to_string(i);
+
             if (i == 0)
             {
                 graph.AddPass<SVGFAtrousPass>(config, i, currentInputColor,
-                                              outputName, currentInputMoments,
+                                              outputName,
                                               config.historyBaseName);
             }
             else
             {
                 graph.AddPass<SVGFAtrousPass>(config, i, currentInputColor,
-                                              outputName, currentInputMoments);
+                                              outputName);
             }
             currentInputColor = outputName;
         }
