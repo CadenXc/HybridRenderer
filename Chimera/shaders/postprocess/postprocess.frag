@@ -6,16 +6,26 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform sampler2D inColor;
 
+vec3 ToneMapACES(vec3 color)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+
+    return clamp(
+        (color * (a * color + b)) /
+        (color * (c * color + d) + e),
+        0.0,
+        1.0);
+}
+
 void main() 
 {
-    // [DEBUG] Bypass jitter stabilization, but keep basic color processing
-    vec3 color = texture(inColor, inUV).rgb;
-
-    // 1. Exposure
+    vec3 color = max(texture(inColor, inUV).rgb, vec3(0.0));
     color *= postData.x;
-
-    // 2. Gamma Correction (Essential for visibility)
-    color = pow(max(color, vec3(0.0)), vec3(1.0/2.2));
+    color = ToneMapACES(color);
 
     outColor = vec4(color, 1.0);
 }

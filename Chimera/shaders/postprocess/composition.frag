@@ -35,7 +35,6 @@ void main()
     float depth = texture(gDepth, inUV).r;
     uint displayMode = frameData.z;
     uint renderFlags = frameData.w;
-    float exposure   = postData.x;
     float ambStr     = postData.y;
     int skyIdx       = int(envData.x);
 
@@ -123,8 +122,5 @@ void main()
         finalColor = vec3(0.0); // 发现 NaN 强行归零，防止屏幕闪烁或扩散
     }
 
-    finalColor *= exposure;
-    finalColor = pow(max(finalColor, vec3(0.0)), vec3(1.0 / 2.2)); // 伽马 2.2
-
-    outFinalColor = vec4(finalColor, 1.0);
+    outFinalColor = vec4(max(finalColor, vec3(0.0)), 1.0);
 }
