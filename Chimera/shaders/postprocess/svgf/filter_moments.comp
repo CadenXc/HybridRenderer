@@ -23,7 +23,6 @@ layout(set = 2, binding = 3) uniform sampler2D gMotion;
 layout(set = 2, binding = 4) uniform usampler2D gObjectID;     
 
 layout(set = 2, binding = 5, rgba16f) uniform image2D outSignal;  
-layout(set = 2, binding = 6, rgba16f) uniform image2D outMoments; 
 
 // --- Shared Memory Tiles ---
 // Tile size: (GroupSize + 2 * Radius) = (16 + 2 * 3) = 22x22
@@ -140,5 +139,4 @@ void main()
     }
 
     imageStore(outSignal, ipos, vec4(sumIllum, variance));
-    imageStore(outMoments, ipos, vec4(sumMoments, variance, hLen));
 }

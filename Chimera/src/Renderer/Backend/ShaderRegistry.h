@@ -44,8 +44,6 @@ public:
         ShaderManager::RegisterAlias("SVGF_FilterMoments",
                                      "postprocess/svgf/filter_moments.comp");
         CH_CORE_INFO("ShaderRegistry: Registered SVGF_FilterMoments alias");
-        ShaderManager::RegisterAlias("SVGF_VarianceBlur",
-                                     "postprocess/svgf/variance_blur.comp");
         ShaderManager::RegisterAlias("SVGF_Atrous",
                                      "postprocess/svgf/atrous.comp");
         ShaderManager::RegisterAlias("SVGF_Combine",

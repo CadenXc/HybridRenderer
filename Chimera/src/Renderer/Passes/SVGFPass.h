@@ -41,7 +41,6 @@ struct SVGFVarianceEstimateData
     RGResourceHandle motion;
     RGResourceHandle objectID;
     RGResourceHandle outputIllum;
-    RGResourceHandle outputMoments;
 };
 
     /**
@@ -67,14 +66,6 @@ struct SVGFCombineData
     RGResourceHandle albedo;
 };
 
-    /**
- * @brief Variance blur step for SVGF (Pre-Atrous).
- */
-struct SVGFVarianceBlurData
-{
-    RGResourceHandle inputMoments;
-    RGResourceHandle outputMoments;
-};
 
 class SVGFPass
 {
@@ -121,8 +112,7 @@ public:
     SVGFVarianceEstimatePass(const SVGFPass::Config& config,
                              const std::string& inputIllum,
                              const std::string& inputMoments,
-                             const std::string& outputIllum,
-                             const std::string& outputMoments);
+                             const std::string& outputIllum);
     virtual void Setup(SVGFVarianceEstimateData& data,
                        RenderGraph::PassBuilder& builder) override;
     virtual void Execute(const SVGFVarianceEstimateData& data,
@@ -130,24 +120,7 @@ public:
 
 private:
     SVGFPass::Config m_Config;
-    std::string m_InputIllum, m_InputMoments, m_OutputIllum, m_OutputMoments;
-};
-
-class SVGFVarianceBlurPass : public ComputePass<SVGFVarianceBlurData>
-{
-public:
-    static constexpr const char* Name = "SVGFVarianceBlurPass";
-    SVGFVarianceBlurPass(const SVGFPass::Config& config,
-                         const std::string& inputMoments,
-                         const std::string& outputMoments);
-    virtual void Setup(SVGFVarianceBlurData& data,
-                       RenderGraph::PassBuilder& builder) override;
-    virtual void Execute(const SVGFVarianceBlurData& data,
-                         ComputeExecutionContext& ctx) override;
-
-private:
-    SVGFPass::Config m_Config;
-    std::string m_InputMoments, m_OutputMoments;
+    std::string m_InputIllum, m_InputMoments, m_OutputIllum;
 };
 
 class SVGFAtrousPass : public ComputePass<SVGFAtrousData>

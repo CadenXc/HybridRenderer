@@ -54,13 +54,11 @@ void SVGFTemporalPass::Execute(const SVGFTemporalData& data,
     // --- Variance Estimate Pass (FilterMoments) ---
 SVGFVarianceEstimatePass::SVGFVarianceEstimatePass(
     const SVGFPass::Config& config, const std::string& inputIllum,
-    const std::string& inputMoments, const std::string& outputIllum,
-    const std::string& outputMoments)
+    const std::string& inputMoments, const std::string& outputIllum)
     : m_Config(config),
       m_InputIllum(inputIllum),
       m_InputMoments(inputMoments),
-      m_OutputIllum(outputIllum),
-      m_OutputMoments(outputMoments)
+      m_OutputIllum(outputIllum)
 {
 }
 void SVGFVarianceEstimatePass::Setup(SVGFVarianceEstimateData& data,
@@ -73,8 +71,6 @@ void SVGFVarianceEstimatePass::Setup(SVGFVarianceEstimateData& data,
     data.objectID = builder.ReadCompute(RS::ObjectID);
     data.outputIllum = builder.WriteStorage(m_OutputIllum)
                            .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-    data.outputMoments = builder.WriteStorage(m_OutputMoments)
-                             .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
 }
 void SVGFVarianceEstimatePass::Execute(const SVGFVarianceEstimateData& data,
                                        ComputeExecutionContext& ctx)
@@ -83,30 +79,6 @@ void SVGFVarianceEstimatePass::Execute(const SVGFVarianceEstimateData& data,
     ctx.BindPipeline("SVGF_FilterMoments");
     ctx.PushConstants(VK_SHADER_STAGE_ALL, demod);
     ctx.Dispatch("SVGF_FilterMoments", (ctx.GetGraph().GetWidth() + 15) / 16,
-                 (ctx.GetGraph().GetHeight() + 15) / 16);
-}
-
-    // --- Variance Blur Pass ---
-SVGFVarianceBlurPass::SVGFVarianceBlurPass(const SVGFPass::Config& config,
-                                           const std::string& inputMoments,
-                                           const std::string& outputMoments)
-    : m_Config(config),
-      m_InputMoments(inputMoments),
-      m_OutputMoments(outputMoments)
-{
-}
-void SVGFVarianceBlurPass::Setup(SVGFVarianceBlurData& data,
-                                 RenderGraph::PassBuilder& builder)
-{
-    data.inputMoments = builder.ReadCompute(m_InputMoments);
-    data.outputMoments = builder.WriteStorage(m_OutputMoments)
-                             .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-}
-void SVGFVarianceBlurPass::Execute(const SVGFVarianceBlurData& data,
-                                   ComputeExecutionContext& ctx)
-{
-    ctx.BindPipeline("SVGF_VarianceBlur");
-    ctx.Dispatch("SVGF_VarianceBlur", (ctx.GetGraph().GetWidth() + 15) / 16,
                  (ctx.GetGraph().GetHeight() + 15) / 16);
 }
 
@@ -187,26 +159,19 @@ void SVGFPass::Add(RenderGraph& graph, std::shared_ptr<Scene> scene,
                    const Config& config)
 {
     std::string currentInputColor = config.inputName;
-    std::string currentInputMoments = "";
 
     if (config.temporalEnabled)
     {
         graph.AddPass<SVGFTemporalPass>(config);
+
         std::string tempColor = config.prefix + "_TemporalColor";
         std::string tempMoments = config.prefix + "_TemporalMoments";
 
         std::string estimateColor = config.prefix + "_EstimatedColor";
-        std::string estimateMoments = config.prefix + "_EstimatedMoments";
         graph.AddPass<SVGFVarianceEstimatePass>(config, tempColor, tempMoments,
-                                                estimateColor, estimateMoments);
+                                                estimateColor);
 
         currentInputColor = estimateColor;
-        currentInputMoments = estimateMoments;
-
-        std::string blurredMoments = config.prefix + "_BlurredMoments";
-        graph.AddPass<SVGFVarianceBlurPass>(config, currentInputMoments,
-                                            blurredMoments);
-        currentInputMoments = blurredMoments;
     }
 
     if (config.spatialEnabled)
