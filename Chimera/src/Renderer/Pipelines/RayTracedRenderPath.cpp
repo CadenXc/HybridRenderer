@@ -9,6 +9,8 @@
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
 #include "Renderer/Graph/RaytracingExecutionContext.h"
+#include "Renderer/Passes/ForwardPass.h"
+
 #include "Core/Application.h"
 
 #include <imgui.h>
@@ -23,8 +25,17 @@ RayTracedRenderPath::RayTracedRenderPath(VulkanContext& context)
 void RayTracedRenderPath::BuildGraph(RenderGraph& graph,
                                      std::shared_ptr<Scene> scene)
 {
-    graph.AddPass<DepthPrepass>(scene);
-    graph.AddPass<RaytracePass>(scene, m_UseAlphaTest);
+    const bool canUseRayTracing = m_Context->IsRayTracingSupported() && scene && scene->GetTLAS() != VK_NULL_HANDLE;
+
+    if (canUseRayTracing)
+    {
+		graph.AddPass<DepthPrepass>(scene);
+		graph.AddPass<RaytracePass>(scene, m_UseAlphaTest);
+    }
+    else
+    {
+        graph.AddPass<ForwardPass>(scene);
+    }
 
     const bool taaEnabled =
         Application::Get().GetFrameContext().RenderFlags & RenderFlags_TAABit;
