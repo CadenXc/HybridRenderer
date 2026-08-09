@@ -150,6 +150,34 @@ void RenderGraph::Compile()
             }
         }
     }
+    std::unordered_map<std::string, RGResourceHandle> historyProducers;
+
+    for (const auto& pass : m_PassStack)
+    {
+        for (const auto& output : pass.outputs)
+        {
+            const auto& resource = m_Resources[output.handle];
+
+            if (resource.historyName.empty())
+            {
+                continue;
+            }
+
+            auto [existing, inserted] =
+                historyProducers.emplace(resource.historyName, output.handle);
+
+            if (!inserted && existing->second != output.handle)
+            {
+                const auto& previousResource = m_Resources[existing->second];
+
+                throw std::logic_error(
+                    "RenderGraph compile error: history '" +
+                    resource.historyName + "' has multiple producers: '" +
+                    previousResource.name + "' and '" + resource.name + "'");
+            }
+        }
+    }
+
     for (auto& res : m_Resources)
     {
         res.firstPass = 0xFFFFFFFF;

@@ -472,6 +472,62 @@ void TestGraphicsHistoryFallbackUsesGraphicsStage()
         "graphics history fallback must use graphics sampled usage");
 }
 
+void TestDuplicateHistoryProducersAreRejected()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    graph.AddPassRaw<EmptyPassData>(
+        "HistoryWriterA",
+        [](EmptyPassData&,
+           Chimera::RenderGraph::PassBuilder& builder)
+        {
+            builder.Write("HistorySourceA")
+                .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                .SaveAsHistory("SharedHistory");
+        },
+        [](const EmptyPassData&,
+           Chimera::RenderGraphRegistry&,
+           VkCommandBuffer)
+        {
+        });
+
+    graph.AddPassRaw<EmptyPassData>(
+        "HistoryWriterB",
+        [](EmptyPassData&,
+           Chimera::RenderGraph::PassBuilder& builder)
+        {
+            builder.Write("HistorySourceB")
+                .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                .SaveAsHistory("SharedHistory");
+        },
+        [](const EmptyPassData&,
+           Chimera::RenderGraphRegistry&,
+           VkCommandBuffer)
+        {
+        });
+
+    bool rejected = false;
+
+    try
+    {
+        graph.Compile();
+    }
+    catch (const std::logic_error& error)
+    {
+        const std::string message = error.what();
+
+        Require(
+            message.find("SharedHistory") != std::string::npos,
+            "diagnostic should contain the duplicate history name");
+
+        rejected = true;
+    }
+
+    Require(
+        rejected,
+        "Compile accepted multiple producers for one history resource");
+}
+
 } // namespace
 
 int main()
@@ -526,6 +582,9 @@ int main()
 
         TestGraphicsHistoryFallbackUsesGraphicsStage();
         std::cout << "[PASS] graphics history fallback uses graphics stage\n";
+
+        TestDuplicateHistoryProducersAreRejected();
+        std::cout << "[PASS] duplicate history producers are rejected\n";
 
         return 0;
     }
