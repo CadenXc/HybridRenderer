@@ -342,8 +342,7 @@ void Application::UpdateGlobalUBO(uint32_t frameIndex)
     if (currentFlags & RenderFlags_TAABit)
     {
         if (m_RenderPath &&
-            m_RenderPath->HasRenderGraph()&&
-            m_RenderPath->GetRenderGraph().HasHistory("TAAOutput"))
+            m_RenderPath->HasUsableHistory("TAAOutput"))
         {
             currentFlags |= RenderFlags_TAAHistoryBit;
         }

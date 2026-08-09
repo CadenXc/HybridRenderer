@@ -57,7 +57,13 @@ public:
 
     void InvalidateHistory()
     {
-        m_NeedsRebuild = true;
+       m_NeedsRebuild = true;
+    }
+
+    bool HasUsableHistory(const std::string& name) const
+    {
+        return m_RenderGraph && !m_NeedsRebuild && !m_NeedsResize &&
+               m_RenderGraph->HasHistory(name);
     }
 
 protected:
