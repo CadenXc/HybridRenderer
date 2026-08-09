@@ -9,6 +9,8 @@
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
 #include "Renderer/Graph/RaytracingExecutionContext.h"
+#include "Core/Application.h"
+
 #include <imgui.h>
 
 namespace Chimera
@@ -21,20 +23,21 @@ RayTracedRenderPath::RayTracedRenderPath(VulkanContext& context)
 void RayTracedRenderPath::BuildGraph(RenderGraph& graph,
                                      std::shared_ptr<Scene> scene)
 {
-        // 0. Depth Prepass (MANDATORY for TAA)
-        // TAA needs depth buffer for velocity dilation and reprojection.
     graph.AddPass<DepthPrepass>(scene);
-
-        // 1. Ray Tracing Pass (Writes HDR output to FinalColor and Motion)
     graph.AddPass<RaytracePass>(scene, m_UseAlphaTest);
 
-        // 2. TAA Pass (Stabilizes the jittered RT output)
-        // Reads RS::FinalColor, RS::Motion, RS::Depth. Outputs "TAAOutput"
-    graph.AddPass<TAAPass>();
+    const bool taaEnabled =
+        Application::Get().GetFrameContext().RenderFlags & RenderFlags_TAABit;
 
-        // 3. Post-Processing & Tone Mapping
-    // Now reads from the stabilized "TAAOutput" instead of raw "FinalColor"
-    graph.AddPass<PostProcessPass>("TAAOutput");
+    if (taaEnabled)
+    {
+        graph.AddPass<TAAPass>();
+        graph.AddPass<PostProcessPass>("TAAOutput");
+    }
+    else
+    {
+        graph.AddPass<PostProcessPass>(RS::FinalColor);
+    }
 }
 
 void RayTracedRenderPath::OnImGui()
