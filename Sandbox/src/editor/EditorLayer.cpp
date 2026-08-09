@@ -509,7 +509,14 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             float fov = m_EditorCamera.GetFOV();
             ImGui::Text("Position: [%.2f, %.2f, %.2f]", pos.x, pos.y, pos.z);
             ImGui::Text("FOV: %.1f", fov);
-            if (ImGui::SmallButton("Reset Camera")) m_EditorCamera.Reset();
+            if (ImGui::SmallButton("Reset Camera"))
+            {
+                m_EditorCamera.Reset();
+                if (activePath)
+                {
+                    activePath->InvalidateHistory();
+                }
+            }
             ImGui::TreePop();
         }
 

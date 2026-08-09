@@ -33,7 +33,7 @@ public:
     virtual void OnImGui() {}
     virtual void OnSceneUpdated()
     {
-        m_NeedsRebuild = true;
+        InvalidateHistory();
     }
 
     Scene* GetScene() const
@@ -53,6 +53,11 @@ public:
     bool HasRenderGraph() const
     {
         return m_RenderGraph != nullptr;
+    }
+
+    void InvalidateHistory()
+    {
+        m_NeedsRebuild = true;
     }
 
 protected:
