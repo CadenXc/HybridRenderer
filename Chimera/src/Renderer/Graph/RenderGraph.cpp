@@ -660,8 +660,16 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
         return h;
     }
 
+    ResourceRequest request{INVALID_RESOURCE,
+                            pass.isCompute ? ResourceUsage::ComputeSampled
+                                           : ResourceUsage::GraphicsSampled};
+
+    request.name = name;
+    pass.inputs.push_back(std::move(request));
+
     CH_CORE_TRACE("RenderGraph: ReadHistory('{}') failed - history not found!",
                   name);
+
     return INVALID_RESOURCE;
 }
 

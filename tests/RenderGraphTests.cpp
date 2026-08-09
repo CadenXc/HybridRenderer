@@ -388,6 +388,49 @@ void TestSVGFCombineUsesOnlyShaderInputs()
             "SVGF Combine binding 4 should contain albedo");
 }
 
+void TestMissingHistoryReadIsRejected()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    graph.AddPassRaw<EmptyPassData>(
+        "MissingHistoryPass",
+        [](EmptyPassData&,
+           Chimera::RenderGraph::PassBuilder& builder)
+        {
+            builder.ReadHistory("MissingHistory");
+        },
+        [](const EmptyPassData&,
+           Chimera::RenderGraphRegistry&,
+           VkCommandBuffer)
+        {
+        });
+
+    bool rejected = false;
+
+    try
+    {
+        graph.Compile();
+    }
+    catch (const std::logic_error& error)
+    {
+        const std::string message = error.what();
+
+        Require(
+            message.find("MissingHistoryPass") != std::string::npos,
+            "missing-history diagnostic should contain the pass name");
+
+        Require(
+            message.find("MissingHistory") != std::string::npos,
+            "missing-history diagnostic should contain the history name");
+
+        rejected = true;
+    }
+
+    Require(
+        rejected,
+        "Compile accepted a required history resource that does not exist");
+}
+
 } // namespace
 
 int main()
@@ -436,6 +479,9 @@ int main()
 
         TestSVGFCombineUsesOnlyShaderInputs();
         std::cout << "[PASS] SVGF Combine declares only used shader inputs\n";
+
+        TestMissingHistoryReadIsRejected();
+        std::cout << "[PASS] missing required history is rejected\n";
 
         return 0;
     }
