@@ -44,7 +44,8 @@ void HybridRenderPath::BuildGraph(RenderGraph& graph,
 
     bool useRayTracing = rtSupported && hasTLAS;
 
-    bool svgfActive = useRayTracing && useSVGFMaster && (doTemporal || doSpatial);
+    bool svgfActive =
+        useRayTracing && useSVGFMaster && (doTemporal || doSpatial);
 
     if (useRayTracing)
     {
@@ -112,8 +113,18 @@ void HybridRenderPath::BuildGraph(RenderGraph& graph,
 
     graph.AddPass<CompositionPass>(compConfig);
 
-    // 5. Post Processing
-    graph.AddPass<PostProcessPass>(RS::FinalColor);
+    bool taaEnabled = renderFlags & RenderFlags_TAABit;
+
+    // 5. Temporal anti-aliasing and post processing
+    if (taaEnabled)
+    {
+        graph.AddPass<TAAPass>();
+        graph.AddPass<PostProcessPass>("TAAOutput");
+    }
+    else
+    {
+        graph.AddPass<PostProcessPass>(RS::FinalColor);
+    }
 }
 
 void HybridRenderPath::OnImGui() {}
