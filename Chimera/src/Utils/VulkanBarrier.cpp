@@ -186,75 +186,91 @@ std::unique_ptr<Buffer> CreateSBT(VkPipeline pipeline, uint32_t raygenCount,
                                   VkStridedDeviceAddressRegionKHR& outMiss,
                                   VkStridedDeviceAddressRegionKHR& outHit)
 {
+    if (raygenCount != 1)
+    {
+        throw std::runtime_error(
+            "CreateSBT requires exactly one ray generation record");
+    }
+
+    outRaygen = {};
+    outMiss = {};
+    outHit = {};
+
     VkDevice device = VulkanContext::Get().GetDevice();
     auto rayTracingProperties = VulkanContext::Get().GetRayTracingProperties();
 
-    uint32_t handleSize = rayTracingProperties.shaderGroupHandleSize;
-    uint32_t handleSizeAligned =
+    const uint32_t handleSize = rayTracingProperties.shaderGroupHandleSize;
+    const uint32_t recordStride =
         AlignUp(handleSize, rayTracingProperties.shaderGroupHandleAlignment);
+    const uint32_t baseAlignment =
+        rayTracingProperties.shaderGroupBaseAlignment;
 
-    uint32_t groupCount = raygenCount + missCount + hitCount;
-    uint32_t sbtSize = groupCount * handleSizeAligned;
+    const uint32_t groupCount = raygenCount + missCount + hitCount;
+    const uint32_t handleStorageSize = groupCount * handleSize;
 
-    std::vector<uint8_t> shaderHandleStorage(sbtSize);
-    vkGetRayTracingShaderGroupHandlesKHR(device, pipeline, 0, groupCount,
-                                         sbtSize, shaderHandleStorage.data());
+    std::vector<uint8_t> shaderHandles(handleStorageSize);
+    VK_CHECK(vkGetRayTracingShaderGroupHandlesKHR(
+        device, pipeline, 0, groupCount, handleStorageSize,
+        shaderHandles.data()));
 
-        // Aligned offsets for each section
-    uint32_t raygenSize =
-        AlignUp(raygenCount * handleSizeAligned,
-                rayTracingProperties.shaderGroupBaseAlignment);
-    uint32_t missSize = AlignUp(missCount * handleSizeAligned,
-                                rayTracingProperties.shaderGroupBaseAlignment);
-    uint32_t hitSize = AlignUp(hitCount * handleSizeAligned,
-                               rayTracingProperties.shaderGroupBaseAlignment);
+    const uint32_t raygenDataSize = raygenCount * recordStride;
+    const uint32_t missOffset = AlignUp(raygenDataSize, baseAlignment);
+    const uint32_t missDataSize = missCount * recordStride;
+    const uint32_t hitOffset =
+        AlignUp(missOffset + missDataSize, baseAlignment);
+    const uint32_t hitDataSize = hitCount * recordStride;
+    const uint32_t totalSBTSize = hitOffset + hitDataSize;
 
-    uint32_t totalSBTSize = raygenSize + missSize + hitSize;
+    std::vector<uint8_t> sbtData(totalSBTSize, 0);
+    auto copyRecords = [&](uint32_t destinationOffset, uint32_t sourceGroup,
+                           uint32_t count)
+    {
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            memcpy(sbtData.data() + destinationOffset + i * recordStride,
+                   shaderHandles.data() + (sourceGroup + i) * handleSize,
+                   handleSize);
+        }
+    };
+
+    copyRecords(0, 0, raygenCount);
+    copyRecords(missOffset, raygenCount, missCount);
+    copyRecords(hitOffset, raygenCount + missCount, hitCount);
 
     auto sbtBuffer =
         std::make_unique<Buffer>(totalSBTSize,
                                  VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
                                      VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                                 VMA_MEMORY_USAGE_CPU_TO_GPU);
+                                 VMA_MEMORY_USAGE_CPU_TO_GPU,
+                                 "ShaderBindingTable");
 
-    uint8_t* pData = (uint8_t*)sbtBuffer->Map();
-    memset(pData, 0, totalSBTSize);
-
-    VkDeviceAddress baseAddr = sbtBuffer->GetDeviceAddress();
-
-        // 1. Raygen
-    if (raygenCount > 0)
+    const VkDeviceAddress baseAddr = sbtBuffer->GetDeviceAddress();
+    if (baseAddr % baseAlignment != 0)
     {
-        memcpy(pData, shaderHandleStorage.data(), raygenCount * handleSize);
-        outRaygen.deviceAddress = baseAddr;
-        outRaygen.stride = handleSizeAligned;
-        outRaygen.size = handleSizeAligned; // Raygen size MUST equal stride
+        throw std::runtime_error(
+            "SBT buffer device address does not satisfy base alignment");
     }
 
-        // 2. Miss
+    sbtBuffer->Update(sbtData.data(), totalSBTSize);
+
+    outRaygen.deviceAddress = baseAddr;
+    outRaygen.stride = recordStride;
+    outRaygen.size = recordStride;
+
     if (missCount > 0)
     {
-        memcpy(pData + raygenSize,
-               shaderHandleStorage.data() + raygenCount * handleSize,
-               missCount * handleSize);
-        outMiss.deviceAddress = baseAddr + raygenSize;
-        outMiss.stride = handleSizeAligned;
-        outMiss.size = missSize;
+        outMiss.deviceAddress = baseAddr + missOffset;
+        outMiss.stride = recordStride;
+        outMiss.size = missDataSize;
     }
 
-        // 3. Hit
     if (hitCount > 0)
     {
-        memcpy(
-            pData + raygenSize + missSize,
-            shaderHandleStorage.data() + (raygenCount + missCount) * handleSize,
-            hitCount * handleSize);
-        outHit.deviceAddress = baseAddr + raygenSize + missSize;
-        outHit.stride = handleSizeAligned;
-        outHit.size = hitSize;
+        outHit.deviceAddress = baseAddr + hitOffset;
+        outHit.stride = recordStride;
+        outHit.size = hitDataSize;
     }
 
-    sbtBuffer->Unmap();
     return sbtBuffer;
 }
 } // namespace Chimera::VulkanUtils
