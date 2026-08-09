@@ -680,7 +680,10 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistorySafe(
     {
         return ReadHistory(name);
     }
-    return ReadCompute(fallbackName);
+
+    return pass.isCompute
+    ? ReadCompute(fallbackName)
+    : Read(fallbackName);
 }
 
 ResourceHandleProxy RenderGraph::PassBuilder::Write(const std::string& name,

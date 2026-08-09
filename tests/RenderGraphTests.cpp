@@ -431,6 +431,47 @@ void TestMissingHistoryReadIsRejected()
         "Compile accepted a required history resource that does not exist");
 }
 
+void TestGraphicsHistoryFallbackUsesGraphicsStage()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(
+        graph,
+        producerPass);
+
+    const auto fallback =
+        static_cast<Chimera::RGResourceHandle>(
+            producerBuilder.Write("FallbackColor")
+                .Format(VK_FORMAT_R16G16B16A16_SFLOAT));
+
+    Chimera::RenderGraphPass graphicsPass;
+    graphicsPass.name = "GraphicsHistoryConsumer";
+    graphicsPass.isCompute = false;
+
+    Chimera::RenderGraph::PassBuilder builder(
+        graph,
+        graphicsPass);
+
+    const auto result =
+        builder.ReadHistorySafe(
+            "MissingHistory",
+            "FallbackColor");
+
+    Require(
+        result == fallback,
+        "missing history should return the fallback resource");
+
+    Require(
+        graphicsPass.inputs.size() == 1,
+        "history fallback should add exactly one input");
+
+    Require(
+        graphicsPass.inputs[0].usage ==
+            Chimera::ResourceUsage::GraphicsSampled,
+        "graphics history fallback must use graphics sampled usage");
+}
+
 } // namespace
 
 int main()
@@ -482,6 +523,9 @@ int main()
 
         TestMissingHistoryReadIsRejected();
         std::cout << "[PASS] missing required history is rejected\n";
+
+        TestGraphicsHistoryFallbackUsesGraphicsStage();
+        std::cout << "[PASS] graphics history fallback uses graphics stage\n";
 
         return 0;
     }
