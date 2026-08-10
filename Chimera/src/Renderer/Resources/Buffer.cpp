@@ -57,6 +57,13 @@ namespace Chimera
         throw std::runtime_error("Failed to create buffer!");
     }
 
+    VkMemoryPropertyFlags memoryProperties = 0;
+    vmaGetAllocationMemoryProperties(m_Allocator, m_Allocation,
+                                     &memoryProperties);
+
+    m_IsCoherent =
+        (memoryProperties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+
     CH_CORE_TRACE("Buffer: ALLOCATED. Handle: [0x{:x}], Size: {}, Name: {}",
                   (uint64_t)m_Buffer, m_Size, name);
 
@@ -105,13 +112,15 @@ Buffer::Buffer(Buffer&& other) noexcept
       m_Size(other.m_Size),
       m_DeviceAddress(other.m_DeviceAddress),
       m_MappedData(other.m_MappedData),
-      m_PersistentlyMapped(other.m_PersistentlyMapped)
+      m_PersistentlyMapped(other.m_PersistentlyMapped),
+	  m_IsCoherent(other.m_IsCoherent)
 {
     other.m_Allocator = nullptr;
     other.m_Buffer = VK_NULL_HANDLE;
     other.m_Allocation = VK_NULL_HANDLE;
     other.m_MappedData = nullptr;
     other.m_PersistentlyMapped = false;
+    other.m_IsCoherent = false;
 }
 
 Buffer& Buffer::operator=(Buffer&& other) noexcept
@@ -130,12 +139,14 @@ Buffer& Buffer::operator=(Buffer&& other) noexcept
         m_DeviceAddress = other.m_DeviceAddress;
         m_MappedData = other.m_MappedData;
         m_PersistentlyMapped = other.m_PersistentlyMapped;
+        m_IsCoherent = other.m_IsCoherent;
 
         other.m_Allocator = nullptr;
         other.m_Buffer = VK_NULL_HANDLE;
         other.m_Allocation = VK_NULL_HANDLE;
         other.m_MappedData = nullptr;
         other.m_PersistentlyMapped = false;
+        other.m_IsCoherent = false;
     }
     return *this;
 }
