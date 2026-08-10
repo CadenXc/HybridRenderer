@@ -65,10 +65,16 @@ void GraphicsExecutionContext::BindPipelineAndDescriptorSets(
             uint32_t inputIdx = 0;
             uint32_t outputIdx = 0;
 
+            const bool usesNamedBindings = UsesNamedBindings();
+
             for (auto& [binding, res] : reflection)
             {
                 RGResourceHandle targetHandle = INVALID_RESOURCE;
-                if (res.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+                if (usesNamedBindings)
+                {
+                    targetHandle = ResolveNamedImageBinding(res);
+                }
+                else if (res.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
                 {
                     if (inputIdx < m_Pass.inputs.size())
                         targetHandle = m_Pass.inputs[inputIdx++].handle;

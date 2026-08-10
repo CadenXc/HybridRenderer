@@ -13,7 +13,7 @@ PostProcessPass::PostProcessPass(const std::string& inputName)
 
 void PostProcessPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
-    data.input = builder.Read(m_InputName);
+    data.input = builder.Read(m_InputName, "inColor");
     data.output = builder.Write(RS::RENDER_OUTPUT);
 }
 
