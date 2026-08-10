@@ -3,6 +3,7 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Graph/ExecutionContext.h"
 #include "Renderer/Backend/Shader.h"
+#include "Renderer/Passes/RTShadowPass.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/SVGFPass.h"
 
@@ -360,6 +361,56 @@ void TestTAAFirstFramePreservesHistoryBinding()
 
     Require(taaGraphPass.outputs[0].bindingName == "outFinal",
             "TAA output must bind to outFinal");
+}
+
+void TestRTShadowUsesRaytraceNamedBindings()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
+
+    producerBuilder.Write(Chimera::RS::Normal)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Depth).Format(VK_FORMAT_D32_SFLOAT);
+
+    Chimera::RenderGraphPass shadowGraphPass;
+    shadowGraphPass.name = "RTShadowPass";
+
+    Chimera::RenderGraph::PassBuilder shadowBuilder(graph, shadowGraphPass);
+    Chimera::RTShadowPass shadowPass(std::shared_ptr<Chimera::Scene>{});
+    Chimera::RTShadowPassData data{};
+
+    shadowPass.Setup(data, shadowBuilder);
+
+    Require(shadowGraphPass.inputs.size() == 2,
+            "RT shadow must declare normal and depth inputs");
+    Require(shadowGraphPass.outputs.size() == 1,
+            "RT shadow must declare exactly one output");
+
+    Require(shadowGraphPass.inputs[0].handle == data.normal,
+            "RT shadow normal input must preserve its handle");
+    Require(shadowGraphPass.inputs[0].usage ==
+                Chimera::ResourceUsage::RaytraceSampled,
+            "RT shadow normal must use the ray tracing shader stage");
+    Require(shadowGraphPass.inputs[0].bindingName == "gNormal",
+            "RT shadow normal must bind to gNormal");
+
+    Require(shadowGraphPass.inputs[1].handle == data.depth,
+            "RT shadow depth input must preserve its handle");
+    Require(shadowGraphPass.inputs[1].usage ==
+                Chimera::ResourceUsage::RaytraceSampled,
+            "RT shadow depth must use the ray tracing shader stage");
+    Require(shadowGraphPass.inputs[1].bindingName == "gDepth",
+            "RT shadow depth must bind to gDepth");
+
+    Require(shadowGraphPass.outputs[0].handle == data.output,
+            "RT shadow output must preserve its handle");
+    Require(shadowGraphPass.outputs[0].usage ==
+                Chimera::ResourceUsage::StorageWrite,
+            "RT shadow output must be a storage write");
+    Require(shadowGraphPass.outputs[0].bindingName == "rtShadowAO",
+            "RT shadow output must bind to rtShadowAO");
 }
 
 void TestSVGFTemporalFirstFramePreservesNamedBindings()
@@ -858,6 +909,9 @@ int main()
 
         TestTAAFirstFramePreservesHistoryBinding();
         std::cout << "[PASS] TAA first frame preserves history binding\n";
+
+        TestRTShadowUsesRaytraceNamedBindings();
+        std::cout << "[PASS] RT shadow uses ray tracing named bindings\n";
 
         TestSVGFTemporalFirstFramePreservesNamedBindings();
         std::cout
