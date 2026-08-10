@@ -15,11 +15,16 @@ RTReflectionPass::RTReflectionPass(std::shared_ptr<Scene> scene)
 void RTReflectionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
     data.output = builder.WriteStorage("ReflectionRaw")
-                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-    data.normal = builder.ReadRaytrace(RS::Normal);
-    data.depth = builder.ReadRaytrace(RS::Depth);
-    data.material = builder.ReadRaytrace(RS::MaterialParams);
-    data.albedo = builder.ReadRaytrace(RS::Albedo);
+                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                      .BindTo("reflectionOutput");
+
+    data.normal = builder.ReadRaytrace(RS::Normal, "gNormal");
+
+    data.depth = builder.ReadRaytrace(RS::Depth, "gDepth");
+
+    data.material = builder.ReadRaytrace(RS::MaterialParams, "gMaterial");
+
+    data.albedo = builder.ReadRaytrace(RS::Albedo, "gAlbedo");
 }
 
 void RTReflectionPass::Execute(const PassData& data, RenderGraphRegistry& reg,
