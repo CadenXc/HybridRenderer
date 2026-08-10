@@ -20,13 +20,13 @@ RTShadowPass::RTShadowPass(std::shared_ptr<Scene> scene) : m_Scene(scene) {}
  */
 void RTShadowPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
-    // Write access to the Shadow/AO combined buffer
     data.output = builder.WriteStorage(RS::ShadowAO)
-                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                      .BindTo("rtShadowAO");
 
-    // Read access to G-Buffer attributes needed for ray reconstruction
-    data.normal = builder.ReadRaytrace(RS::Normal);
-    data.depth = builder.ReadRaytrace(RS::Depth);
+    data.normal = builder.ReadRaytrace(RS::Normal, "gNormal");
+
+    data.depth = builder.ReadRaytrace(RS::Depth, "gDepth");
 }
 
 /**
