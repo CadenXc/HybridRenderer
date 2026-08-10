@@ -9,7 +9,8 @@ class Buffer
 {
 public:
     Buffer(VkDeviceSize size, VkBufferUsageFlags usage,
-           VmaMemoryUsage memoryUsage, const std::string& name = "");
+           VmaMemoryUsage memoryUsage, const std::string& name = "",
+           VkDeviceSize minAlignment = 0);
     ~Buffer();
 
         // No copy

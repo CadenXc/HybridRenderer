@@ -6,8 +6,11 @@
 namespace Chimera
 {
 
-Buffer::Buffer(VkDeviceSize size, VkBufferUsageFlags usage,
-               VmaMemoryUsage memoryUsage, const std::string& name)
+    Buffer::Buffer(VkDeviceSize size,
+               VkBufferUsageFlags usage,
+               VmaMemoryUsage memoryUsage,
+               const std::string& name,
+               VkDeviceSize minAlignment)
     : m_Size(size)
 {
     VkBufferCreateInfo bufferInfo{};
@@ -34,8 +37,11 @@ Buffer::Buffer(VkDeviceSize size, VkBufferUsageFlags usage,
 
     if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
     {
+        const VkDeviceSize allocationAlignment =
+            std::max<VkDeviceSize>(256, minAlignment);
+
         result = vmaCreateBufferWithAlignment(
-            m_Allocator, &bufferInfo, &allocInfo, 256, &m_Buffer, &m_Allocation,
+            m_Allocator, &bufferInfo, &allocInfo, allocationAlignment, &m_Buffer, &m_Allocation,
             &allocationResultInfo);
     }
     else

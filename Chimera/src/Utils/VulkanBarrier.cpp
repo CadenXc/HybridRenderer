@@ -242,7 +242,7 @@ std::unique_ptr<Buffer> CreateSBT(VkPipeline pipeline, uint32_t raygenCount,
                                  VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
                                      VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                                  VMA_MEMORY_USAGE_CPU_TO_GPU,
-                                 "ShaderBindingTable");
+                                 "ShaderBindingTable", baseAlignment);
 
     const VkDeviceAddress baseAddr = sbtBuffer->GetDeviceAddress();
     if (baseAddr % baseAlignment != 0)
