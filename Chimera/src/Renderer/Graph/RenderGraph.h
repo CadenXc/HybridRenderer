@@ -58,6 +58,9 @@ public:
                                   VkFormat format = VK_FORMAT_UNDEFINED);
         ResourceHandleProxy WriteStorage(const std::string& name,
                                          VkFormat format = VK_FORMAT_UNDEFINED);
+
+        ResourceHandleProxy WriteTransfer(
+            const std::string& name, VkFormat format = VK_FORMAT_UNDEFINED);
     };
 
     RenderGraph(VulkanContext& context, uint32_t w, uint32_t h);

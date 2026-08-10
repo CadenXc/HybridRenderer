@@ -758,6 +758,36 @@ ResourceHandleProxy RenderGraph::PassBuilder::WriteStorage(
     return ResourceHandleProxy(graph, pass, h);
 }
 
+ResourceHandleProxy RenderGraph::PassBuilder::WriteTransfer(
+    const std::string& name, VkFormat format)
+{
+    RGResourceHandle h = graph.GetResourceHandle(name);
+
+    if (h == INVALID_RESOURCE)
+    {
+        h = static_cast<RGResourceHandle>(graph.m_Resources.size());
+
+        PhysicalResource res{name};
+        res.desc = {
+            graph.m_Width, graph.m_Height,
+            format == VK_FORMAT_UNDEFINED ? VK_FORMAT_R8G8B8A8_UNORM : format,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT};
+
+        graph.m_Resources.push_back(res);
+        graph.m_ResourceMap[name] = h;
+    }
+    else
+    {
+        // 更新逻辑描述。已有 VkImage 本身已经由 Compile()
+        // 统一添加了 TRANSFER_DST usage。
+        graph.m_Resources[h].desc.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
+
+    pass.outputs.push_back({h, ResourceUsage::TransferDst});
+
+    return ResourceHandleProxy(graph, pass, h);
+}
+
 ResourceHandleProxy& ResourceHandleProxy::Format(VkFormat f)
 {
     graph.m_Resources[handle].desc.format = f;
@@ -990,6 +1020,16 @@ std::string RenderGraph::ExportToMermaid() const
     for (int idx : writeLinks) ss << "    linkStyle " << idx << " stroke:#FF0000,stroke-width:2px\n";
 
     return ss.str();
+}
+
+VkImage RenderGraphRegistry::GetImage(RGResourceHandle h)
+{
+    if (h == INVALID_RESOURCE || h >= graph.m_Resources.size())
+    {
+        return VK_NULL_HANDLE;
+    }
+
+    return graph.m_Resources[h].image.handle;
 }
 
 const GraphImage& RenderGraph::GetImage(const std::string& name) const
