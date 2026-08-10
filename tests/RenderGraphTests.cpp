@@ -3,6 +3,7 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Graph/ExecutionContext.h"
 #include "Renderer/Backend/Shader.h"
+#include "Renderer/Passes/CompositionPass.h"
 #include "Renderer/Passes/RTShadowPass.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/SVGFPass.h"
@@ -411,6 +412,97 @@ void TestRTShadowUsesRaytraceNamedBindings()
             "RT shadow output must be a storage write");
     Require(shadowGraphPass.outputs[0].bindingName == "rtShadowAO",
             "RT shadow output must bind to rtShadowAO");
+}
+
+void TestCompositionPreservesPackedShadowAOBindings()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    const std::string giName = "TestGI";
+    const std::string reflectionName = "TestReflection";
+    const std::string packedShadowAOName = "PackedShadowAO";
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
+
+    producerBuilder.Write(Chimera::RS::Albedo)
+        .Format(VK_FORMAT_R8G8B8A8_UNORM);
+    producerBuilder.Write(Chimera::RS::Normal)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::MaterialParams)
+        .Format(VK_FORMAT_R8G8B8A8_UNORM);
+    producerBuilder.Write(Chimera::RS::Motion)
+        .Format(VK_FORMAT_R16G16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Depth).Format(VK_FORMAT_D32_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Emissive)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(giName).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(reflectionName)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(packedShadowAOName)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+
+    Chimera::CompositionPass::Config config;
+    config.giName = giName;
+    config.reflectionName = reflectionName;
+    config.shadowName = packedShadowAOName;
+    config.aoName = packedShadowAOName;
+
+    Chimera::RenderGraphPass compositionGraphPass;
+    compositionGraphPass.name = "Composition";
+
+    Chimera::RenderGraph::PassBuilder compositionBuilder(
+        graph, compositionGraphPass);
+    Chimera::CompositionPass compositionPass(config);
+    Chimera::CompositionPassData data{};
+
+    compositionPass.Setup(data, compositionBuilder);
+
+    Require(data.shadow_raw == data.ao_raw,
+            "Composition packed shadow and AO must share one image handle");
+
+    const std::array<const char*, 10> expectedBindings = {
+        "gAlbedo",   "gNormal",     "gMaterialParams", "gMotion",
+        "gDepth",    "gEmissive",   "gGI",             "gReflection",
+        "gShadow",   "gAO"};
+    const std::array<Chimera::RGResourceHandle, 10> expectedHandles = {
+        data.albedo,         data.normal,         data.material,
+        data.motion,         data.depth,          data.emissive,
+        data.gi_raw,         data.reflection_raw, data.shadow_raw,
+        data.ao_raw};
+
+    Require(compositionGraphPass.inputs.size() == expectedBindings.size(),
+            "Composition must declare all ten sampled inputs");
+
+    for (size_t i = 0; i < expectedBindings.size(); ++i)
+    {
+        Require(compositionGraphPass.inputs[i].handle == expectedHandles[i],
+                "Composition input must preserve its resource handle");
+        Require(compositionGraphPass.inputs[i].usage ==
+                    Chimera::ResourceUsage::GraphicsSampled,
+                "Composition input must use the graphics shader stage");
+        Require(compositionGraphPass.inputs[i].bindingName ==
+                    expectedBindings[i],
+                "Composition input must preserve its reflected shader name");
+    }
+
+    Require(compositionGraphPass.inputs[8].handle ==
+                compositionGraphPass.inputs[9].handle,
+            "Composition shadow and AO requests must share the packed image");
+    Require(compositionGraphPass.inputs[8].bindingName == "gShadow",
+            "Composition packed shadow must bind to gShadow");
+    Require(compositionGraphPass.inputs[9].bindingName == "gAO",
+            "Composition packed AO must bind to gAO");
+
+    Require(compositionGraphPass.outputs.size() == 1,
+            "Composition must declare exactly one color output");
+    Require(compositionGraphPass.outputs[0].handle == data.output,
+            "Composition output must preserve its resource handle");
+    Require(compositionGraphPass.outputs[0].usage ==
+                Chimera::ResourceUsage::ColorAttachment,
+            "Composition output must be a color attachment");
+    Require(compositionGraphPass.outputs[0].bindingName.empty(),
+            "Composition color attachment must not declare a descriptor name");
 }
 
 void TestSVGFTemporalFirstFramePreservesNamedBindings()
@@ -912,6 +1004,9 @@ int main()
 
         TestRTShadowUsesRaytraceNamedBindings();
         std::cout << "[PASS] RT shadow uses ray tracing named bindings\n";
+
+        TestCompositionPreservesPackedShadowAOBindings();
+        std::cout << "[PASS] Composition preserves packed shadow AO bindings\n";
 
         TestSVGFTemporalFirstFramePreservesNamedBindings();
         std::cout
