@@ -528,6 +528,48 @@ void TestDuplicateHistoryProducersAreRejected()
         "Compile accepted multiple producers for one history resource");
 }
 
+void TestPhysicalImageUsageContract()
+{
+    using Chimera::ResourceUsage;
+    using Chimera::SupportsImageUsage;
+
+    Require(SupportsImageUsage(VK_IMAGE_USAGE_SAMPLED_BIT,
+                               ResourceUsage::GraphicsSampled),
+            "sampled image must support graphics sampled usage");
+
+    Require(SupportsImageUsage(VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                               ResourceUsage::TransferDst),
+            "transfer-destination image must support transfer writes");
+
+    Require(!SupportsImageUsage(VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                ResourceUsage::StorageWrite),
+            "transfer-only image must reject storage writes");
+
+    constexpr VkImageUsageFlags storageAndTransfer =
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+    Require(SupportsImageUsage(storageAndTransfer,
+                               ResourceUsage::StorageWrite),
+            "combined image usage must support storage writes");
+
+    Require(SupportsImageUsage(storageAndTransfer,
+                               ResourceUsage::TransferDst),
+            "combined image usage must support transfer writes");
+
+    Require(SupportsImageUsage(
+                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                ResourceUsage::DepthStencilWrite),
+            "depth-stencil image must support depth writes");
+
+    Require(!SupportsImageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                ResourceUsage::DepthStencilWrite),
+            "color-attachment image must reject depth writes");
+
+    Require(SupportsImageUsage(0, ResourceUsage::None),
+            "resource usage None must not require an image usage flag");
+
+}
+
 } // namespace
 
 int main()
@@ -585,6 +627,9 @@ int main()
 
         TestDuplicateHistoryProducersAreRejected();
         std::cout << "[PASS] duplicate history producers are rejected\n";
+
+        TestPhysicalImageUsageContract();
+        std::cout << "[PASS] physical image usage contract is enforced\n";
 
         return 0;
     }

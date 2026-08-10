@@ -113,6 +113,17 @@ static ResourceState GetStateFromUsage(ResourceUsage usage, bool isDepth)
     return state;
 }
 
+bool SupportsImageUsage(VkImageUsageFlags actualUsage, ResourceUsage requestUsage)
+{
+    if (requestUsage == ResourceUsage::None)
+    {
+        return true;
+    }
+    VkImageUsageFlags requiredUsage = GetRequiredImageUsage(requestUsage);
+    return (actualUsage & requiredUsage) == requiredUsage;
+}
+
+
 static bool HasImageWriteAccess(VkAccessFlags2 access)
 {
     constexpr VkAccessFlags2 writeMask =
@@ -244,7 +255,7 @@ void RenderGraph::Compile()
             GetRequiredImageUsage(request.usage);
         const VkImageUsageFlags actualUsage = resource.image.usage;
 
-        if ((actualUsage & requiredUsage) != requiredUsage)
+        if (!SupportsImageUsage(actualUsage, request.usage))
         {
             std::ostringstream message;
             message << "RenderGraph compile error: pass '" << pass.name

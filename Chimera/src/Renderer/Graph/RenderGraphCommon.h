@@ -70,6 +70,8 @@ struct GraphImage
 };
 
 bool RequiresImageMemoryBarrier( const ResourceState& current, const ResourceState& target);
+bool SupportsImageUsage(VkImageUsageFlags actualUsage,
+                        ResourceUsage requestedUsage);
 
 enum class RGResourceFlagBits
 {
