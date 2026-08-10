@@ -67,20 +67,7 @@ void Shader::Reflect()
         ShaderResource res;
         std::string rawName = b->name;
 
-        std::string cleanName = rawName;
-
-        if (cleanName.find("rt") == 0 && cleanName.size() > 2 &&
-            isupper(cleanName[2]))
-        {
-            cleanName = cleanName.substr(2);
-        }
-        else if (cleanName.find("g") == 0 && cleanName.size() > 1 &&
-                 isupper(cleanName[1]))
-        {
-            cleanName = cleanName.substr(1);
-        }
-
-        res.name = cleanName;
+        res.name = rawName;
         res.set = b->set;
         res.binding = b->binding;
         res.type = (VkDescriptorType)b->descriptor_type;

@@ -13,19 +13,18 @@ TAAPass::TAAPass() {}
 
 void TAAPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
-        // current input color
-    data.current = builder.ReadCompute(RS::FinalColor);
+    data.current = builder.ReadCompute(RS::FinalColor, "curColor");
 
-        // previous frame's accumulated result (Feedback)
-    data.history = builder.ReadHistorySafe("TAAOutput", RS::FinalColor);
+    data.history = builder.ReadHistorySafe("TAAOutput", RS::FinalColor, "historyColor");
 
-    data.motion = builder.ReadCompute(RS::Motion);
-    data.depth = builder.ReadCompute(RS::Depth);
+    data.motion = builder.ReadCompute(RS::Motion, "gMotion");
+    data.depth = builder.ReadCompute(RS::Depth, "gDepth");
 
         // write new accumulated result and save it for the next frame
     data.output = builder.WriteStorage("TAAOutput")
                       .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
-                      .SaveAsHistory("TAAOutput");
+                      .SaveAsHistory("TAAOutput")
+                      .BindTo("outFinal");
 }
 
 void TAAPass::Execute(const PassData& data, RenderGraphRegistry& reg,

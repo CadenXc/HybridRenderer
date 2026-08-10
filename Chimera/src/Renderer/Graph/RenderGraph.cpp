@@ -721,11 +721,17 @@ void RenderGraph::DestroyResources(bool all)
 
 RGResourceHandle RenderGraph::PassBuilder::Read(const std::string& name)
 {
+    return Read(name, {});
+}
+
+RGResourceHandle RenderGraph::PassBuilder::Read(const std::string& name, const std::string& bindingName)
+{
     RGResourceHandle handle = graph.GetResourceHandle(name);
 
     ResourceRequest request{handle, ResourceUsage::GraphicsSampled};
 
     request.name = name;
+    request.bindingName = bindingName;
 
     pass.inputs.push_back(std::move(request));
 
@@ -734,17 +740,28 @@ RGResourceHandle RenderGraph::PassBuilder::Read(const std::string& name)
 
 RGResourceHandle RenderGraph::PassBuilder::ReadCompute(const std::string& name)
 {
+    return ReadCompute(name, {});
+}
+
+RGResourceHandle RenderGraph::PassBuilder::ReadCompute(const std::string& name, const std::string& bindingName)
+{
     RGResourceHandle handle = graph.GetResourceHandle(name);
 
     ResourceRequest request{handle, ResourceUsage::ComputeSampled};
 
     request.name = name;
+    request.bindingName = bindingName;
     pass.inputs.push_back(std::move(request));
 
     return handle;
 }
 
 RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
+{
+    return ReadHistory(name, {});
+}
+
+RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name, const std::string& bindingName)
 {
     if (graph.m_HistoryResources.count(name))
     {
@@ -774,9 +791,12 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
             graph.m_Resources[h].currentState = hist.state;
         }
 
-        pass.inputs.push_back({h, pass.isCompute
-                                      ? ResourceUsage::ComputeSampled
-                                      : ResourceUsage::GraphicsSampled});
+        ResourceRequest request{
+            h, pass.isCompute ? ResourceUsage::ComputeSampled
+                              : ResourceUsage::GraphicsSampled};
+        request.name = historyName;
+        request.bindingName = bindingName;
+        pass.inputs.push_back(std::move(request));
         return h;
     }
 
@@ -785,6 +805,7 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
                                            : ResourceUsage::GraphicsSampled};
 
     request.name = name;
+    request.bindingName = bindingName;
     pass.inputs.push_back(std::move(request));
 
     CH_CORE_TRACE("RenderGraph: ReadHistory('{}') failed - history not found!",
@@ -796,17 +817,46 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
 RGResourceHandle RenderGraph::PassBuilder::ReadHistorySafe(
     const std::string& name, const std::string& fallbackName)
 {
+    return ReadHistorySafe(name, fallbackName, {});
+}
+
+RGResourceHandle RenderGraph::PassBuilder::ReadHistorySafe(
+    const std::string& name, const std::string& fallbackName,
+    const std::string& bindingName)
+{
     if (graph.HasHistory(name))
     {
-        return ReadHistory(name);
+        return ReadHistory(name, bindingName);
     }
 
-    return pass.isCompute ? ReadCompute(fallbackName) : Read(fallbackName);
+    return pass.isCompute ? ReadCompute(fallbackName, bindingName)
+                          : Read(fallbackName, bindingName);
 }
 
 ResourceHandleProxy& ResourceHandleProxy::AllowUsage(VkImageUsageFlags additionalUsage)
 {
     graph.m_Resources[handle].desc.usage |= additionalUsage;
+    return *this;
+}
+
+ResourceHandleProxy& ResourceHandleProxy::BindTo(
+    const std::string& bindingName)
+{
+    auto output = std::find_if(
+        pass.outputs.rbegin(),
+        pass.outputs.rend(),
+        [this](const ResourceRequest& request)
+        {
+            return request.handle == handle;
+        });
+
+    if (output == pass.outputs.rend())
+    {
+        throw std::logic_error(
+            "ResourceHandleProxy::BindTo() could not find its output");
+    }
+
+    output->bindingName = bindingName;
     return *this;
 }
 

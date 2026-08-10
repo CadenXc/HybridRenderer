@@ -292,9 +292,7 @@ void TestTAAFirstFramePreservesHistoryBinding()
 
     // 建立 TAA 所需的当前帧资源。
     Chimera::RenderGraphPass producerPass;
-    Chimera::RenderGraph::PassBuilder producerBuilder(
-        graph,
-        producerPass);
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
 
     producerBuilder.Write(Chimera::RS::FinalColor)
         .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -302,46 +300,55 @@ void TestTAAFirstFramePreservesHistoryBinding()
     producerBuilder.Write(Chimera::RS::Motion)
         .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
 
-    producerBuilder.Write(Chimera::RS::Depth)
-        .Format(VK_FORMAT_D32_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Depth).Format(VK_FORMAT_D32_SFLOAT);
 
     // 此时 graph 中还不存在 TAAOutput history。
     Chimera::RenderGraphPass taaGraphPass;
     taaGraphPass.name = "TAAPass";
     taaGraphPass.isCompute = true;
 
-    Chimera::RenderGraph::PassBuilder taaBuilder(
-        graph,
-        taaGraphPass);
+    Chimera::RenderGraph::PassBuilder taaBuilder(graph, taaGraphPass);
 
     Chimera::TAAPass taaPass;
     Chimera::TAAPassData data{};
 
     taaPass.Setup(data, taaBuilder);
 
-    Require(
-        taaGraphPass.inputs.size() == 4,
-        "TAA first frame must preserve all four input bindings");
+    Require(taaGraphPass.inputs.size() == 4,
+            "TAA first frame must preserve all four input bindings");
 
-    Require(
-        data.history == data.current,
-        "TAA first frame should use current color as history fallback");
+    Require(data.history == data.current,
+            "TAA first frame should use current color as history fallback");
 
-    Require(
-        taaGraphPass.inputs[0].handle == data.current,
-        "TAA binding 0 should contain current color");
+    Require(taaGraphPass.inputs[0].handle == data.current,
+            "TAA binding 0 should contain current color");
 
-    Require(
-        taaGraphPass.inputs[1].handle == data.history,
-        "TAA binding 1 should contain history fallback");
+    Require(taaGraphPass.inputs[1].handle == data.history,
+            "TAA binding 1 should contain history fallback");
 
-    Require(
-        taaGraphPass.inputs[2].handle == data.motion,
-        "TAA binding 2 should contain motion");
+    Require(taaGraphPass.inputs[2].handle == data.motion,
+            "TAA binding 2 should contain motion");
 
-    Require(
-        taaGraphPass.inputs[3].handle == data.depth,
-        "TAA binding 3 should contain depth");
+    Require(taaGraphPass.inputs[3].handle == data.depth,
+            "TAA binding 3 should contain depth");
+
+    Require(taaGraphPass.inputs[0].bindingName == "curColor",
+            "TAA current color must bind to curColor");
+
+    Require(taaGraphPass.inputs[1].bindingName == "historyColor",
+            "TAA history fallback must preserve historyColor binding");
+
+    Require(taaGraphPass.inputs[2].bindingName == "gMotion",
+            "TAA motion must bind to gMotion");
+
+    Require(taaGraphPass.inputs[3].bindingName == "gDepth",
+            "TAA depth must bind to gDepth");
+
+    Require(taaGraphPass.outputs.size() == 1,
+            "TAA must declare exactly one output");
+
+    Require(taaGraphPass.outputs[0].bindingName == "outFinal",
+            "TAA output must bind to outFinal");
 }
 
 void TestSVGFCombineUsesOnlyShaderInputs()
@@ -351,15 +358,12 @@ void TestSVGFCombineUsesOnlyShaderInputs()
     const std::string currentName = "TestFiltered";
 
     Chimera::RenderGraphPass producerPass;
-    Chimera::RenderGraph::PassBuilder producerBuilder(
-        graph,
-        producerPass);
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
 
     producerBuilder.WriteStorage(currentName)
         .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
 
-    producerBuilder.Write(Chimera::RS::Albedo)
-        .Format(VK_FORMAT_R8G8B8A8_UNORM);
+    producerBuilder.Write(Chimera::RS::Albedo).Format(VK_FORMAT_R8G8B8A8_UNORM);
 
     Chimera::SVGFPass::Config config;
 
@@ -367,13 +371,9 @@ void TestSVGFCombineUsesOnlyShaderInputs()
     combineGraphPass.name = "SVGFCombinePass";
     combineGraphPass.isCompute = true;
 
-    Chimera::RenderGraph::PassBuilder combineBuilder(
-        graph,
-        combineGraphPass);
+    Chimera::RenderGraph::PassBuilder combineBuilder(graph, combineGraphPass);
 
-    Chimera::SVGFCombinePass combinePass(
-        config,
-        currentName);
+    Chimera::SVGFCombinePass combinePass(config, currentName);
 
     Chimera::SVGFCombineData data{};
     combinePass.Setup(data, combineBuilder);
@@ -394,16 +394,10 @@ void TestMissingHistoryReadIsRejected()
 
     graph.AddPassRaw<EmptyPassData>(
         "MissingHistoryPass",
-        [](EmptyPassData&,
-           Chimera::RenderGraph::PassBuilder& builder)
-        {
-            builder.ReadHistory("MissingHistory");
-        },
-        [](const EmptyPassData&,
-           Chimera::RenderGraphRegistry&,
-           VkCommandBuffer)
-        {
-        });
+        [](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
+        { builder.ReadHistory("MissingHistory"); },
+        [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
 
     bool rejected = false;
 
@@ -415,20 +409,17 @@ void TestMissingHistoryReadIsRejected()
     {
         const std::string message = error.what();
 
-        Require(
-            message.find("MissingHistoryPass") != std::string::npos,
-            "missing-history diagnostic should contain the pass name");
+        Require(message.find("MissingHistoryPass") != std::string::npos,
+                "missing-history diagnostic should contain the pass name");
 
-        Require(
-            message.find("MissingHistory") != std::string::npos,
-            "missing-history diagnostic should contain the history name");
+        Require(message.find("MissingHistory") != std::string::npos,
+                "missing-history diagnostic should contain the history name");
 
         rejected = true;
     }
 
-    Require(
-        rejected,
-        "Compile accepted a required history resource that does not exist");
+    Require(rejected,
+            "Compile accepted a required history resource that does not exist");
 }
 
 void TestGraphicsHistoryFallbackUsesGraphicsStage()
@@ -436,40 +427,33 @@ void TestGraphicsHistoryFallbackUsesGraphicsStage()
     Chimera::RenderGraph graph(1280, 720);
 
     Chimera::RenderGraphPass producerPass;
-    Chimera::RenderGraph::PassBuilder producerBuilder(
-        graph,
-        producerPass);
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
 
-    const auto fallback =
-        static_cast<Chimera::RGResourceHandle>(
-            producerBuilder.Write("FallbackColor")
-                .Format(VK_FORMAT_R16G16B16A16_SFLOAT));
+    const auto fallback = static_cast<Chimera::RGResourceHandle>(
+        producerBuilder.Write("FallbackColor")
+            .Format(VK_FORMAT_R16G16B16A16_SFLOAT));
 
     Chimera::RenderGraphPass graphicsPass;
     graphicsPass.name = "GraphicsHistoryConsumer";
     graphicsPass.isCompute = false;
 
-    Chimera::RenderGraph::PassBuilder builder(
-        graph,
-        graphicsPass);
+    Chimera::RenderGraph::PassBuilder builder(graph, graphicsPass);
 
-    const auto result =
-        builder.ReadHistorySafe(
-            "MissingHistory",
-            "FallbackColor");
+    const auto result = builder.ReadHistorySafe(
+        "MissingHistory", "FallbackColor", "historyColor");
 
-    Require(
-        result == fallback,
-        "missing history should return the fallback resource");
+    Require(result == fallback,
+            "missing history should return the fallback resource");
+
+    Require(graphicsPass.inputs.size() == 1,
+            "history fallback should add exactly one input");
 
     Require(
-        graphicsPass.inputs.size() == 1,
-        "history fallback should add exactly one input");
-
-    Require(
-        graphicsPass.inputs[0].usage ==
-            Chimera::ResourceUsage::GraphicsSampled,
+        graphicsPass.inputs[0].usage == Chimera::ResourceUsage::GraphicsSampled,
         "graphics history fallback must use graphics sampled usage");
+
+    Require(graphicsPass.inputs[0].bindingName == "historyColor",
+            "graphics history fallback must preserve its shader binding name");
 }
 
 void TestDuplicateHistoryProducersAreRejected()
@@ -478,33 +462,25 @@ void TestDuplicateHistoryProducersAreRejected()
 
     graph.AddPassRaw<EmptyPassData>(
         "HistoryWriterA",
-        [](EmptyPassData&,
-           Chimera::RenderGraph::PassBuilder& builder)
+        [](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
         {
             builder.Write("HistorySourceA")
                 .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
                 .SaveAsHistory("SharedHistory");
         },
-        [](const EmptyPassData&,
-           Chimera::RenderGraphRegistry&,
-           VkCommandBuffer)
-        {
-        });
+        [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
 
     graph.AddPassRaw<EmptyPassData>(
         "HistoryWriterB",
-        [](EmptyPassData&,
-           Chimera::RenderGraph::PassBuilder& builder)
+        [](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
         {
             builder.Write("HistorySourceB")
                 .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
                 .SaveAsHistory("SharedHistory");
         },
-        [](const EmptyPassData&,
-           Chimera::RenderGraphRegistry&,
-           VkCommandBuffer)
-        {
-        });
+        [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
 
     bool rejected = false;
 
@@ -516,16 +492,14 @@ void TestDuplicateHistoryProducersAreRejected()
     {
         const std::string message = error.what();
 
-        Require(
-            message.find("SharedHistory") != std::string::npos,
-            "diagnostic should contain the duplicate history name");
+        Require(message.find("SharedHistory") != std::string::npos,
+                "diagnostic should contain the duplicate history name");
 
         rejected = true;
     }
 
-    Require(
-        rejected,
-        "Compile accepted multiple producers for one history resource");
+    Require(rejected,
+            "Compile accepted multiple producers for one history resource");
 }
 
 void TestPhysicalImageUsageContract()
@@ -548,17 +522,14 @@ void TestPhysicalImageUsageContract()
     constexpr VkImageUsageFlags storageAndTransfer =
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 
-    Require(SupportsImageUsage(storageAndTransfer,
-                               ResourceUsage::StorageWrite),
+    Require(SupportsImageUsage(storageAndTransfer, ResourceUsage::StorageWrite),
             "combined image usage must support storage writes");
 
-    Require(SupportsImageUsage(storageAndTransfer,
-                               ResourceUsage::TransferDst),
+    Require(SupportsImageUsage(storageAndTransfer, ResourceUsage::TransferDst),
             "combined image usage must support transfer writes");
 
-    Require(SupportsImageUsage(
-                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                ResourceUsage::DepthStencilWrite),
+    Require(SupportsImageUsage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                               ResourceUsage::DepthStencilWrite),
             "depth-stencil image must support depth writes");
 
     Require(!SupportsImageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
@@ -567,7 +538,6 @@ void TestPhysicalImageUsageContract()
 
     Require(SupportsImageUsage(0, ResourceUsage::None),
             "resource usage None must not require an image usage flag");
-
 }
 
 } // namespace

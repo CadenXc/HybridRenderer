@@ -7,6 +7,7 @@ namespace Chimera
 {
 class RenderGraph;
 struct RenderGraphPass;
+struct ShaderResource;
 
 class ExecutionContext
 {
@@ -34,6 +35,12 @@ public:
     {
         PushConstants(stages, &data, sizeof(T));
     }
+
+protected:
+    bool UsesNamedBindings() const;
+
+    RGResourceHandle ResolveNamedImageBinding(
+        const ShaderResource& shaderResource) const;
 
 protected:
     RenderGraph& m_Graph;

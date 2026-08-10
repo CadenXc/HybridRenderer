@@ -43,16 +43,21 @@ public:
         }
 
         RGResourceHandle Read(const std::string& name);
-        RGResourceHandle ReadCompute(const std::string& name);
-        RGResourceHandle ReadHistory(const std::string& name);
+        RGResourceHandle Read(const std::string& name,
+                              const std::string& bindingName);
 
-            /**
-         * @brief [NEW] Read history resource safely.
-         * If history is not available (e.g. first frame), falls back to reading
-         * the current frame's resource.
-         */
+        RGResourceHandle ReadCompute(const std::string& name);
+        RGResourceHandle ReadCompute(const std::string& name, const std::string& bindingName);
+
+        RGResourceHandle ReadHistory(const std::string& name);
+        RGResourceHandle ReadHistory(const std::string& name,
+                                     const std::string& bindingName);
+
         RGResourceHandle ReadHistorySafe(const std::string& name,
                                          const std::string& fallbackName);
+        RGResourceHandle ReadHistorySafe(const std::string& name,
+                                         const std::string& fallbackName,
+                                         const std::string& bindingName);
 
         ResourceHandleProxy Write(const std::string& name,
                                   VkFormat format = VK_FORMAT_UNDEFINED);

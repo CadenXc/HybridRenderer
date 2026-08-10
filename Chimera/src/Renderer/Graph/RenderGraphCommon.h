@@ -47,6 +47,7 @@ struct ResourceRequest
     uint32_t binding = 0xFFFFFFFF;
     VkClearValue clearValue = {{0, 0, 0, 1}};
     std::string name;
+    std::string bindingName;
 };
 
 struct ResourceState
@@ -142,7 +143,6 @@ struct RenderGraphRegistry
     VkImage GetImage(RGResourceHandle h);
 };
 
-    // --- [NEW] Fluent API Proxy ---
 class ResourceHandleProxy
 {
 public:
@@ -162,8 +162,8 @@ public:
     ResourceHandleProxy& ClearDepthStencil(float depth, uint32_t stencil = 0);
     ResourceHandleProxy& Persistent();
     ResourceHandleProxy& SaveAsHistory(const std::string& name);
-
     ResourceHandleProxy& AllowUsage(VkImageUsageFlags additionalUsage);
+    ResourceHandleProxy& BindTo(const std::string& bindingName);
 
 private:
     RenderGraph& graph;
