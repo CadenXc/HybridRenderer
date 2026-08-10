@@ -15,12 +15,14 @@ void RaytracePass::Setup(RaytracePassData& data,
                          RenderGraph::PassBuilder& builder)
 {
     data.output = builder.WriteStorage(RS::FinalColor)
-                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT).AllowUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                      .AllowUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+                      .BindTo("rtFinalColor");
 
-        // Ensure motion is written here too (standard for path tracers)
     builder.WriteStorage(RS::Motion)
         .Format(VK_FORMAT_R16G16_SFLOAT)
-        .AllowUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+        .AllowUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        .BindTo("rtMotionVector");
 }
 
 void RaytracePass::Execute(const RaytracePassData& data,
