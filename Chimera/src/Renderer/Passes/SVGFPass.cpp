@@ -140,10 +140,11 @@ SVGFCombinePass::SVGFCombinePass(
 void SVGFCombinePass::Setup(SVGFCombineData& data,
                             RenderGraph::PassBuilder& builder)
 {
-    data.current = builder.ReadCompute(m_CurrentInputColor);
+    data.current = builder.ReadCompute(m_CurrentInputColor, "gCurrentFiltered");
     data.output = builder.WriteStorage(m_Config.prefix + "_Filtered_Final")
-                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-    data.albedo = builder.ReadCompute(RS::Albedo);
+                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                      .BindTo("outFinal");
+    data.albedo = builder.ReadCompute(RS::Albedo, "gAlbedo");
 }
 void SVGFCombinePass::Execute(const SVGFCombineData& data,
                               ComputeExecutionContext& ctx)

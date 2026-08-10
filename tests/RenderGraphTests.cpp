@@ -396,6 +396,17 @@ void TestSVGFCombineUsesOnlyShaderInputs()
 
     Require(combineGraphPass.inputs[1].handle == data.albedo,
             "SVGF Combine binding 4 should contain albedo");
+    Require(combineGraphPass.inputs[0].bindingName == "gCurrentFiltered",
+            "SVGF Combine current signal must bind to gCurrentFiltered");
+
+    Require(combineGraphPass.inputs[1].bindingName == "gAlbedo",
+            "SVGF Combine albedo must bind to gAlbedo");
+
+    Require(combineGraphPass.outputs.size() == 1,
+            "SVGF Combine must declare one output");
+
+    Require(combineGraphPass.outputs[0].bindingName == "outFinal",
+            "SVGF Combine output must bind to outFinal");
 }
 
 void TestMissingHistoryReadIsRejected()
