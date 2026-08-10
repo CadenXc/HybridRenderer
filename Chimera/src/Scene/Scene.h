@@ -97,6 +97,7 @@ public:
                             std::vector<uint32_t>& outVisibleIndices) const;
 
 private:
+    void DestroyTLAS();
     void ComputeWorldTransform(uint32_t nodeIndex,
                                const glm::mat4& parentTransform);
     void SubdivideOctree(OctreeNode* node, uint32_t depth);

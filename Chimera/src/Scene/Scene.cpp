@@ -19,22 +19,7 @@ Scene::Scene(std::shared_ptr<VulkanContext> context) : m_Context(context.get())
 
 Scene::~Scene()
 {
-    if (m_Context)
-    {
-        VkDevice device = m_Context->GetDevice();
-        if (device != VK_NULL_HANDLE)
-        {
-            if (m_TopLevelAS != VK_NULL_HANDLE)
-            {
-                if (vkDestroyAccelerationStructureKHR)
-                    vkDestroyAccelerationStructureKHR(device, m_TopLevelAS,
-                                                      nullptr);
-                m_TopLevelAS = VK_NULL_HANDLE;
-            }
-        }
-        m_TLASBuffer.reset();
-        m_ASInstanceBuffer.reset();
-    }
+    DestroyTLAS();
 }
 
 void Scene::LoadModel(const std::string& path)
@@ -128,6 +113,25 @@ void Scene::UpdateWorldTransforms()
             ComputeWorldTransform(entity.rootNodeIndex,
                                   entity.transform.GetTransform());
     }
+}
+
+void Scene::DestroyTLAS()
+{
+    if (!m_Context) return;
+
+    VkDevice device = m_Context->GetDevice();
+
+    if (device != VK_NULL_HANDLE && m_TopLevelAS != VK_NULL_HANDLE &&
+        vkDestroyAccelerationStructureKHR)
+    {
+        vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
+    }
+
+    m_TopLevelAS = VK_NULL_HANDLE;
+
+    // 必须在 AS handle 销毁之后释放 backing buffer
+    m_TLASBuffer.reset();
+    m_ASInstanceBuffer.reset();
 }
 
 void Scene::ComputeWorldTransform(uint32_t nodeIndex,
@@ -360,32 +364,28 @@ void Scene::UpdateTLAS()
 
     if (instances.empty())
     {
-        if (m_TopLevelAS != VK_NULL_HANDLE)
-        {
-            vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
-            m_TopLevelAS = VK_NULL_HANDLE;
-        }
-        m_TLASBuffer.reset();
-        m_ASInstanceBuffer.reset();
+        VK_CHECK(vkDeviceWaitIdle(device));
+        DestroyTLAS();
         return;
     }
 
     VkDeviceSize instSize =
         instances.size() * sizeof(VkAccelerationStructureInstanceKHR);
-    Buffer instStaging(instSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VMA_MEMORY_USAGE_CPU_ONLY);
-    instStaging.UploadData(instances.data(), instSize);
-    m_ASInstanceBuffer = std::make_unique<Buffer>(
+    auto newInstanceBuffer = std::make_unique<Buffer>(
         instSize,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
+
+    Buffer instStaging(instSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                       VMA_MEMORY_USAGE_CPU_ONLY);
+    instStaging.UploadData(instances.data(), instSize);
     {
         ScopedCommandBuffer cmd;
         VkBufferCopy copy{0, 0, instSize};
         vkCmdCopyBuffer(cmd, (VkBuffer)instStaging.GetBuffer(),
-                        (VkBuffer)m_ASInstanceBuffer->GetBuffer(), 1, &copy);
+                        (VkBuffer)newInstanceBuffer->GetBuffer(), 1, &copy);
     }
 
     VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
@@ -396,7 +396,7 @@ void Scene::UpdateTLAS()
     geom.geometry.instances.sType =
         VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
     geom.geometry.instances.data.deviceAddress =
-        m_ASInstanceBuffer->GetDeviceAddress();
+        newInstanceBuffer->GetDeviceAddress();
     buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
     buildInfo.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
     buildInfo.geometryCount = 1;
@@ -410,26 +410,26 @@ void Scene::UpdateTLAS()
         device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo,
         &count, &sizeInfo);
 
-    m_TLASBuffer = std::make_unique<Buffer>(
+    auto newTLASBuffer = std::make_unique<Buffer>(
         sizeInfo.accelerationStructureSize,
         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY);
-    if (m_TopLevelAS != VK_NULL_HANDLE)
-        vkDestroyAccelerationStructureKHR(device, m_TopLevelAS, nullptr);
+
+    VkAccelerationStructureKHR newTLAS = VK_NULL_HANDLE;
     VkAccelerationStructureCreateInfoKHR createInfo{
         VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR};
     createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-    createInfo.buffer = (VkBuffer)m_TLASBuffer->GetBuffer();
+    createInfo.buffer = (VkBuffer)newTLASBuffer->GetBuffer();
     createInfo.size = sizeInfo.accelerationStructureSize;
-    vkCreateAccelerationStructureKHR(device, &createInfo, nullptr,
-                                     &m_TopLevelAS);
+    VK_CHECK(vkCreateAccelerationStructureKHR(device, &createInfo, nullptr,
+                                              &newTLAS));
 
     Buffer scratch(sizeInfo.buildScratchSize,
                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                    VMA_MEMORY_USAGE_GPU_ONLY);
-    buildInfo.dstAccelerationStructure = m_TopLevelAS;
+    buildInfo.dstAccelerationStructure = newTLAS;
     buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
     VkAccelerationStructureBuildRangeInfoKHR rangeInfo{count, 0, 0, 0};
     const VkAccelerationStructureBuildRangeInfoKHR* pRange = &rangeInfo;
@@ -437,5 +437,10 @@ void Scene::UpdateTLAS()
         ScopedCommandBuffer cmd;
         vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
     }
+
+    DestroyTLAS();
+    m_ASInstanceBuffer = std::move(newInstanceBuffer);
+    m_TLASBuffer = std::move(newTLASBuffer);
+    m_TopLevelAS = newTLAS;
 }
 } // namespace Chimera
