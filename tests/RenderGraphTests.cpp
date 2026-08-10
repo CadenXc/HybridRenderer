@@ -1,6 +1,8 @@
 #include "Core/Log.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Graph/ExecutionContext.h"
+#include "Renderer/Backend/Shader.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/SVGFPass.h"
 
@@ -15,6 +17,14 @@ void Require(bool condition, const std::string& message)
 {
     if (!condition) throw std::runtime_error(message);
 }
+
+class TestExecutionContext : public Chimera::ExecutionContext
+{
+public:
+    using ExecutionContext::ExecutionContext;
+    using ExecutionContext::ResolveNamedImageBinding;
+    using ExecutionContext::UsesNamedBindings;
+};
 
 void TestEmptyGraphCompilesAndExecutesSafely()
 {
@@ -540,6 +550,119 @@ void TestPhysicalImageUsageContract()
             "resource usage None must not require an image usage flag");
 }
 
+void TestNamedDescriptorResolutionIgnoresRequestOrder()
+{
+    Chimera::RenderGraph graph(1280, 720);
+    Chimera::RenderGraphPass pass;
+    pass.name = "NamedDescriptorPass";
+
+    Chimera::ResourceRequest depth{30, Chimera::ResourceUsage::ComputeSampled};
+    depth.bindingName = "gDepth";
+
+    Chimera::ResourceRequest current{
+        10, Chimera::ResourceUsage::ComputeSampled};
+    current.bindingName = "curColor";
+
+    Chimera::ResourceRequest motion{
+        20, Chimera::ResourceUsage::ComputeSampled};
+    motion.bindingName = "gMotion";
+
+    // Deliberately differs from shader binding order.
+    pass.inputs = {depth, current, motion};
+
+    Chimera::ResourceRequest output{40, Chimera::ResourceUsage::StorageWrite};
+    output.bindingName = "outFinal";
+    pass.outputs = {output};
+
+    TestExecutionContext context(graph, pass, VK_NULL_HANDLE);
+
+    Require(context.UsesNamedBindings(),
+            "a pass with named requests must enable named resolution");
+
+    const Chimera::ShaderResource motionBinding{
+        "gMotion", 2, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    const Chimera::ShaderResource depthBinding{
+        "gDepth", 2, 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    const Chimera::ShaderResource currentBinding{
+        "curColor", 2, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    const Chimera::ShaderResource outputBinding{
+        "outFinal", 2, 4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1};
+
+    Require(context.ResolveNamedImageBinding(motionBinding) == motion.handle,
+            "gMotion must resolve by name instead of input position");
+    Require(context.ResolveNamedImageBinding(depthBinding) == depth.handle,
+            "gDepth must resolve by name instead of input position");
+    Require(context.ResolveNamedImageBinding(currentBinding) == current.handle,
+            "curColor must resolve by name instead of input position");
+    Require(context.ResolveNamedImageBinding(outputBinding) == output.handle,
+            "storage binding must resolve from pass outputs");
+
+    Chimera::RenderGraphPass unnamedPass;
+    unnamedPass.name = "LegacyDescriptorPass";
+    unnamedPass.inputs.push_back(
+        {50, Chimera::ResourceUsage::ComputeSampled});
+
+    TestExecutionContext unnamedContext(graph, unnamedPass, VK_NULL_HANDLE);
+    Require(!unnamedContext.UsesNamedBindings(),
+            "a pass without binding names must retain positional mode");
+}
+
+void TestNamedDescriptorResolutionRejectsInvalidContracts()
+{
+    Chimera::RenderGraph graph(1280, 720);
+    Chimera::RenderGraphPass pass;
+    pass.name = "BrokenNamedDescriptorPass";
+
+    Chimera::ResourceRequest motionA{
+        10, Chimera::ResourceUsage::ComputeSampled};
+    motionA.bindingName = "gMotion";
+    Chimera::ResourceRequest motionB{
+        20, Chimera::ResourceUsage::ComputeSampled};
+    motionB.bindingName = "gMotion";
+    pass.inputs = {motionA, motionB};
+
+    TestExecutionContext context(graph, pass, VK_NULL_HANDLE);
+
+    const Chimera::ShaderResource missingBinding{
+        "missingBinding", 2, 7,
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+
+    bool missingRejected = false;
+    try
+    {
+        context.ResolveNamedImageBinding(missingBinding);
+    }
+    catch (const std::logic_error& error)
+    {
+        const std::string message = error.what();
+        missingRejected =
+            message.find(pass.name) != std::string::npos &&
+            message.find(missingBinding.name) != std::string::npos;
+    }
+
+    Require(missingRejected,
+            "missing named descriptor must produce a useful diagnostic");
+
+    const Chimera::ShaderResource duplicateBinding{
+        "gMotion", 2, 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+
+    bool duplicateRejected = false;
+    try
+    {
+        context.ResolveNamedImageBinding(duplicateBinding);
+    }
+    catch (const std::logic_error& error)
+    {
+        const std::string message = error.what();
+        duplicateRejected =
+            message.find(pass.name) != std::string::npos &&
+            message.find(duplicateBinding.name) != std::string::npos;
+    }
+
+    Require(duplicateRejected,
+            "duplicate named descriptors must be rejected");
+}
+
 } // namespace
 
 int main()
@@ -600,6 +723,12 @@ int main()
 
         TestPhysicalImageUsageContract();
         std::cout << "[PASS] physical image usage contract is enforced\n";
+
+        TestNamedDescriptorResolutionIgnoresRequestOrder();
+        std::cout << "[PASS] named descriptor resolution ignores request order\n";
+
+        TestNamedDescriptorResolutionRejectsInvalidContracts();
+        std::cout << "[PASS] invalid named descriptor contracts are rejected\n";
 
         return 0;
     }
