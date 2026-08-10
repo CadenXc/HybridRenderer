@@ -11,35 +11,55 @@ SVGFTemporalPass::SVGFTemporalPass(const SVGFPass::Config& config)
     : m_Config(config)
 {
 }
+
 void SVGFTemporalPass::Setup(SVGFTemporalData& data,
                              RenderGraph::PassBuilder& builder)
 {
-    data.cur = builder.ReadCompute(m_Config.inputName);
-    data.motion = builder.ReadCompute(RS::Motion);
-    data.history =
-        builder.ReadHistorySafe(m_Config.historyBaseName, m_Config.inputName);
-    data.historyMoments = builder.ReadHistorySafe(m_Config.prefix + "Moments",
-                                                  m_Config.inputName);
+    data.cur = builder.ReadCompute(m_Config.inputName, "gCurSignal");
+
+    data.motion = builder.ReadCompute(RS::Motion, "gMotion");
+
+    data.history = builder.ReadHistorySafe(
+        m_Config.historyBaseName, m_Config.inputName, "gHistorySignal");
+
+    data.historyMoments = builder.ReadHistorySafe(
+        m_Config.prefix + "Moments", m_Config.inputName, "gHistoryMoments");
 
     auto outputProxy = builder.WriteStorage(m_Config.prefix + "_TemporalColor")
-                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                           .BindTo("outSignal");
+
     if (!m_Config.spatialEnabled)
     {
         outputProxy.SaveAsHistory(m_Config.historyBaseName);
     }
+
     data.output = outputProxy;
 
     data.outMoments = builder.WriteStorage(m_Config.prefix + "_TemporalMoments")
                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                          .BindTo("outMoments")
                           .SaveAsHistory(m_Config.prefix + "Moments");
-    data.depth = builder.ReadCompute(RS::Depth);
-    data.normal = builder.ReadCompute(RS::Normal);
-    data.prevDepth = builder.ReadHistorySafe(RS::Depth, RS::Depth);
-    data.prevNormal = builder.ReadHistorySafe(RS::Normal, RS::Normal);
-    data.objectID = builder.ReadCompute(RS::ObjectID);
-    data.prevObjectID = builder.ReadHistorySafe(RS::ObjectID, RS::ObjectID);
-    data.prevMotion = builder.ReadHistorySafe(RS::Motion, RS::Motion);
-    builder.ReadCompute(RS::Albedo);
+
+    data.depth = builder.ReadCompute(RS::Depth, "gCurDepth");
+
+    data.normal = builder.ReadCompute(RS::Normal, "gCurNormal");
+
+    data.prevDepth =
+        builder.ReadHistorySafe(RS::Depth, RS::Depth, "gPrevDepth");
+
+    data.prevNormal =
+        builder.ReadHistorySafe(RS::Normal, RS::Normal, "gPrevNormal");
+
+    data.objectID = builder.ReadCompute(RS::ObjectID, "gCurObjectID");
+
+    data.prevObjectID =
+        builder.ReadHistorySafe(RS::ObjectID, RS::ObjectID, "gPrevObjectID");
+
+    data.prevMotion =
+        builder.ReadHistorySafe(RS::Motion, RS::Motion, "gPrevMotion");
+
+    builder.ReadCompute(RS::Albedo, "gAlbedo");
 }
 void SVGFTemporalPass::Execute(const SVGFTemporalData& data,
                                ComputeExecutionContext& ctx)
