@@ -64,13 +64,19 @@ SVGFVarianceEstimatePass::SVGFVarianceEstimatePass(
 void SVGFVarianceEstimatePass::Setup(SVGFVarianceEstimateData& data,
                                      RenderGraph::PassBuilder& builder)
 {
-    data.inputIllum = builder.ReadCompute(m_InputIllum);
-    data.inputMoments = builder.ReadCompute(m_InputMoments);
-    data.normal = builder.ReadCompute(RS::Normal);
-    data.motion = builder.ReadCompute(RS::Motion);
-    data.objectID = builder.ReadCompute(RS::ObjectID);
+    data.inputIllum = builder.ReadCompute(m_InputIllum, "gInputSignal");
+
+    data.inputMoments = builder.ReadCompute(m_InputMoments, "gInputMoments");
+
+    data.normal = builder.ReadCompute(RS::Normal, "gNormal");
+
+    data.motion = builder.ReadCompute(RS::Motion, "gMotion");
+
+    data.objectID = builder.ReadCompute(RS::ObjectID, "gObjectID");
+
     data.outputIllum = builder.WriteStorage(m_OutputIllum)
-                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                           .BindTo("outSignal");
 }
 void SVGFVarianceEstimatePass::Execute(const SVGFVarianceEstimateData& data,
                                        ComputeExecutionContext& ctx)
