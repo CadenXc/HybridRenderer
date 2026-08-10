@@ -13,19 +13,25 @@ CompositionPass::CompositionPass(const Config& config) : m_Config(config) {}
 
 void CompositionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
-    // MUST STRICTLY MATCH binding order in composition.frag (Set 2, Bindings
-    // 0-9)
-    data.albedo = builder.Read(RS::Albedo); // 0
-    data.normal = builder.Read(RS::Normal);     // 1
-    data.material = builder.Read(RS::MaterialParams); // 2
-    data.motion = builder.Read(RS::Motion);     // 3
-    data.depth = builder.Read(RS::Depth); // 4
-    data.emissive = builder.Read(RS::Emissive); // 5
+    data.albedo = builder.Read(RS::Albedo, "gAlbedo");
 
-    data.gi_raw = builder.Read(m_Config.giName); // 6
-    data.reflection_raw = builder.Read(m_Config.reflectionName); // 7
-    data.shadow_raw = builder.Read(m_Config.shadowName); // 8
-    data.ao_raw = builder.Read(m_Config.aoName); // 9
+    data.normal = builder.Read(RS::Normal, "gNormal");
+
+    data.material = builder.Read(RS::MaterialParams, "gMaterialParams");
+
+    data.motion = builder.Read(RS::Motion, "gMotion");
+
+    data.depth = builder.Read(RS::Depth, "gDepth");
+
+    data.emissive = builder.Read(RS::Emissive, "gEmissive");
+
+    data.gi_raw = builder.Read(m_Config.giName, "gGI");
+
+    data.reflection_raw = builder.Read(m_Config.reflectionName, "gReflection");
+
+    data.shadow_raw = builder.Read(m_Config.shadowName, "gShadow");
+
+    data.ao_raw = builder.Read(m_Config.aoName, "gAO");
 
     data.output =
         builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
