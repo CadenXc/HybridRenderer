@@ -362,6 +362,85 @@ void TestTAAFirstFramePreservesHistoryBinding()
             "TAA output must bind to outFinal");
 }
 
+void TestSVGFTemporalFirstFramePreservesNamedBindings()
+{
+    Chimera::RenderGraph graph(1280, 720);
+    Chimera::SVGFPass::Config config;
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
+
+    producerBuilder.WriteStorage(config.inputName)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Motion)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Depth).Format(VK_FORMAT_D32_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Normal)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::ObjectID).Format(VK_FORMAT_R32_UINT);
+    Chimera::RGResourceHandle albedo =
+        producerBuilder.Write(Chimera::RS::Albedo)
+            .Format(VK_FORMAT_R8G8B8A8_UNORM);
+
+    Chimera::RenderGraphPass temporalGraphPass;
+    temporalGraphPass.name = "SVGFTemporalPass";
+    temporalGraphPass.isCompute = true;
+
+    Chimera::RenderGraph::PassBuilder temporalBuilder(graph,
+                                                       temporalGraphPass);
+    Chimera::SVGFTemporalPass temporalPass(config);
+    Chimera::SVGFTemporalData data{};
+
+    temporalPass.Setup(data, temporalBuilder);
+
+    Require(data.history == data.cur,
+            "SVGF temporal signal history should fall back to current signal");
+    Require(data.historyMoments == data.cur,
+            "SVGF temporal moments history should fall back to current signal");
+    Require(data.prevDepth == data.depth,
+            "SVGF previous depth should fall back to current depth");
+    Require(data.prevNormal == data.normal,
+            "SVGF previous normal should fall back to current normal");
+    Require(data.prevObjectID == data.objectID,
+            "SVGF previous object ID should fall back to current object ID");
+    Require(data.prevMotion == data.motion,
+            "SVGF previous motion should fall back to current motion");
+
+    const std::array<const char*, 12> expectedBindings = {
+        "gCurSignal",   "gMotion",       "gHistorySignal",
+        "gHistoryMoments", "gCurDepth", "gCurNormal",
+        "gPrevDepth",  "gPrevNormal",   "gCurObjectID",
+        "gPrevObjectID", "gPrevMotion", "gAlbedo"};
+    const std::array<Chimera::RGResourceHandle, 12> expectedHandles = {
+        data.cur,          data.motion,       data.history,
+        data.historyMoments, data.depth,      data.normal,
+        data.prevDepth,    data.prevNormal,   data.objectID,
+        data.prevObjectID, data.prevMotion,   albedo};
+
+    Require(temporalGraphPass.inputs.size() == expectedBindings.size(),
+            "SVGF temporal must declare all twelve sampled inputs");
+
+    for (size_t i = 0; i < expectedBindings.size(); ++i)
+    {
+        Require(temporalGraphPass.inputs[i].handle == expectedHandles[i],
+                "SVGF temporal input must preserve its resource handle");
+        Require(temporalGraphPass.inputs[i].bindingName ==
+                    expectedBindings[i],
+                "SVGF temporal input must preserve its reflected shader name");
+    }
+
+    Require(temporalGraphPass.outputs.size() == 2,
+            "SVGF temporal must declare two storage outputs");
+    Require(temporalGraphPass.outputs[0].handle == data.output,
+            "SVGF temporal signal output must preserve its handle");
+    Require(temporalGraphPass.outputs[0].bindingName == "outSignal",
+            "SVGF temporal signal output must bind to outSignal");
+    Require(temporalGraphPass.outputs[1].handle == data.outMoments,
+            "SVGF temporal moments output must preserve its handle");
+    Require(temporalGraphPass.outputs[1].bindingName == "outMoments",
+            "SVGF temporal moments output must bind to outMoments");
+}
+
 void TestSVGFCombineUsesOnlyShaderInputs()
 {
     Chimera::RenderGraph graph(1280, 720);
@@ -779,6 +858,10 @@ int main()
 
         TestTAAFirstFramePreservesHistoryBinding();
         std::cout << "[PASS] TAA first frame preserves history binding\n";
+
+        TestSVGFTemporalFirstFramePreservesNamedBindings();
+        std::cout
+            << "[PASS] SVGF temporal first frame preserves named bindings\n";
 
         TestSVGFCombineUsesOnlyShaderInputs();
         std::cout << "[PASS] SVGF Combine declares only used shader inputs\n";
