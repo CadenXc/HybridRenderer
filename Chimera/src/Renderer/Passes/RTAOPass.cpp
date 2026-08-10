@@ -12,8 +12,8 @@ void RTAOPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
     data.output =
         builder.WriteStorage("AORaw").Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-    data.normal = builder.Read(RS::Normal);
-    data.depth = builder.Read(RS::Depth);
+    data.normal = builder.ReadRaytrace(RS::Normal);
+    data.depth = builder.ReadRaytrace(RS::Depth);
 }
 
 void RTAOPass::Execute(const PassData& data, RenderGraphRegistry& reg,

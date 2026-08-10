@@ -719,6 +719,27 @@ void RenderGraph::DestroyResources(bool all)
     }
 }
 
+
+RGResourceHandle RenderGraph::PassBuilder::ReadRaytrace(
+    const std::string& name)
+{
+    return ReadRaytrace(name, {});
+}
+
+RGResourceHandle RenderGraph::PassBuilder::ReadRaytrace(
+    const std::string& name, const std::string& bindingName)
+{
+    RGResourceHandle handle = graph.GetResourceHandle(name);
+
+    ResourceRequest request{handle, ResourceUsage::RaytraceSampled};
+
+    request.name = name;
+    request.bindingName = bindingName;
+    pass.inputs.push_back(std::move(request));
+
+    return handle;
+}
+
 RGResourceHandle RenderGraph::PassBuilder::Read(const std::string& name)
 {
     return Read(name, {});

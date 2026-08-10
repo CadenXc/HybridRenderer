@@ -25,8 +25,8 @@ void RTShadowPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
                       .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
 
     // Read access to G-Buffer attributes needed for ray reconstruction
-    data.normal = builder.ReadCompute(RS::Normal);
-    data.depth = builder.ReadCompute(RS::Depth);
+    data.normal = builder.ReadRaytrace(RS::Normal);
+    data.depth = builder.ReadRaytrace(RS::Depth);
 }
 
 /**

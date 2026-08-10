@@ -42,6 +42,11 @@ public:
         {
         }
 
+        RGResourceHandle ReadRaytrace(const std::string& name);
+
+        RGResourceHandle ReadRaytrace(const std::string& name,
+                                      const std::string& bindingName);
+
         RGResourceHandle Read(const std::string& name);
         RGResourceHandle Read(const std::string& name,
                               const std::string& bindingName);

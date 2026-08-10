@@ -16,10 +16,10 @@ void RTReflectionPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
     data.output = builder.WriteStorage("ReflectionRaw")
                       .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-    data.normal = builder.Read(RS::Normal);
-    data.depth = builder.Read(RS::Depth);
-    data.material = builder.Read(RS::MaterialParams);
-    data.albedo = builder.Read(RS::Albedo);
+    data.normal = builder.ReadRaytrace(RS::Normal);
+    data.depth = builder.ReadRaytrace(RS::Depth);
+    data.material = builder.ReadRaytrace(RS::MaterialParams);
+    data.albedo = builder.ReadRaytrace(RS::Albedo);
 }
 
 void RTReflectionPass::Execute(const PassData& data, RenderGraphRegistry& reg,
