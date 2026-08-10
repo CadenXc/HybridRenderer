@@ -163,6 +163,8 @@ public:
     ResourceHandleProxy& Persistent();
     ResourceHandleProxy& SaveAsHistory(const std::string& name);
 
+    ResourceHandleProxy& AllowUsage(VkImageUsageFlags additionalUsage);
+
 private:
     RenderGraph& graph;
     RenderGraphPass& pass;

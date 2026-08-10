@@ -804,6 +804,12 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistorySafe(
     return pass.isCompute ? ReadCompute(fallbackName) : Read(fallbackName);
 }
 
+ResourceHandleProxy& ResourceHandleProxy::AllowUsage(VkImageUsageFlags additionalUsage)
+{
+    graph.m_Resources[handle].desc.usage |= additionalUsage;
+    return *this;
+}
+
 ResourceHandleProxy RenderGraph::PassBuilder::Write(const std::string& name,
                                                      VkFormat format)
 {

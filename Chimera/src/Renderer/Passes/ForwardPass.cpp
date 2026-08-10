@@ -16,11 +16,13 @@ void ForwardPass::Setup(ForwardPassData& data,
 {
     data.color = builder.Write(RS::FinalColor)
                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+					.AllowUsage(VK_IMAGE_USAGE_STORAGE_BIT)
                      .Clear({0.0f, 0.0f, 0.0f, 1.0f}); // Clear to pure black
 
     // Also ensure motion buffer is initialized in forward paths for TAA support
     builder.Write(RS::Motion)
         .Format(VK_FORMAT_R16G16_SFLOAT)
+		.AllowUsage(VK_IMAGE_USAGE_STORAGE_BIT)
         .Clear({0.0f, 0.0f, 0.0f, 0.0f});
 
     data.depth = builder.Write(RS::Depth)
