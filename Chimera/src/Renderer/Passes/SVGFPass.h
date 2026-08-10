@@ -50,7 +50,7 @@ struct SVGFAtrousData
 {
     RGResourceHandle input;
     RGResourceHandle normal;
-    RGResourceHandle depth;
+    RGResourceHandle motion;
     RGResourceHandle objectID;
     RGResourceHandle materialParams;
     RGResourceHandle output;

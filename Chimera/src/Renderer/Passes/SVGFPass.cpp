@@ -97,14 +97,15 @@ SVGFAtrousPass::SVGFAtrousPass(const SVGFPass::Config& config, int iteration,
 void SVGFAtrousPass::Setup(SVGFAtrousData& data,
                            RenderGraph::PassBuilder& builder)
 {
-    data.input = builder.ReadCompute(m_InputName);
-    data.normal = builder.ReadCompute(RS::Normal);
-    data.depth = builder.ReadCompute(RS::Motion);
-    data.objectID = builder.ReadCompute(RS::ObjectID);
-    data.materialParams = builder.ReadCompute(RS::MaterialParams);
+    data.input = builder.ReadCompute(m_InputName, "gInputColor");
+    data.normal = builder.ReadCompute(RS::Normal, "gNormal");
+    data.motion = builder.ReadCompute(RS::Motion, "gMotion");
+    data.objectID = builder.ReadCompute(RS::ObjectID, "gObjectID");
+    data.materialParams = builder.ReadCompute(RS::MaterialParams, "gMaterialParams");
 
     auto outputProxy = builder.WriteStorage(m_OutputName)
-                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                           .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+                           .BindTo("outFiltered");
     if (!m_HistoryName.empty())
     {
         outputProxy.SaveAsHistory(m_HistoryName);

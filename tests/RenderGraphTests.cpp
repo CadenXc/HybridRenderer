@@ -6,6 +6,7 @@
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/SVGFPass.h"
 
+#include <array>
 #include <exception>
 #include <iostream>
 #include <stdexcept>
@@ -409,6 +410,65 @@ void TestSVGFCombineUsesOnlyShaderInputs()
             "SVGF Combine output must bind to outFinal");
 }
 
+void TestSVGFAtrousUsesNamedShaderBindings()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    const std::string inputName = "TestAtrousInput";
+    const std::string outputName = "TestAtrousOutput";
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
+
+    producerBuilder.WriteStorage(inputName)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Normal)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::Motion)
+        .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    producerBuilder.Write(Chimera::RS::ObjectID)
+        .Format(VK_FORMAT_R32_UINT);
+    producerBuilder.Write(Chimera::RS::MaterialParams)
+        .Format(VK_FORMAT_R8G8B8A8_UNORM);
+
+    Chimera::RenderGraphPass atrousGraphPass;
+    atrousGraphPass.name = "SVGFAtrousPass";
+    atrousGraphPass.isCompute = true;
+
+    Chimera::RenderGraph::PassBuilder atrousBuilder(graph, atrousGraphPass);
+    Chimera::SVGFPass::Config config;
+    Chimera::SVGFAtrousPass atrousPass(config, 0, inputName, outputName, {});
+    Chimera::SVGFAtrousData data{};
+
+    atrousPass.Setup(data, atrousBuilder);
+
+    Require(atrousGraphPass.inputs.size() == 5,
+            "SVGF A-trous must declare all five sampled inputs");
+
+    const std::array<const char*, 5> expectedInputBindings = {
+        "gInputColor", "gNormal", "gMotion", "gObjectID",
+        "gMaterialParams"};
+    const std::array<Chimera::RGResourceHandle, 5> expectedInputHandles = {
+        data.input, data.normal, data.motion, data.objectID,
+        data.materialParams};
+
+    for (size_t i = 0; i < expectedInputBindings.size(); ++i)
+    {
+        Require(atrousGraphPass.inputs[i].handle == expectedInputHandles[i],
+                "SVGF A-trous input must preserve its resource handle");
+        Require(atrousGraphPass.inputs[i].bindingName ==
+                    expectedInputBindings[i],
+                "SVGF A-trous input must use its reflected shader name");
+    }
+
+    Require(atrousGraphPass.outputs.size() == 1,
+            "SVGF A-trous must declare exactly one output");
+    Require(atrousGraphPass.outputs[0].handle == data.output,
+            "SVGF A-trous output must preserve its resource handle");
+    Require(atrousGraphPass.outputs[0].bindingName == "outFiltered",
+            "SVGF A-trous output must bind to outFiltered");
+}
+
 void TestMissingHistoryReadIsRejected()
 {
     Chimera::RenderGraph graph(1280, 720);
@@ -722,6 +782,9 @@ int main()
 
         TestSVGFCombineUsesOnlyShaderInputs();
         std::cout << "[PASS] SVGF Combine declares only used shader inputs\n";
+
+        TestSVGFAtrousUsesNamedShaderBindings();
+        std::cout << "[PASS] SVGF A-trous uses named shader bindings\n";
 
         TestMissingHistoryReadIsRejected();
         std::cout << "[PASS] missing required history is rejected\n";
