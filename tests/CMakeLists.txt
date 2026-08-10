@@ -15,6 +15,23 @@ set_tests_properties(TaskSystemTests PROPERTIES
     TIMEOUT 10
 )
 
+add_executable(BenchmarkRecorderTests
+    BenchmarkRecorderTests.cpp
+)
+
+target_link_libraries(BenchmarkRecorderTests
+    PRIVATE Chimera
+)
+
+add_test(
+    NAME BenchmarkRecorderTests
+    COMMAND BenchmarkRecorderTests
+)
+
+set_tests_properties(BenchmarkRecorderTests PROPERTIES
+    TIMEOUT 10
+)
+
 add_executable(RenderGraphTests
     RenderGraphTests.cpp
 )
