@@ -45,6 +45,23 @@ static VkImageUsageFlags GetRequiredImageUsage(ResourceUsage usage)
     }
 }
 
+static bool IsDescriptorUsage(ResourceUsage usage)
+{
+    switch (usage)
+    {
+        case ResourceUsage::GraphicsSampled:
+        case ResourceUsage::ComputeSampled:
+        case ResourceUsage::RaytraceSampled:
+        case ResourceUsage::StorageRead:
+        case ResourceUsage::StorageWrite:
+        case ResourceUsage::StorageReadWrite:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
 static ResourceState GetStateFromUsage(ResourceUsage usage, bool isDepth)
 {
     ResourceState state{};
@@ -165,6 +182,26 @@ void RenderGraph::Compile()
 {
     for (const auto& pass : m_PassStack)
     {
+        bool hasNamedDescriptor = false;
+        bool hasUnnamedDescriptor = false;
+
+        auto inspectDescriptorContract = [&](const ResourceRequest& request)
+        {
+            if (!IsDescriptorUsage(request.usage))
+            {
+                return;
+            }
+
+            if (request.bindingName.empty())
+            {
+                hasUnnamedDescriptor = true;
+            }
+            else
+            {
+                hasNamedDescriptor = true;
+            }
+        };
+
         for (const auto& input : pass.inputs)
         {
             if (input.handle == INVALID_RESOURCE ||
@@ -174,6 +211,20 @@ void RenderGraph::Compile()
                     "RenderGraph compile error: pass '" + pass.name +
                     "' reads undeclared resource '" + input.name + "'");
             }
+
+            inspectDescriptorContract(input);
+        }
+
+        for (const auto& output : pass.outputs)
+        {
+            inspectDescriptorContract(output);
+        }
+
+        if (hasNamedDescriptor && hasUnnamedDescriptor)
+        {
+            throw std::logic_error(
+                "RenderGraph compile error: pass '" + pass.name +
+                "' mixes named and unnamed descriptor resources");
         }
     }
     std::unordered_map<std::string, RGResourceHandle> historyProducers;

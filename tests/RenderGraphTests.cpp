@@ -80,6 +80,70 @@ void TestInvalidReadIsRejected()
     Require(rejected, "Compile accepted a read of an undeclared resource");
 }
 
+void TestMixedDescriptorBindingsAreRejected()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
+    producerBuilder.Write("MixedInputA").Format(VK_FORMAT_R8G8B8A8_UNORM);
+    producerBuilder.Write("MixedInputB").Format(VK_FORMAT_R8G8B8A8_UNORM);
+
+    graph.AddPassRaw<EmptyPassData>(
+        "MixedDescriptorPass",
+        [](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
+        {
+            builder.ReadCompute("MixedInputA", "namedInput");
+            builder.ReadCompute("MixedInputB");
+        },
+        [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
+
+    bool rejected = false;
+
+    try
+    {
+        graph.Compile();
+    }
+    catch (const std::logic_error& error)
+    {
+        const std::string message = error.what();
+
+        Require(message.find("MixedDescriptorPass") != std::string::npos,
+                "mixed-descriptor diagnostic should contain the pass name");
+        Require(message.find("mixes named and unnamed descriptor resources") !=
+                    std::string::npos,
+                "mixed-descriptor diagnostic should explain the contract");
+
+        rejected = true;
+    }
+
+    Require(rejected,
+            "Compile accepted mixed named and unnamed descriptor resources");
+}
+
+void TestUnnamedAttachmentIsAllowedWithNamedDescriptors()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
+    producerBuilder.Write("InputColor").Format(VK_FORMAT_R8G8B8A8_UNORM);
+
+    graph.AddPassRaw<EmptyPassData>(
+        "NamedInputColorOutputPass",
+        [](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
+        {
+            builder.Read("InputColor", "inColor");
+            builder.Write("OutputColor")
+                .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+        },
+        [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
+
+    graph.Compile();
+}
+
 struct WritePassData
 {
     Chimera::RGResourceHandle output;
@@ -968,6 +1032,13 @@ int main()
 
         TestInvalidReadIsRejected();
         std::cout << "[PASS] invalid resource read is rejected\n";
+
+        TestMixedDescriptorBindingsAreRejected();
+        std::cout << "[PASS] mixed descriptor contracts are rejected\n";
+
+        TestUnnamedAttachmentIsAllowedWithNamedDescriptors();
+        std::cout
+            << "[PASS] attachments are excluded from descriptor contracts\n";
 
         TestWritersArePlacedInSeparateLayers();
         std::cout << "[PASS] same-resource writers are serialized\n";
