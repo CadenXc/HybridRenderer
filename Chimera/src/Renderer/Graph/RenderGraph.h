@@ -278,6 +278,11 @@ public:
         return m_PassDependencies;
     }
 
+    uint64_t GetTimingSampleId() const
+    {
+        return m_TimingSampleId;
+    }
+
 private:
     void InitQueryPool();
     void FetchQueryResults();
@@ -367,6 +372,7 @@ private:
     VkQueryPool m_TimestampQueryPool = VK_NULL_HANDLE;
     std::vector<PassTiming> m_LatestTimings;
     std::vector<std::string> m_LastPassNames;
+    uint64_t m_TimingSampleId = 0;
     uint32_t m_PreviousPassCount = 0;
     bool m_StatsReady = false;
 

@@ -41,6 +41,9 @@ void TestEmptyGraphCompilesAndExecutesSafely()
 
     Require(graph.GetParallelLayers().empty(),
             "empty graph should not contain execution layers");
+
+    Require(graph.GetTimingSampleId() == 0,
+        "empty graph must not publish a GPU timing sample");
 }
 
 struct EmptyPassData

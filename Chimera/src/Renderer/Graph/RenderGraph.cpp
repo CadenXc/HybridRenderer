@@ -639,6 +639,7 @@ void RenderGraph::FetchQueryResults()
                                    : 0.0f;
             m_LatestTimings.push_back({m_LastPassNames[i], durationMs});
         }
+        ++m_TimingSampleId;
     }
 }
 
