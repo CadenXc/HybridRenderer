@@ -11,6 +11,7 @@ struct BenchmarkCsvMetadata
 {
     std::string gpuName;
     std::string renderPath;
+    std::string scenePreset;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t renderFlags = 0;

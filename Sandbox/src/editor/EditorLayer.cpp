@@ -28,6 +28,8 @@ namespace Chimera
 {
 namespace
 {
+constexpr const char* BenchmarkScenePresetName = "smoke-test-box-v1";
+
 void ApplyBenchmarkCameraPreset(EditorCamera& camera)
 {
     camera.SetFocalPoint({-5.944f, 1.950f, -1.602f});
@@ -795,6 +797,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                                 .deviceName;
                         metadata.renderPath =
                             RenderPathTypeToString(activePath->GetType());
+                        metadata.scenePreset = BenchmarkScenePresetName;
                         metadata.width =
                             activePath->GetRenderGraph().GetWidth();
                         metadata.height =

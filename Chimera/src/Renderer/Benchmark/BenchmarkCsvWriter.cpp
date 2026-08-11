@@ -93,14 +93,15 @@ BenchmarkCsvResult WriteBenchmarkCsv(
                   return lhs->name < rhs->name;
               });
 
-    file << "gpu,render_path,width,height,render_flags,pass,samples,"
+    file << "gpu,render_path,scene_preset,width,height,render_flags,pass,samples,"
             "average_ms,p50_ms,p95_ms,min_ms,max_ms,total_ms\n";
     file << std::fixed << std::setprecision(6);
 
     for (const PassTimingStatistics* statistics : sortedStatistics)
     {
         file << EscapeCsvField(metadata.gpuName) << ','
-             << EscapeCsvField(metadata.renderPath) << ',' << metadata.width
+             << EscapeCsvField(metadata.renderPath) << ','
+             << EscapeCsvField(metadata.scenePreset) << ',' << metadata.width
              << ',' << metadata.height << ',' << metadata.renderFlags << ','
              << EscapeCsvField(statistics->name) << ','
              << statistics->sampleCount << ','
