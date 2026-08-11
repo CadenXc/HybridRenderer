@@ -66,6 +66,14 @@ void TestWarmupAndCaptureLifecycle()
     RequireNear(gbuffer.maxMS, 3.0, "GBuffer maximum is incorrect");
     RequireNear(gbuffer.GetAverageMS(), 2.0,
                 "GBuffer average is incorrect");
+    Require(gbuffer.samplesMS.size() == 3,
+            "GBuffer should preserve one sample per captured frame");
+    RequireNear(gbuffer.samplesMS[0], 1.0,
+                "first GBuffer sample is incorrect");
+    RequireNear(gbuffer.samplesMS[1], 3.0,
+                "second GBuffer sample is incorrect");
+    RequireNear(gbuffer.samplesMS[2], 2.0,
+                "third GBuffer sample is incorrect");
 
     const auto& shadow = statistics.at("RTShadow");
     Require(shadow.sampleCount == 3,
@@ -78,6 +86,8 @@ void TestWarmupAndCaptureLifecycle()
     recorder.SubmitFrame({{"GBuffer", 999.0f}});
     Require(gbuffer.sampleCount == 3,
             "completed recorder must ignore additional frames");
+    Require(gbuffer.samplesMS.size() == 3,
+            "completed recorder must not retain additional samples");
     RequireNear(gbuffer.maxMS, 3.0,
                 "completed recorder must freeze its statistics");
 }
@@ -122,6 +132,10 @@ void TestDuplicatePassNamesAreSummedPerFrame()
                 "repeated pass instances should be summed for frame maximum");
     RequireNear(statistics.GetAverageMS(), 4.0,
                 "repeated pass instances should contribute total frame cost");
+    Require(statistics.samplesMS.size() == 1,
+            "repeated pass instances should produce one stored frame sample");
+    RequireNear(statistics.samplesMS[0], 4.0,
+                "stored frame sample should contain the summed pass cost");
 }
 
 std::filesystem::path MakeTemporaryCsvPath()

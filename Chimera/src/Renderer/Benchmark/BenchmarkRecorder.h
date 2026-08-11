@@ -16,6 +16,7 @@ struct PassTimingStatistics
     double totalMS = 0.0;
     float minMS = 0.0f;
     float maxMS = 0.0f;
+    std::vector<float> samplesMS;
 
     double GetAverageMS() const;
 };

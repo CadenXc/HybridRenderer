@@ -56,6 +56,7 @@ void BenchmarkRecorder::SubmitFrame(const std::vector<PassTiming>& timings)
 
         ++statistics.sampleCount;
         statistics.totalMS += static_cast<double>(durationMS);
+        statistics.samplesMS.push_back(durationMS);
     }
 
     ++m_CapturedFrames;
