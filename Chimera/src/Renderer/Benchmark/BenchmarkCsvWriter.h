@@ -7,6 +7,15 @@
 
 namespace Chimera
 {
+struct BenchmarkCsvMetadata
+{
+    std::string gpuName;
+    std::string renderPath;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t renderFlags = 0;
+};
+
 struct BenchmarkCsvResult
 {
     bool success = false;
@@ -16,5 +25,6 @@ struct BenchmarkCsvResult
 
 BenchmarkCsvResult WriteBenchmarkCsv(
     const BenchmarkRecorder& recorder,
+    const BenchmarkCsvMetadata& metadata,
     const std::filesystem::path& outputPath);
 } // namespace Chimera

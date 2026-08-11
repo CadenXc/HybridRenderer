@@ -34,6 +34,7 @@ std::string EscapeCsvField(const std::string& value)
 
 BenchmarkCsvResult WriteBenchmarkCsv(
     const BenchmarkRecorder& recorder,
+    const BenchmarkCsvMetadata& metadata,
     const std::filesystem::path& outputPath)
 {
     BenchmarkCsvResult result;
@@ -92,12 +93,16 @@ BenchmarkCsvResult WriteBenchmarkCsv(
                   return lhs->name < rhs->name;
               });
 
-    file << "pass,samples,average_ms,p50_ms,p95_ms,min_ms,max_ms,total_ms\n";
+    file << "gpu,render_path,width,height,render_flags,pass,samples,"
+            "average_ms,p50_ms,p95_ms,min_ms,max_ms,total_ms\n";
     file << std::fixed << std::setprecision(6);
 
     for (const PassTimingStatistics* statistics : sortedStatistics)
     {
-        file << EscapeCsvField(statistics->name) << ','
+        file << EscapeCsvField(metadata.gpuName) << ','
+             << EscapeCsvField(metadata.renderPath) << ',' << metadata.width
+             << ',' << metadata.height << ',' << metadata.renderFlags << ','
+             << EscapeCsvField(statistics->name) << ','
              << statistics->sampleCount << ','
              << statistics->GetAverageMS() << ',' << statistics->GetP50MS()
              << ',' << statistics->GetP95MS() << ',' << statistics->minMS

@@ -642,8 +642,23 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
 
                     if (ImGui::Button("Export CSV"))
                     {
+                        BenchmarkCsvMetadata metadata;
+                        metadata.gpuName =
+                            Application::Get()
+                                .GetContext()
+                                ->GetDeviceProperties()
+                                .deviceName;
+                        metadata.renderPath =
+                            RenderPathTypeToString(activePath->GetType());
+                        metadata.width =
+                            activePath->GetRenderGraph().GetWidth();
+                        metadata.height =
+                            activePath->GetRenderGraph().GetHeight();
+                        metadata.renderFlags =
+                            static_cast<uint32_t>(m_RenderFlags);
+
                         const BenchmarkCsvResult result = WriteBenchmarkCsv(
-                            benchmark, MakeBenchmarkCsvPath());
+                            benchmark, metadata, MakeBenchmarkCsvPath());
                         exportSucceeded = result.success;
                         lastExportPath =
                             result.success ? result.path

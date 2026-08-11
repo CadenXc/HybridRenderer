@@ -183,6 +183,29 @@ std::string ReadTextFile(const std::filesystem::path& path)
     return contents.str();
 }
 
+Chimera::BenchmarkCsvMetadata MakeTestCsvMetadata()
+{
+    Chimera::BenchmarkCsvMetadata metadata;
+    metadata.gpuName = "Test GPU, \"Fast\"";
+    metadata.renderPath = "Hybrid";
+    metadata.width = 1600;
+    metadata.height = 900;
+    metadata.renderFlags = 1795;
+    return metadata;
+}
+
+size_t CountOccurrences(const std::string& text, const std::string& value)
+{
+    size_t count = 0;
+    size_t position = 0;
+    while ((position = text.find(value, position)) != std::string::npos)
+    {
+        ++count;
+        position += value.size();
+    }
+    return count;
+}
+
 void TestCsvExportRequiresCompletedCapture()
 {
     Chimera::BenchmarkRecorder recorder;
@@ -191,7 +214,8 @@ void TestCsvExportRequiresCompletedCapture()
 
     const std::filesystem::path outputPath = MakeTemporaryCsvPath();
     const Chimera::BenchmarkCsvResult result =
-        Chimera::WriteBenchmarkCsv(recorder, outputPath);
+        Chimera::WriteBenchmarkCsv(recorder, MakeTestCsvMetadata(),
+                                   outputPath);
 
     Require(!result.success,
             "CSV export must reject an incomplete benchmark capture");
@@ -209,20 +233,26 @@ void TestCsvExportIsSortedAndEscaped()
 
     const std::filesystem::path outputPath = MakeTemporaryCsvPath();
     const Chimera::BenchmarkCsvResult result =
-        Chimera::WriteBenchmarkCsv(recorder, outputPath);
+        Chimera::WriteBenchmarkCsv(recorder, MakeTestCsvMetadata(),
+                                   outputPath);
 
     Require(result.success, "completed benchmark should export to CSV");
 
     const std::string csv = ReadTextFile(outputPath);
+    const std::string metadataPrefix =
+        "\"Test GPU, \"\"Fast\"\"\",Hybrid,1600,900,1795,";
     const size_t aPosition = csv.find(
+        metadataPrefix +
         "APass,1,1.000000,1.000000,1.000000,1.000000,1.000000,1.000000");
     const size_t escapedPosition = csv.find("\"Pass, \"\"Quoted\"\"\"");
     const size_t zPosition = csv.find("ZPass,1,3.000000");
 
     Require(csv.starts_with(
-                "pass,samples,average_ms,p50_ms,p95_ms,min_ms,max_ms,"
-                "total_ms\n"),
+                "gpu,render_path,width,height,render_flags,pass,samples,"
+                "average_ms,p50_ms,p95_ms,min_ms,max_ms,total_ms\n"),
             "CSV export must contain the expected header");
+    Require(CountOccurrences(csv, metadataPrefix) == 3,
+            "CSV export must repeat metadata for every pass row");
     Require(aPosition != std::string::npos &&
                 escapedPosition != std::string::npos &&
                 zPosition != std::string::npos,
@@ -247,7 +277,7 @@ void TestCsvExportReportsDirectoryCreationFailure()
     }
 
     const Chimera::BenchmarkCsvResult result = Chimera::WriteBenchmarkCsv(
-        recorder, parentFile / "benchmark.csv");
+        recorder, MakeTestCsvMetadata(), parentFile / "benchmark.csv");
 
     Require(!result.success,
             "CSV export must report output directory creation failure");
