@@ -122,28 +122,6 @@ void Renderer::WaitForAllFrames()
     vkDeviceWaitIdle(device);
 }
 
-void Renderer::ResetSwapchainLayouts()
-{
-    auto images = VulkanContext::Get().GetSwapChainImages();
-
-    ScopedCommandBuffer cmd;
-    for (auto img : images)
-    {
-        VkImageMemoryBarrier barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout =
-            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // Safest baseline state
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = 0;
-        barrier.image = img;
-        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
-                             nullptr, 0, nullptr, 1, &barrier);
-    }
-}
-
 VkCommandBuffer Renderer::BeginFrame()
 {
     if (m_NeedResize)

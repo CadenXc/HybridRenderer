@@ -423,7 +423,6 @@ void Application::SwitchRenderPath(std::unique_ptr<RenderPath> path)
         if (m_Renderer)
         {
             m_Renderer->WaitForAllFrames();
-            // m_Renderer->ResetSwapchainLayouts();
             m_Renderer->ResetFrameState();
         }
     }
