@@ -19,6 +19,9 @@ struct PassTimingStatistics
     std::vector<float> samplesMS;
 
     double GetAverageMS() const;
+    double GetPercentileMS(double percentile) const;
+    double GetP50MS() const;
+    double GetP95MS() const;
 };
 
 class BenchmarkRecorder

@@ -1,11 +1,46 @@
 #include "pch.h"
 #include "BenchmarkRecorder.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace Chimera
 {
 double PassTimingStatistics::GetAverageMS() const
 {
     return sampleCount > 0 ? totalMS / static_cast<double>(sampleCount) : 0.0;
+}
+
+double PassTimingStatistics::GetPercentileMS(double percentile) const
+{
+    if (samplesMS.empty())
+    {
+        return 0.0;
+    }
+
+    percentile = std::clamp(percentile, 0.0, 1.0);
+
+    std::vector<float> sortedSamples = samplesMS;
+    std::sort(sortedSamples.begin(), sortedSamples.end());
+
+    if (percentile == 0.0)
+    {
+        return sortedSamples.front();
+    }
+
+    const size_t rank = static_cast<size_t>(
+        std::ceil(percentile * static_cast<double>(sortedSamples.size())));
+    return sortedSamples[rank - 1];
+}
+
+double PassTimingStatistics::GetP50MS() const
+{
+    return GetPercentileMS(0.50);
+}
+
+double PassTimingStatistics::GetP95MS() const
+{
+    return GetPercentileMS(0.95);
 }
 
 void BenchmarkRecorder::Start(uint32_t warmupFrames, uint32_t captureFrames)

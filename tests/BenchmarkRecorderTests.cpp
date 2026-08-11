@@ -138,6 +138,35 @@ void TestDuplicatePassNamesAreSummedPerFrame()
                 "stored frame sample should contain the summed pass cost");
 }
 
+void TestPercentilesPreserveSampleOrder()
+{
+    Chimera::PassTimingStatistics statistics;
+    statistics.samplesMS = {20.0f, 3.0f,  1.0f,  10.0f, 2.0f,
+                            8.0f,  4.0f,  9.0f,  5.0f,  7.0f,
+                            6.0f,  11.0f, 12.0f, 13.0f, 14.0f,
+                            15.0f, 16.0f, 17.0f, 18.0f, 19.0f};
+    const std::vector<float> originalOrder = statistics.samplesMS;
+
+    RequireNear(statistics.GetP50MS(), 10.0, "P50 is incorrect");
+    RequireNear(statistics.GetP95MS(), 19.0, "P95 is incorrect");
+    RequireNear(statistics.GetPercentileMS(0.0), 1.0,
+                "P0 should equal the minimum sample");
+    RequireNear(statistics.GetPercentileMS(1.0), 20.0,
+                "P100 should equal the maximum sample");
+    Require(statistics.samplesMS == originalOrder,
+            "percentile calculation must preserve captured sample order");
+}
+
+void TestEmptyPercentileReturnsZero()
+{
+    Chimera::PassTimingStatistics statistics;
+
+    RequireNear(statistics.GetP50MS(), 0.0,
+                "empty P50 should return zero");
+    RequireNear(statistics.GetP95MS(), 0.0,
+                "empty P95 should return zero");
+}
+
 std::filesystem::path MakeTemporaryCsvPath()
 {
     const auto uniqueId =
@@ -240,6 +269,12 @@ int main()
 
         TestDuplicatePassNamesAreSummedPerFrame();
         std::cout << "[PASS] duplicate pass names are summed per frame\n";
+
+        TestPercentilesPreserveSampleOrder();
+        std::cout << "[PASS] percentiles preserve captured sample order\n";
+
+        TestEmptyPercentileReturnsZero();
+        std::cout << "[PASS] empty percentiles return zero\n";
 
         TestCsvExportRequiresCompletedCapture();
         std::cout << "[PASS] CSV export rejects incomplete capture\n";
