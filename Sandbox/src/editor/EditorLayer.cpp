@@ -588,12 +588,56 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                     ImGui::TextColored(ImVec4(0, 1, 0, 1),
                                        "Benchmark Complete");
 
+                    std::vector<const PassTimingStatistics*>
+                        sortedStatistics;
+                    sortedStatistics.reserve(
+                        benchmark.GetStatistics().size());
+
                     for (const auto& [name, statistics] :
                          benchmark.GetStatistics())
                     {
-                        ImGui::Text("%s: avg %.3f ms, min %.3f, max %.3f",
-                                    name.c_str(), statistics.GetAverageMS(),
-                                    statistics.minMS, statistics.maxMS);
+                        sortedStatistics.push_back(&statistics);
+                    }
+
+                    std::sort(
+                        sortedStatistics.begin(), sortedStatistics.end(),
+                        [](const PassTimingStatistics* lhs,
+                           const PassTimingStatistics* rhs)
+                        {
+                            return lhs->name < rhs->name;
+                        });
+
+                    if (ImGui::BeginTable(
+                            "BenchmarkResults", 4,
+                            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                ImGuiTableFlags_SizingStretchProp))
+                    {
+                        ImGui::TableSetupColumn("Pass");
+                        ImGui::TableSetupColumn("Avg ms");
+                        ImGui::TableSetupColumn("P50 ms");
+                        ImGui::TableSetupColumn("P95 ms");
+                        ImGui::TableHeadersRow();
+
+                        for (const PassTimingStatistics* statistics :
+                             sortedStatistics)
+                        {
+                            ImGui::TableNextRow();
+
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::TextUnformatted(statistics->name.c_str());
+
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%.3f",
+                                        statistics->GetAverageMS());
+
+                            ImGui::TableSetColumnIndex(2);
+                            ImGui::Text("%.3f", statistics->GetP50MS());
+
+                            ImGui::TableSetColumnIndex(3);
+                            ImGui::Text("%.3f", statistics->GetP95MS());
+                        }
+
+                        ImGui::EndTable();
                     }
 
                     if (ImGui::Button("Export CSV"))

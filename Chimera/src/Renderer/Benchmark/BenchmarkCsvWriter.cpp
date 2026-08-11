@@ -92,15 +92,16 @@ BenchmarkCsvResult WriteBenchmarkCsv(
                   return lhs->name < rhs->name;
               });
 
-    file << "pass,samples,average_ms,min_ms,max_ms,total_ms\n";
+    file << "pass,samples,average_ms,p50_ms,p95_ms,min_ms,max_ms,total_ms\n";
     file << std::fixed << std::setprecision(6);
 
     for (const PassTimingStatistics* statistics : sortedStatistics)
     {
         file << EscapeCsvField(statistics->name) << ','
              << statistics->sampleCount << ','
-             << statistics->GetAverageMS() << ',' << statistics->minMS << ','
-             << statistics->maxMS << ',' << statistics->totalMS << '\n';
+             << statistics->GetAverageMS() << ',' << statistics->GetP50MS()
+             << ',' << statistics->GetP95MS() << ',' << statistics->minMS
+             << ',' << statistics->maxMS << ',' << statistics->totalMS << '\n';
     }
 
     file.flush();

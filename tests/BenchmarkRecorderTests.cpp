@@ -214,12 +214,14 @@ void TestCsvExportIsSortedAndEscaped()
     Require(result.success, "completed benchmark should export to CSV");
 
     const std::string csv = ReadTextFile(outputPath);
-    const size_t aPosition = csv.find("APass,1,1.000000");
+    const size_t aPosition = csv.find(
+        "APass,1,1.000000,1.000000,1.000000,1.000000,1.000000,1.000000");
     const size_t escapedPosition = csv.find("\"Pass, \"\"Quoted\"\"\"");
     const size_t zPosition = csv.find("ZPass,1,3.000000");
 
     Require(csv.starts_with(
-                "pass,samples,average_ms,min_ms,max_ms,total_ms\n"),
+                "pass,samples,average_ms,p50_ms,p95_ms,min_ms,max_ms,"
+                "total_ms\n"),
             "CSV export must contain the expected header");
     Require(aPosition != std::string::npos &&
                 escapedPosition != std::string::npos &&
