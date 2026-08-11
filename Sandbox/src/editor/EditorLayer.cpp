@@ -28,6 +28,14 @@ namespace Chimera
 {
 namespace
 {
+void ApplyBenchmarkCameraPreset(EditorCamera& camera)
+{
+    camera.SetFocalPoint({-5.944f, 1.950f, -1.602f});
+    camera.SetDistance(12.426f);
+    camera.SetPitch(-0.032f);
+    camera.SetYaw(-1.396f);
+}
+
 std::filesystem::path MakeBenchmarkCsvPath()
 {
     const auto now = std::chrono::system_clock::now();
@@ -59,10 +67,7 @@ EditorLayer::EditorLayer()
                       (float)app.GetWindow().GetHeight()};
 
     m_EditorCamera.SetViewportSize(m_ViewportSize.x, m_ViewportSize.y);
-    m_EditorCamera.SetFocalPoint({-5.944f, 1.950f, -1.602f});
-    m_EditorCamera.SetDistance(12.426f);
-    m_EditorCamera.SetPitch(-0.032f);
-    m_EditorCamera.SetYaw(-1.396f);
+    ApplyBenchmarkCameraPreset(m_EditorCamera);
     m_EditorCamera.SetFOV(45.0f);
 
     m_RenderFlags = RenderFlags_LightBit | RenderFlags_ShadowBit |
@@ -151,7 +156,11 @@ void EditorLayer::OnUpdate(Timestep ts)
     }
 
     bool uiHovered = ImGui::GetIO().WantCaptureMouse;
-    m_EditorCamera.OnUpdate(ts, !uiHovered, !uiHovered);
+    RenderPath* activePath = GetRenderPath();
+    const bool benchmarkRunning =
+        activePath && activePath->GetBenchmarkRecorder().IsRunning();
+    const bool allowCameraInput = !uiHovered && !benchmarkRunning;
+    m_EditorCamera.OnUpdate(ts, allowCameraInput, allowCameraInput);
     m_EditorCamera.UpdateTAAState(Application::Get().GetTotalFrameCount(),
                                   (m_RenderFlags & RenderFlags_TAABit) != 0);
 
@@ -183,7 +192,11 @@ void EditorLayer::OnUpdate(Timestep ts)
 
 void EditorLayer::OnEvent(Event& e)
 {
-    if (!ImGui::GetIO().WantCaptureMouse)
+    RenderPath* activePath = GetRenderPath();
+    const bool benchmarkRunning =
+        activePath && activePath->GetBenchmarkRecorder().IsRunning();
+
+    if (!ImGui::GetIO().WantCaptureMouse && !benchmarkRunning)
     {
         m_EditorCamera.OnEvent(e);
     }
@@ -562,6 +575,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                                           ? "Run Benchmark Again"
                                           : "Start Benchmark"))
                     {
+                        ApplyBenchmarkCameraPreset(m_EditorCamera);
                         activePath->StartBenchmark(120, 300);
                         exportStatus.clear();
                         lastExportPath.clear();
@@ -574,6 +588,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
 
                     ImGui::Text("Captured frames: %u / 300",
                                 benchmark.GetCapturedFrameCount());
+                    ImGui::TextDisabled("Benchmark camera is locked.");
 
                     if (ImGui::Button("Cancel Benchmark"))
                     {
