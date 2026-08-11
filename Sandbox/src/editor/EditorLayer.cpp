@@ -568,9 +568,12 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             if (activePath && activePath->HasRenderGraph())
             {
                 const auto& benchmark = activePath->GetBenchmarkRecorder();
+                const bool sceneLoading =
+                    ResourceManager::Get().HasPendingModelLoads();
 
                 if (!benchmark.IsRunning())
                 {
+                    ImGui::BeginDisabled(sceneLoading);
                     if (ImGui::Button(benchmark.IsComplete()
                                           ? "Run Benchmark Again"
                                           : "Start Benchmark"))
@@ -579,6 +582,13 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                         activePath->StartBenchmark(120, 300);
                         exportStatus.clear();
                         lastExportPath.clear();
+                    }
+                    ImGui::EndDisabled();
+
+                    if (sceneLoading)
+                    {
+                        ImGui::TextDisabled(
+                            "Wait for asynchronous model loading to finish.");
                     }
                 }
                 else

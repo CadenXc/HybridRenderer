@@ -139,6 +139,11 @@ public:
         std::shared_ptr<class Scene> targetScene = nullptr);
     void UpdateLoadingTasks();
 
+    bool HasPendingModelLoads() const
+    {
+        return !m_LoadingModels.empty();
+    }
+
     void UpdateMaterial(uint32_t materialIndex, const GpuMaterial& material);
 
     void AddTransientBuffer(std::shared_ptr<Buffer> buffer)
