@@ -1,7 +1,12 @@
 #include "Renderer/Benchmark/BenchmarkRecorder.h"
+#include "Renderer/Benchmark/BenchmarkCsvWriter.h"
 
 #include <cmath>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -118,6 +123,95 @@ void TestDuplicatePassNamesAreSummedPerFrame()
     RequireNear(statistics.GetAverageMS(), 4.0,
                 "repeated pass instances should contribute total frame cost");
 }
+
+std::filesystem::path MakeTemporaryCsvPath()
+{
+    const auto uniqueId =
+        std::chrono::steady_clock::now().time_since_epoch().count();
+    return std::filesystem::temp_directory_path() /
+           ("chimera-benchmark-" + std::to_string(uniqueId) + ".csv");
+}
+
+std::string ReadTextFile(const std::filesystem::path& path)
+{
+    std::ifstream file(path);
+    std::ostringstream contents;
+    contents << file.rdbuf();
+    return contents.str();
+}
+
+void TestCsvExportRequiresCompletedCapture()
+{
+    Chimera::BenchmarkRecorder recorder;
+    recorder.Start(0, 2);
+    recorder.SubmitFrame({{"Pass", 1.0f}});
+
+    const std::filesystem::path outputPath = MakeTemporaryCsvPath();
+    const Chimera::BenchmarkCsvResult result =
+        Chimera::WriteBenchmarkCsv(recorder, outputPath);
+
+    Require(!result.success,
+            "CSV export must reject an incomplete benchmark capture");
+    Require(!std::filesystem::exists(outputPath),
+            "rejected CSV export must not create an output file");
+}
+
+void TestCsvExportIsSortedAndEscaped()
+{
+    Chimera::BenchmarkRecorder recorder;
+    recorder.Start(0, 1);
+    recorder.SubmitFrame({{"ZPass", 3.0f},
+                          {"APass", 1.0f},
+                          {"Pass, \"Quoted\"", 2.0f}});
+
+    const std::filesystem::path outputPath = MakeTemporaryCsvPath();
+    const Chimera::BenchmarkCsvResult result =
+        Chimera::WriteBenchmarkCsv(recorder, outputPath);
+
+    Require(result.success, "completed benchmark should export to CSV");
+
+    const std::string csv = ReadTextFile(outputPath);
+    const size_t aPosition = csv.find("APass,1,1.000000");
+    const size_t escapedPosition = csv.find("\"Pass, \"\"Quoted\"\"\"");
+    const size_t zPosition = csv.find("ZPass,1,3.000000");
+
+    Require(csv.starts_with(
+                "pass,samples,average_ms,min_ms,max_ms,total_ms\n"),
+            "CSV export must contain the expected header");
+    Require(aPosition != std::string::npos &&
+                escapedPosition != std::string::npos &&
+                zPosition != std::string::npos,
+            "CSV export must contain every recorded pass");
+    Require(aPosition < escapedPosition && escapedPosition < zPosition,
+            "CSV rows must be sorted by pass name");
+
+    std::error_code removeError;
+    std::filesystem::remove(outputPath, removeError);
+}
+
+void TestCsvExportReportsDirectoryCreationFailure()
+{
+    Chimera::BenchmarkRecorder recorder;
+    recorder.Start(0, 1);
+    recorder.SubmitFrame({{"Pass", 1.0f}});
+
+    const std::filesystem::path parentFile = MakeTemporaryCsvPath();
+    {
+        std::ofstream file(parentFile);
+        Require(file.is_open(), "test must create its parent-path blocker");
+    }
+
+    const Chimera::BenchmarkCsvResult result = Chimera::WriteBenchmarkCsv(
+        recorder, parentFile / "benchmark.csv");
+
+    Require(!result.success,
+            "CSV export must report output directory creation failure");
+    Require(!result.error.empty(),
+            "CSV export failure must contain a diagnostic message");
+
+    std::error_code removeError;
+    std::filesystem::remove(parentFile, removeError);
+}
 } // namespace
 
 int main()
@@ -132,6 +226,15 @@ int main()
 
         TestDuplicatePassNamesAreSummedPerFrame();
         std::cout << "[PASS] duplicate pass names are summed per frame\n";
+
+        TestCsvExportRequiresCompletedCapture();
+        std::cout << "[PASS] CSV export rejects incomplete capture\n";
+
+        TestCsvExportIsSortedAndEscaped();
+        std::cout << "[PASS] CSV export is sorted and escaped\n";
+
+        TestCsvExportReportsDirectoryCreationFailure();
+        std::cout << "[PASS] CSV export reports directory failure\n";
 
         return 0;
     }

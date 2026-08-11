@@ -6,6 +6,7 @@
 #include "Renderer/Backend/Renderer.h"
 #include "Utils/VulkanBarrier.h"
 #include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Benchmark/BenchmarkCsvWriter.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Scene/Scene.h"
@@ -14,13 +15,39 @@
 #include "Assets/AssetImporter.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <shellapi.h>
 #include <filesystem>
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
 #include "Renderer/Pipelines/RenderPathFactory.h"
 #include "Renderer/RenderState.h"
 
 namespace Chimera
 {
+namespace
+{
+std::filesystem::path MakeBenchmarkCsvPath()
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t timestamp = std::chrono::system_clock::to_time_t(now);
+    const auto milliseconds =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) %
+        1000;
+    std::tm localTime{};
+    localtime_s(&localTime, &timestamp);
+
+    std::ostringstream filename;
+    filename << "gpu-benchmark-" << std::put_time(&localTime, "%Y%m%d-%H%M%S")
+             << '-' << std::setfill('0') << std::setw(3)
+             << milliseconds.count() << ".csv";
+
+    return std::filesystem::current_path() / "benchmark-results" /
+           filename.str();
+}
+} // namespace
 
 EditorLayer::EditorLayer()
     : Layer("EditorLayer"), m_EditorCamera(45.0f, 1.778f, 0.1f, 1000.0f)
@@ -521,6 +548,10 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
         }
         if (ImGui::TreeNode("GPU Benchmark"))
         {
+            static std::string exportStatus;
+            static bool exportSucceeded = false;
+            static std::filesystem::path lastExportPath;
+
             if (activePath && activePath->HasRenderGraph())
             {
                 const auto& benchmark = activePath->GetBenchmarkRecorder();
@@ -532,6 +563,8 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                                           : "Start Benchmark"))
                     {
                         activePath->StartBenchmark(120, 300);
+                        exportStatus.clear();
+                        lastExportPath.clear();
                     }
                 }
                 else
@@ -545,6 +578,8 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                     if (ImGui::Button("Cancel Benchmark"))
                     {
                         activePath->ResetBenchmark();
+                        exportStatus.clear();
+                        lastExportPath.clear();
                     }
                 }
 
@@ -559,6 +594,53 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                         ImGui::Text("%s: avg %.3f ms, min %.3f, max %.3f",
                                     name.c_str(), statistics.GetAverageMS(),
                                     statistics.minMS, statistics.maxMS);
+                    }
+
+                    if (ImGui::Button("Export CSV"))
+                    {
+                        const BenchmarkCsvResult result = WriteBenchmarkCsv(
+                            benchmark, MakeBenchmarkCsvPath());
+                        exportSucceeded = result.success;
+                        lastExportPath =
+                            result.success ? result.path
+                                           : std::filesystem::path{};
+                        exportStatus = result.success
+                                           ? "Saved to: " + result.path.string()
+                                           : "Export failed: " + result.error;
+                    }
+
+                    if (!exportStatus.empty())
+                    {
+                        const ImVec4 statusColor =
+                            exportSucceeded ? ImVec4(0, 1, 0, 1)
+                                            : ImVec4(1, 0.3f, 0.3f, 1);
+                        ImGui::TextColored(statusColor, "%s",
+                                           exportStatus.c_str());
+                    }
+
+                    if (!lastExportPath.empty() && ImGui::Button("Open CSV"))
+                    {
+                        if (!std::filesystem::exists(lastExportPath))
+                        {
+                            exportSucceeded = false;
+                            exportStatus = "Open failed: exported file no "
+                                           "longer exists";
+                            lastExportPath.clear();
+                        }
+                        else
+                        {
+                            const HINSTANCE openResult = ShellExecuteW(
+                                nullptr, L"open",
+                                lastExportPath.c_str(), nullptr, nullptr,
+                                SW_SHOWNORMAL);
+
+                            if (reinterpret_cast<intptr_t>(openResult) <= 32)
+                            {
+                                exportSucceeded = false;
+                                exportStatus = "Open failed: Windows could not "
+                                               "find an application for CSV";
+                            }
+                        }
                     }
                 }
             }
