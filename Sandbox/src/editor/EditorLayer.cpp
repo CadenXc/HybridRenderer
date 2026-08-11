@@ -36,6 +36,15 @@ void ApplyBenchmarkCameraPreset(EditorCamera& camera)
     camera.SetYaw(-1.396f);
 }
 
+void ApplyBenchmarkLightingPreset(Scene& scene)
+{
+    auto& light = scene.GetMainLight();
+    light.direction =
+        glm::vec4(glm::normalize(glm::vec3(0.085f, -0.987f, 0.139f)),
+                  0.5f);
+    light.color = glm::vec4(1.0f, 0.95f, 0.8f, 5.0f);
+}
+
 std::filesystem::path MakeBenchmarkCsvPath()
 {
     const auto now = std::chrono::system_clock::now();
@@ -80,12 +89,7 @@ EditorLayer::EditorLayer()
 
     auto scene = std::make_shared<Scene>(app.GetContext());
 
-    // Setup initial light for Sponza (High-angle slanting down)
-    auto& light = scene->GetMainLight();
-    light.direction =
-        glm::vec4(glm::normalize(glm::vec3(0.085f, -0.987f, 0.139f)),
-                  0.5f); // direction.w is radius
-    light.color = glm::vec4(1.0f, 0.95f, 0.8f, 5.0f); // RGB + Intensity (A)
+    ApplyBenchmarkLightingPreset(*scene);
 
     ResourceManager::Get().SetActiveScene(scene);
 
@@ -96,9 +100,12 @@ void EditorLayer::OnAttach()
 {
     RefreshAssetList();
 
-    ResourceManager::Get().LoadScene(
-        Application::Get().GetSpecification().AssetDir +
-        "models/smoke_test/Box.gltf");
+    m_ActiveAssetPath = Application::Get().GetSpecification().AssetDir +
+                        "models/smoke_test/Box.gltf";
+    m_BenchmarkSceneState = BenchmarkSceneState::Preparing;
+    m_BenchmarkPrepareStartFrame =
+        Application::Get().GetTotalFrameCount();
+    ResourceManager::Get().LoadScene(m_ActiveAssetPath);
 
         /*
 ResourceManager::Get().LoadHDR(
@@ -133,10 +140,79 @@ void EditorLayer::RefreshAssetList()
 
 void EditorLayer::ClearScene()
 {
+    InvalidateBenchmarkScenePreset();
     ResourceManager::Get().ClearScene();
     m_SelectedInstanceIndex = -1;
     m_SelectedAssetIndex = -1;
     m_ActiveAssetPath = "";
+}
+
+void EditorLayer::PrepareBenchmarkScene()
+{
+    if (RenderPath* activePath = GetRenderPath())
+    {
+        activePath->ResetBenchmark();
+    }
+
+    ApplyBenchmarkCameraPreset(m_EditorCamera);
+    m_Exposure = 1.0f;
+    m_AmbientStrength = 0.0f;
+    m_LightRadius = 0.5f;
+
+    ResourceManager::Get().ClearScene();
+
+    m_ActiveAssetPath = Application::Get().GetSpecification().AssetDir +
+                        "models/smoke_test/Box.gltf";
+    ResourceManager::Get().LoadScene(m_ActiveAssetPath);
+    Application::Get().QueueEvent(
+        []()
+        {
+            if (Scene* scene = ResourceManager::Get().GetActiveScene())
+            {
+                ApplyBenchmarkLightingPreset(*scene);
+            }
+        });
+
+    m_SelectedInstanceIndex = -1;
+    m_SelectedAssetIndex = -1;
+    m_BenchmarkSceneState = BenchmarkSceneState::Preparing;
+    m_BenchmarkPrepareStartFrame =
+        Application::Get().GetTotalFrameCount();
+}
+
+void EditorLayer::UpdateBenchmarkSceneState()
+{
+    if (m_BenchmarkSceneState != BenchmarkSceneState::Preparing)
+    {
+        return;
+    }
+
+    if (ResourceManager::Get().HasPendingModelLoads())
+    {
+        return;
+    }
+
+    Scene* scene = GetActiveSceneRaw();
+    if (scene && !scene->GetEntities().empty())
+    {
+        m_BenchmarkSceneState = BenchmarkSceneState::Ready;
+        return;
+    }
+
+    if (Application::Get().GetTotalFrameCount() >
+        m_BenchmarkPrepareStartFrame)
+    {
+        m_BenchmarkSceneState = BenchmarkSceneState::Failed;
+    }
+}
+
+void EditorLayer::InvalidateBenchmarkScenePreset()
+{
+    m_BenchmarkSceneState = BenchmarkSceneState::Unprepared;
+    if (RenderPath* activePath = GetRenderPath())
+    {
+        activePath->ResetBenchmark();
+    }
 }
 
 void EditorLayer::OnUpdate(Timestep ts)
@@ -165,6 +241,7 @@ void EditorLayer::OnUpdate(Timestep ts)
                                   (m_RenderFlags & RenderFlags_TAABit) != 0);
 
     if (auto scene = GetActiveSceneRaw()) scene->OnUpdate(ts.GetSeconds());
+    UpdateBenchmarkSceneState();
 
     AppFrameContext context;
     context.View = m_EditorCamera.GetViewMatrix();
@@ -263,6 +340,7 @@ void EditorLayer::DrawSceneHierarchy()
         if (ImGui::Button("Remove Selected", ImVec2(-1, 0)))
         {
             GetActiveSceneRaw()->RemoveEntity(m_SelectedInstanceIndex);
+            InvalidateBenchmarkScenePreset();
             m_SelectedInstanceIndex = -1;
         }
     }
@@ -286,6 +364,7 @@ void EditorLayer::DrawPropertiesPanel(RenderPath* activePath)
         if (changed)
         {
             scene->UpdateEntityTRS(m_SelectedInstanceIndex, pos, rot, scale);
+            InvalidateBenchmarkScenePreset();
             if (activePath) activePath->OnSceneUpdated();
         }
     }
@@ -346,7 +425,11 @@ void EditorLayer::DrawLightSettings(RenderPath* activePath)
     changed |=
         ImGui::SliderFloat("Ambient Strength", &m_AmbientStrength, 0.0f, 2.0f);
 
-    if (changed && activePath) activePath->OnSceneUpdated();
+    if (changed)
+    {
+        InvalidateBenchmarkScenePreset();
+        if (activePath) activePath->OnSceneUpdated();
+    }
 
     ImGui::TreePop();
 }
@@ -467,6 +550,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                         if (ImGui::Selectable(m_AvailableModels[i].Name.c_str(),
                                               m_SelectedAssetIndex == i))
                         {
+                            InvalidateBenchmarkScenePreset();
                             m_SelectedAssetIndex = i;
                             m_ActiveAssetPath = m_AvailableModels[i].Path;
                             ResourceManager::Get().LoadScene(m_ActiveAssetPath);
@@ -499,6 +583,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                         if (ImGui::Selectable(m_AvailableHDRs[i].Name.c_str(),
                                               m_SelectedAssetIndex == i))
                         {
+                            InvalidateBenchmarkScenePreset();
                             m_SelectedAssetIndex = i;
                             m_ActiveAssetPath = m_AvailableHDRs[i].Path;
                             ResourceManager::Get().LoadHDR(m_ActiveAssetPath);
@@ -573,7 +658,42 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
 
                 if (!benchmark.IsRunning())
                 {
-                    ImGui::BeginDisabled(sceneLoading);
+                    const bool prepareBlocked =
+                        sceneLoading ||
+                        m_BenchmarkSceneState ==
+                            BenchmarkSceneState::Preparing;
+                    ImGui::BeginDisabled(prepareBlocked);
+                    if (ImGui::Button("Prepare Benchmark Scene"))
+                    {
+                        PrepareBenchmarkScene();
+                        exportStatus.clear();
+                        lastExportPath.clear();
+                    }
+                    ImGui::EndDisabled();
+
+                    switch (m_BenchmarkSceneState)
+                    {
+                        case BenchmarkSceneState::Unprepared:
+                            ImGui::TextDisabled("Scene preset: Unprepared");
+                            break;
+                        case BenchmarkSceneState::Preparing:
+                            ImGui::TextColored(ImVec4(1, 0.8f, 0, 1),
+                                               "Scene preset: Preparing...");
+                            break;
+                        case BenchmarkSceneState::Ready:
+                            ImGui::TextColored(ImVec4(0, 1, 0, 1),
+                                               "Scene preset: Ready");
+                            break;
+                        case BenchmarkSceneState::Failed:
+                            ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1),
+                                               "Scene preset: Failed");
+                            break;
+                    }
+
+                    const bool canStart =
+                        !sceneLoading &&
+                        m_BenchmarkSceneState == BenchmarkSceneState::Ready;
+                    ImGui::BeginDisabled(!canStart);
                     if (ImGui::Button(benchmark.IsComplete()
                                           ? "Run Benchmark Again"
                                           : "Start Benchmark"))

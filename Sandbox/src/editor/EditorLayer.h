@@ -42,6 +42,14 @@ public:
     }
 
 private:
+    enum class BenchmarkSceneState
+    {
+        Unprepared,
+        Preparing,
+        Ready,
+        Failed
+    };
+
                 // UI Panels (Accept active path as parameter)
     void DrawMenuBar();
     void DrawRenderPathPanel(RenderPath* activePath);
@@ -54,6 +62,9 @@ private:
 
     void RefreshAssetList();
     void ClearScene();
+    void PrepareBenchmarkScene();
+    void UpdateBenchmarkSceneState();
+    void InvalidateBenchmarkScenePreset();
 
 private:
     EditorCamera m_EditorCamera;
@@ -87,6 +98,10 @@ private:
                 // Performance Metrics
     float m_AverageFrameTime = 0.0f;
     float m_AverageFPS = 0.0f;
+
+    BenchmarkSceneState m_BenchmarkSceneState =
+        BenchmarkSceneState::Unprepared;
+    uint32_t m_BenchmarkPrepareStartFrame = 0;
 
                 // Resize debounce
     float m_ResizeTimer = 0.0f;
