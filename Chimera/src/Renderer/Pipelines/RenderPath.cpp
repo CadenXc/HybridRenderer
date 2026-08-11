@@ -50,18 +50,15 @@ VkSemaphore RenderPath::Render(const RenderFrameInfo& frameInfo)
             "RenderPath: Rebuilding RenderGraph (Resize: {}, Rebuild: {})...",
             m_NeedsResize, m_NeedsRebuild);
 
-        // [FIX] CRITICAL: Wait for GPU to finish work before destroying old
-        // RenderGraph Otherwise we might destroy image views currently in use
-        // by active descriptor sets.
         vkDeviceWaitIdle(m_Context->GetDevice());
 
-        // Clear pipeline cache to ensure fresh state for the new graph
         PipelineManager::Get().ClearCache();
 
-        // Re-creating the RenderGraph forces old resources (and history) to be
-        // destroyed
         m_RenderGraph =
             std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
+
+        m_BenchmarkRecorder.Reset();
+        m_LastConsumedTimingSampleId = 0;
 
         m_NeedsResize = false;
         m_NeedsRebuild = false;
@@ -108,8 +105,40 @@ VkSemaphore RenderPath::Render(const RenderFrameInfo& frameInfo)
     m_RenderGraph->SetExternalResource(RS::RENDER_OUTPUT, scImage, scView,
                                        swapchainState, scDesc);
 
-    // 6. Compile and execute
     m_RenderGraph->Compile();
-    return m_RenderGraph->Execute(frameInfo.commandBuffer);
+
+    VkSemaphore result = m_RenderGraph->Execute(frameInfo.commandBuffer);
+
+    if (m_BenchmarkRecorder.IsRunning())
+    {
+        const uint64_t sampleId = m_RenderGraph->GetTimingSampleId();
+
+        if (sampleId != 0 && sampleId != m_LastConsumedTimingSampleId)
+        {
+            m_BenchmarkRecorder.SubmitFrame(m_RenderGraph->GetLatestTimings());
+
+            m_LastConsumedTimingSampleId = sampleId;
+        }
+    }
+
+    return result;
 }
+
+void RenderPath::StartBenchmark(uint32_t warmupFrames,
+                                uint32_t captureFrames)
+{
+    m_BenchmarkRecorder.Start(warmupFrames, captureFrames);
+
+    m_LastConsumedTimingSampleId =
+        m_RenderGraph ? m_RenderGraph->GetTimingSampleId() : 0;
+}
+
+void RenderPath::ResetBenchmark()
+{
+    m_BenchmarkRecorder.Reset();
+
+    m_LastConsumedTimingSampleId =
+        m_RenderGraph ? m_RenderGraph->GetTimingSampleId() : 0;
+}
+
 } // namespace Chimera

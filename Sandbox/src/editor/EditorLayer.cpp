@@ -519,6 +519,56 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             }
             ImGui::TreePop();
         }
+        if (ImGui::TreeNode("GPU Benchmark"))
+        {
+            if (activePath && activePath->HasRenderGraph())
+            {
+                const auto& benchmark = activePath->GetBenchmarkRecorder();
+
+                if (!benchmark.IsRunning())
+                {
+                    if (ImGui::Button(benchmark.IsComplete()
+                                          ? "Run Benchmark Again"
+                                          : "Start Benchmark"))
+                    {
+                        activePath->StartBenchmark(120, 300);
+                    }
+                }
+                else
+                {
+                    ImGui::Text("Warmup remaining: %u",
+                                benchmark.GetWarmupFramesRemaining());
+
+                    ImGui::Text("Captured frames: %u / 300",
+                                benchmark.GetCapturedFrameCount());
+
+                    if (ImGui::Button("Cancel Benchmark"))
+                    {
+                        activePath->ResetBenchmark();
+                    }
+                }
+
+                if (benchmark.IsComplete())
+                {
+                    ImGui::TextColored(ImVec4(0, 1, 0, 1),
+                                       "Benchmark Complete");
+
+                    for (const auto& [name, statistics] :
+                         benchmark.GetStatistics())
+                    {
+                        ImGui::Text("%s: avg %.3f ms, min %.3f, max %.3f",
+                                    name.c_str(), statistics.GetAverageMS(),
+                                    statistics.minMS, statistics.maxMS);
+                    }
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("RenderGraph is not ready.");
+            }
+
+            ImGui::TreePop();
+        }
 
         // 3. GPU Pass Breakdown
         if (ImGui::TreeNode("GPU Pass Breakdown"))

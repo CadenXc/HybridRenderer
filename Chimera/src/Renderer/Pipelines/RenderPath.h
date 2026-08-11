@@ -9,6 +9,7 @@
 #include "Renderer/Resources/ResourceManager.h"
 #include "Scene/Scene.h"
 #include "Renderer/Graph/RenderGraph.h"
+#include "Renderer/Benchmark/BenchmarkRecorder.h"
 
 namespace Chimera
 {
@@ -66,6 +67,15 @@ public:
                m_RenderGraph->HasHistory(name);
     }
 
+    void StartBenchmark(uint32_t warmupFrames, uint32_t captureFrames);
+
+    void ResetBenchmark();
+
+    const BenchmarkRecorder& GetBenchmarkRecorder() const
+    {
+        return m_BenchmarkRecorder;
+    }
+
 protected:
         // Pure virtual hook for specific render path logic
     virtual void BuildGraph(RenderGraph& graph,
@@ -78,6 +88,10 @@ protected:
     uint32_t m_Height = 0;
     bool m_NeedsRebuild = true;
     bool m_NeedsResize = false;
+
+private:
+    BenchmarkRecorder m_BenchmarkRecorder;
+    uint64_t m_LastConsumedTimingSampleId = 0;
 };
 
 } // namespace Chimera
