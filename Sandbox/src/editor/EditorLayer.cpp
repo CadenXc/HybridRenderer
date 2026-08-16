@@ -7,6 +7,7 @@
 #include "Utils/VulkanBarrier.h"
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Benchmark/BenchmarkCsvWriter.h"
+#include "Renderer/Capture/ImageRegression.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Scene/Scene.h"
@@ -94,6 +95,19 @@ std::filesystem::path MakeFrameCapturePath()
     return std::filesystem::current_path() /
            "frame-captures" /
            filename.str();
+}
+
+std::filesystem::path MakeRegressionBaselinePath()
+{
+    return std::filesystem::current_path() / "frame-captures" /
+           "regression-baseline.png";
+}
+
+std::filesystem::path MakeDifferencePath(
+    const std::filesystem::path& actualPath)
+{
+    return actualPath.parent_path() /
+           (actualPath.stem().string() + "-diff.png");
 }
 
 } // namespace
@@ -678,117 +692,235 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
         }
 
         if (ImGui::TreeNode("Frame Capture"))
-{
-    static std::filesystem::path lastCapturePath;
-    static std::string captureStatus;
-    static bool captureSucceeded = false;
-    static bool captureStatusIsError = false;
-
-    if (!lastCapturePath.empty() &&
-        !captureSucceeded)
-    {
-        std::error_code fileError;
-
-        if (std::filesystem::exists(
-                lastCapturePath, fileError))
         {
-            captureSucceeded = true;
-            captureStatusIsError = false;
-            captureStatus =
-                "Saved to: " +
-                lastCapturePath.string();
-        }
-    }
-
-    Renderer& renderer = Renderer::Get();
-
-    ImGui::BeginDisabled(
-        renderer.HasFrameCaptureRequest());
-
-    if (ImGui::Button("Capture Frame"))
-    {
-        const std::filesystem::path capturePath =
-            MakeFrameCapturePath();
-
-        if (renderer.RequestFrameCapture(
-                capturePath))
-        {
-            lastCapturePath = capturePath;
-            captureSucceeded = false;
-            captureStatusIsError = false;
-            captureStatus =
-                "Capture requested...";
-        }
-        else
-        {
-            captureSucceeded = false;
-            captureStatusIsError = true;
-            captureStatus =
-                "Capture request rejected";
-        }
-    }
-
-    ImGui::EndDisabled();
-
-    if (renderer.HasFrameCaptureRequest())
-    {
-        ImGui::TextDisabled(
-            "The GPU copy will be recorded next frame.");
-    }
-
-    if (!captureStatus.empty())
-    {
-        const ImVec4 statusColor =
-            captureStatusIsError
-                ? ImVec4(1, 0.3f, 0.3f, 1)
-                : captureSucceeded
-                      ? ImVec4(0, 1, 0, 1)
-                      : ImVec4(1, 0.8f, 0, 1);
-
-        ImGui::TextColored(
-            statusColor,
-            "%s",
-            captureStatus.c_str());
-    }
-
-    if (captureSucceeded &&
-        !lastCapturePath.empty() &&
-        ImGui::Button("Open Capture"))
-    {
-        std::error_code fileError;
-        const bool captureExists =
-            std::filesystem::exists(
-                lastCapturePath, fileError);
-
-        if (fileError || !captureExists)
-        {
-            captureSucceeded = false;
-            captureStatusIsError = true;
-            captureStatus =
-                "Open failed: captured image no longer exists";
-            lastCapturePath.clear();
-        }
-        else
-        {
-            const HINSTANCE openResult = ShellExecuteW(
-                nullptr,
-                L"open",
-                lastCapturePath.c_str(),
-                nullptr,
-                nullptr,
-                SW_SHOWNORMAL);
-
-            if (reinterpret_cast<intptr_t>(openResult) <= 32)
+            enum class PendingCaptureAction
             {
-                captureStatusIsError = true;
-                captureStatus =
-                    "Open failed: Windows could not open the PNG";
-            }
-        }
-    }
+                None,
+                Capture,
+                Baseline,
+                Regression
+            };
 
-    ImGui::TreePop();
-}
+            static std::filesystem::path lastCapturePath;
+            static std::filesystem::path lastDifferencePath;
+            static std::string captureStatus;
+            static bool captureSucceeded = false;
+            static bool captureStatusIsError = false;
+            static PendingCaptureAction pendingAction =
+                PendingCaptureAction::None;
+            static ImageRegressionResult regressionResult;
+            static int channelThreshold = 2;
+            static int allowedDifferentPixels = 0;
+            static int allowedMaxChannelDifference = 8;
+            static float allowedRmse = 1.0f;
+            static int differenceAmplification = 8;
+
+            const std::filesystem::path baselinePath =
+                MakeRegressionBaselinePath();
+
+            if (pendingAction != PendingCaptureAction::None &&
+                !lastCapturePath.empty())
+            {
+                std::error_code fileError;
+                if (std::filesystem::exists(lastCapturePath, fileError))
+                {
+                    captureSucceeded = true;
+                    captureStatusIsError = false;
+
+                    if (pendingAction == PendingCaptureAction::Baseline)
+                    {
+                        std::filesystem::copy_file(
+                            lastCapturePath, baselinePath,
+                            std::filesystem::copy_options::overwrite_existing,
+                            fileError);
+                        if (!fileError)
+                        {
+                            std::filesystem::remove(lastCapturePath, fileError);
+                            lastCapturePath = baselinePath;
+                            captureStatus =
+                                "Regression baseline updated: " +
+                                baselinePath.string();
+                        }
+                        else
+                        {
+                            captureSucceeded = false;
+                            captureStatusIsError = true;
+                            captureStatus = "Baseline update failed: " +
+                                            fileError.message();
+                        }
+                    }
+                    else if (pendingAction ==
+                             PendingCaptureAction::Regression)
+                    {
+                        ImageRegressionSettings settings;
+                        settings.channelThreshold = static_cast<uint8_t>(
+                            std::clamp(channelThreshold, 0, 255));
+                        settings.allowedDifferentPixelCount =
+                            static_cast<uint64_t>(
+                                std::max(allowedDifferentPixels, 0));
+                        settings.allowedMaxChannelDifference =
+                            static_cast<uint8_t>(std::clamp(
+                                allowedMaxChannelDifference, 0, 255));
+                        settings.allowedRmse =
+                            std::max(static_cast<double>(allowedRmse), 0.0);
+                        settings.differenceAmplification =
+                            static_cast<uint8_t>(std::clamp(
+                                differenceAmplification, 1, 255));
+
+                        lastDifferencePath =
+                            MakeDifferencePath(lastCapturePath);
+                        regressionResult = RunImageRegression(
+                            baselinePath.string(), lastCapturePath.string(),
+                            lastDifferencePath.string(), settings);
+
+                        std::ostringstream status;
+                        if (!regressionResult.success)
+                        {
+                            captureStatusIsError = true;
+                            captureStatus = "Regression error: " +
+                                            regressionResult.error;
+                            lastDifferencePath.clear();
+                        }
+                        else
+                        {
+                            captureStatusIsError =
+                                !regressionResult.passed;
+                            status << (regressionResult.passed
+                                           ? "Regression PASS"
+                                           : "Regression FAIL")
+                                   << " | different pixels: "
+                                   << regressionResult.comparison
+                                          .differentPixelCount
+                                   << " | max channel: "
+                                   << static_cast<uint32_t>(
+                                          regressionResult.comparison
+                                              .maxChannelDifference)
+                                   << " | RMSE: " << std::fixed
+                                   << std::setprecision(3)
+                                   << regressionResult.comparison.rmse;
+                            captureStatus = status.str();
+                            if (regressionResult.passed)
+                            {
+                                lastDifferencePath.clear();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        captureStatus =
+                            "Saved to: " + lastCapturePath.string();
+                    }
+
+                    pendingAction = PendingCaptureAction::None;
+                }
+            }
+
+            Renderer& renderer = Renderer::Get();
+            const bool captureBusy = renderer.HasFrameCaptureRequest() ||
+                                     pendingAction !=
+                                         PendingCaptureAction::None;
+            const bool baselineExists =
+                std::filesystem::exists(baselinePath);
+
+            ImGui::BeginDisabled(captureBusy);
+            if (ImGui::Button("Capture Frame"))
+            {
+                const std::filesystem::path capturePath =
+                    MakeFrameCapturePath();
+                if (renderer.RequestFrameCapture(capturePath))
+                {
+                    lastCapturePath = capturePath;
+                    lastDifferencePath.clear();
+                    captureSucceeded = false;
+                    captureStatusIsError = false;
+                    captureStatus = "Capture requested...";
+                    pendingAction = PendingCaptureAction::Capture;
+                }
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Set Regression Baseline"))
+            {
+                const std::filesystem::path candidatePath =
+                    MakeFrameCapturePath();
+                if (renderer.RequestFrameCapture(candidatePath))
+                {
+                    lastCapturePath = candidatePath;
+                    lastDifferencePath.clear();
+                    captureSucceeded = false;
+                    captureStatusIsError = false;
+                    captureStatus = "Capturing regression baseline...";
+                    pendingAction = PendingCaptureAction::Baseline;
+                }
+            }
+            ImGui::EndDisabled();
+
+            ImGui::TextDisabled("Baseline: %s",
+                                baselineExists ? baselinePath.string().c_str()
+                                               : "Not created");
+            ImGui::InputInt("Per-channel tolerance", &channelThreshold);
+            ImGui::InputInt("Allowed different pixels",
+                            &allowedDifferentPixels);
+            ImGui::InputInt("Allowed max channel difference",
+                            &allowedMaxChannelDifference);
+            ImGui::InputFloat("Allowed RMSE", &allowedRmse, 0.1f, 1.0f,
+                              "%.3f");
+            ImGui::InputInt("Difference amplification",
+                            &differenceAmplification);
+
+            ImGui::BeginDisabled(captureBusy || !baselineExists);
+            if (ImGui::Button("Capture and Compare"))
+            {
+                const std::filesystem::path actualPath =
+                    MakeFrameCapturePath();
+                if (renderer.RequestFrameCapture(actualPath))
+                {
+                    lastCapturePath = actualPath;
+                    lastDifferencePath.clear();
+                    captureSucceeded = false;
+                    captureStatusIsError = false;
+                    captureStatus = "Capturing regression image...";
+                    pendingAction = PendingCaptureAction::Regression;
+                }
+            }
+            ImGui::EndDisabled();
+
+            if (captureBusy)
+            {
+                ImGui::TextDisabled(
+                    "Waiting for GPU capture and CPU PNG write...");
+            }
+
+            if (!captureStatus.empty())
+            {
+                const ImVec4 statusColor =
+                    captureStatusIsError
+                        ? ImVec4(1, 0.3f, 0.3f, 1)
+                        : captureSucceeded ? ImVec4(0, 1, 0, 1)
+                                           : ImVec4(1, 0.8f, 0, 1);
+                ImGui::TextColored(statusColor, "%s", captureStatus.c_str());
+            }
+
+            if (captureSucceeded && !lastCapturePath.empty() &&
+                ImGui::Button("Open Capture"))
+            {
+                ShellExecuteW(nullptr, L"open", lastCapturePath.c_str(),
+                              nullptr, nullptr, SW_SHOWNORMAL);
+            }
+
+            if (!lastDifferencePath.empty())
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Open Difference"))
+                {
+                    ShellExecuteW(nullptr, L"open",
+                                  lastDifferencePath.c_str(), nullptr, nullptr,
+                                  SW_SHOWNORMAL);
+                }
+            }
+
+            ImGui::TreePop();
+        }
 
         if (ImGui::TreeNode("GPU Benchmark"))
         {

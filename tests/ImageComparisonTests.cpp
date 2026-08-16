@@ -1,4 +1,5 @@
 #include "Renderer/Capture/ImageComparison.h"
+#include "Renderer/Capture/ImageRegression.h"
 
 #include <chrono>
 #include <cmath>
@@ -226,6 +227,82 @@ void TestDifferencePngReportsWriteFailure()
     Require(result.error.find("write") != std::string::npos,
             "difference PNG write failure must explain the error");
 }
+
+void TestPassingRegressionDoesNotWriteDifferencePng()
+{
+    TemporaryPngDirectory directory;
+    const std::filesystem::path baselinePath = directory.path / "baseline.png";
+    const std::filesystem::path actualPath = directory.path / "actual.png";
+    const std::filesystem::path differencePath = directory.path / "difference.png";
+    WritePng(baselinePath, 1, 1, {10, 20, 30, 255});
+    WritePng(actualPath, 1, 1, {11, 20, 30, 255});
+
+    Chimera::ImageRegressionSettings settings;
+    settings.channelThreshold = 1;
+    const Chimera::ImageRegressionResult result = Chimera::RunImageRegression(
+        baselinePath.string(), actualPath.string(), differencePath.string(),
+        settings);
+
+    Require(result.success, "passing regression should execute successfully");
+    Require(result.passed, "difference within threshold should pass regression");
+    Require(!std::filesystem::exists(differencePath),
+            "passing regression should not create a difference PNG");
+}
+
+void TestFailingRegressionWritesDifferencePng()
+{
+    TemporaryPngDirectory directory;
+    const std::filesystem::path baselinePath = directory.path / "baseline.png";
+    const std::filesystem::path actualPath = directory.path / "actual.png";
+    const std::filesystem::path differencePath = directory.path / "difference.png";
+    WritePng(baselinePath, 1, 1, {10, 20, 30, 255});
+    WritePng(actualPath, 1, 1, {20, 20, 30, 255});
+
+    Chimera::ImageRegressionSettings settings;
+    settings.channelThreshold = 2;
+    settings.allowedDifferentPixelCount = 0;
+    settings.allowedMaxChannelDifference = 20;
+    settings.allowedRmse = 10.0;
+    const Chimera::ImageRegressionResult result = Chimera::RunImageRegression(
+        baselinePath.string(), actualPath.string(), differencePath.string(),
+        settings);
+
+    Require(result.success, "failing regression should still execute successfully");
+    Require(!result.passed, "out-of-tolerance image should fail regression");
+    Require(result.comparison.differentPixelCount == 1,
+            "regression should expose comparison metrics");
+    Require(result.differencePath == differencePath.string(),
+            "regression should report its difference PNG");
+    Require(std::filesystem::exists(differencePath),
+            "failing regression should create a difference PNG");
+}
+
+void TestRegressionAppliesEveryAcceptanceLimit()
+{
+    TemporaryPngDirectory directory;
+    const std::filesystem::path baselinePath = directory.path / "baseline.png";
+    const std::filesystem::path actualPath = directory.path / "actual.png";
+    WritePng(baselinePath, 1, 1, {0, 0, 0, 255});
+    WritePng(actualPath, 1, 1, {10, 0, 0, 255});
+
+    Chimera::ImageRegressionSettings settings;
+    settings.allowedDifferentPixelCount = 1;
+    settings.allowedMaxChannelDifference = 9;
+    settings.allowedRmse = 10.0;
+    Chimera::ImageRegressionResult result = Chimera::RunImageRegression(
+        baselinePath.string(), actualPath.string(),
+        (directory.path / "max-difference.png").string(), settings);
+    Require(result.success && !result.passed,
+            "maximum channel limit must independently reject regression");
+
+    settings.allowedMaxChannelDifference = 10;
+    settings.allowedRmse = 4.9;
+    result = Chimera::RunImageRegression(
+        baselinePath.string(), actualPath.string(),
+        (directory.path / "rmse-difference.png").string(), settings);
+    Require(result.success && !result.passed,
+            "RMSE limit must independently reject regression");
+}
 } // namespace
 
 int main()
@@ -258,6 +335,15 @@ int main()
 
         TestDifferencePngReportsWriteFailure();
         std::cout << "[PASS] difference PNG write failure is reported\n";
+
+        TestPassingRegressionDoesNotWriteDifferencePng();
+        std::cout << "[PASS] passing regression skips difference PNG\n";
+
+        TestFailingRegressionWritesDifferencePng();
+        std::cout << "[PASS] failing regression writes difference PNG\n";
+
+        TestRegressionAppliesEveryAcceptanceLimit();
+        std::cout << "[PASS] regression applies every acceptance limit\n";
 
         return 0;
     }
