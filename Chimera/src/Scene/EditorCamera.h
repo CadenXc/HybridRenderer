@@ -19,6 +19,7 @@ public:
     void OnEvent(Event& e);
 
     void UpdateTAAState(uint32_t totalFrameCount, bool enabled);
+    void ResetTemporalHistory();
     const glm::vec2& GetJitter() const
     {
         return m_TAA.CurrentJitter;

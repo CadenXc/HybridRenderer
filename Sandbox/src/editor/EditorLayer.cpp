@@ -114,11 +114,13 @@ std::string MakeRegressionSignature(
     const RenderPath& renderPath, const EditorCamera& camera,
     RenderFlags renderFlags, DisplayMode displayMode, float exposure,
     float ambientStrength, const glm::vec4& clearColor, float lightRadius,
-    const std::string& assetPath, Scene* scene)
+    const std::string& assetPath, uint32_t warmupFrameCount, Scene* scene)
 {
     std::ostringstream signature;
     signature << std::setprecision(std::numeric_limits<float>::max_digits10)
-              << "version=1\n"
+              << "version=2\n"
+              << "temporalSequence=local-halton-v1\n"
+              << "warmupFrames=" << warmupFrameCount << '\n'
               << "renderPath=" << RenderPathTypeToString(renderPath.GetType())
               << '\n'
               << "width=" << renderPath.GetRenderGraph().GetWidth() << '\n'
@@ -329,9 +331,18 @@ void EditorLayer::OnUpdate(Timestep ts)
     RenderPath* activePath = GetRenderPath();
     const bool benchmarkRunning =
         activePath && activePath->GetBenchmarkRecorder().IsRunning();
-    const bool allowCameraInput = !uiHovered && !benchmarkRunning;
+    const bool captureSequenceRunning =
+        m_WarmupCaptureAction == FrameCaptureAction::Baseline ||
+        m_WarmupCaptureAction == FrameCaptureAction::Regression ||
+        m_PendingCaptureAction == FrameCaptureAction::Baseline ||
+        m_PendingCaptureAction == FrameCaptureAction::Regression;
+    const bool allowCameraInput =
+        !uiHovered && !benchmarkRunning && !captureSequenceRunning;
     m_EditorCamera.OnUpdate(ts, allowCameraInput, allowCameraInput);
-    m_EditorCamera.UpdateTAAState(Application::Get().GetTotalFrameCount(),
+    const uint32_t temporalFrameIndex =
+        captureSequenceRunning ? m_CaptureTemporalFrameIndex++
+                               : Application::Get().GetTotalFrameCount();
+    m_EditorCamera.UpdateTAAState(temporalFrameIndex,
                                   (m_RenderFlags & RenderFlags_TAABit) != 0);
 
     if (auto scene = GetActiveSceneRaw()) scene->OnUpdate(ts.GetSeconds());
@@ -366,15 +377,55 @@ void EditorLayer::OnEvent(Event& e)
     RenderPath* activePath = GetRenderPath();
     const bool benchmarkRunning =
         activePath && activePath->GetBenchmarkRecorder().IsRunning();
+    const bool captureSequenceRunning =
+        m_WarmupCaptureAction == FrameCaptureAction::Baseline ||
+        m_WarmupCaptureAction == FrameCaptureAction::Regression ||
+        m_PendingCaptureAction == FrameCaptureAction::Baseline ||
+        m_PendingCaptureAction == FrameCaptureAction::Regression;
 
-    if (!ImGui::GetIO().WantCaptureMouse && !benchmarkRunning)
+    if (!ImGui::GetIO().WantCaptureMouse && !benchmarkRunning &&
+        !captureSequenceRunning)
     {
         m_EditorCamera.OnEvent(e);
     }
 }
 
+void EditorLayer::UpdateFrameCaptureWarmup()
+{
+    if (m_WarmupCaptureAction == FrameCaptureAction::None ||
+        !m_CaptureWarmup.IsActive())
+    {
+        return;
+    }
+
+    if (!m_CaptureWarmup.AdvanceAfterRenderedFrame())
+    {
+        return;
+    }
+
+    Renderer& renderer = Renderer::Get();
+    if (renderer.RequestFrameCapture(m_WarmupCapturePath))
+    {
+        m_LastCapturePath = m_WarmupCapturePath;
+        m_PendingCaptureAction = m_WarmupCaptureAction;
+        m_CaptureStatus = "Warm-up complete; capture requested...";
+    }
+    else
+    {
+        m_CaptureSucceeded = false;
+        m_CaptureStatusIsError = true;
+        m_CaptureStatus = "Capture request rejected after warm-up";
+        m_PendingRegressionSignature.clear();
+    }
+
+    m_WarmupCaptureAction = FrameCaptureAction::None;
+    m_WarmupCapturePath.clear();
+}
+
 void EditorLayer::OnImGuiRender()
 {
+    UpdateFrameCaptureWarmup();
+
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->Pos);
     ImGui::SetNextWindowSize(viewport->Size);
@@ -741,28 +792,19 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
 
         if (ImGui::TreeNode("Frame Capture"))
         {
-            enum class PendingCaptureAction
-            {
-                None,
-                Capture,
-                Baseline,
-                Regression
-            };
-
-            static std::filesystem::path lastCapturePath;
-            static std::filesystem::path lastDifferencePath;
-            static std::string captureStatus;
-            static bool captureSucceeded = false;
-            static bool captureStatusIsError = false;
-            static PendingCaptureAction pendingAction =
-                PendingCaptureAction::None;
-            static ImageRegressionResult regressionResult;
-            static int channelThreshold = 2;
-            static int allowedDifferentPixels = 0;
-            static int allowedMaxChannelDifference = 8;
-            static float allowedRmse = 1.0f;
-            static int differenceAmplification = 8;
-            static std::string pendingSignature;
+            auto& lastCapturePath = m_LastCapturePath;
+            auto& lastDifferencePath = m_LastDifferencePath;
+            auto& captureStatus = m_CaptureStatus;
+            auto& captureSucceeded = m_CaptureSucceeded;
+            auto& captureStatusIsError = m_CaptureStatusIsError;
+            auto& pendingAction = m_PendingCaptureAction;
+            auto& channelThreshold = m_ChannelThreshold;
+            auto& allowedDifferentPixels = m_AllowedDifferentPixels;
+            auto& allowedMaxChannelDifference =
+                m_AllowedMaxChannelDifference;
+            auto& allowedRmse = m_AllowedRmse;
+            auto& differenceAmplification = m_DifferenceAmplification;
+            auto& pendingSignature = m_PendingRegressionSignature;
 
             const std::filesystem::path baselinePath =
                 MakeRegressionBaselinePath();
@@ -776,10 +818,12 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                           *activePath, m_EditorCamera, m_RenderFlags,
                           m_DisplayMode, m_Exposure, m_AmbientStrength,
                           m_ClearColor, m_LightRadius, m_ActiveAssetPath,
+                          static_cast<uint32_t>(
+                              std::max(m_CaptureWarmupFrames, 1)),
                           GetActiveSceneRaw())
                     : std::string{};
 
-            if (pendingAction != PendingCaptureAction::None &&
+            if (pendingAction != FrameCaptureAction::None &&
                 !lastCapturePath.empty())
             {
                 std::error_code fileError;
@@ -788,7 +832,15 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                     captureSucceeded = true;
                     captureStatusIsError = false;
 
-                    if (pendingAction == PendingCaptureAction::Baseline)
+                    if (pendingAction == FrameCaptureAction::Baseline &&
+                        pendingSignature != currentSignature)
+                    {
+                        captureStatusIsError = true;
+                        captureStatus =
+                            "Baseline rejected: render configuration changed "
+                            "during warm-up. Capture again.";
+                    }
+                    else if (pendingAction == FrameCaptureAction::Baseline)
                     {
                         std::filesystem::copy_file(
                             lastCapturePath, baselinePath,
@@ -824,7 +876,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                         }
                     }
                     else if (pendingAction ==
-                                 PendingCaptureAction::Regression &&
+                                 FrameCaptureAction::Regression &&
                              pendingSignature != currentSignature)
                     {
                         captureStatusIsError = true;
@@ -834,7 +886,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                         lastDifferencePath.clear();
                     }
                     else if (pendingAction ==
-                             PendingCaptureAction::Regression)
+                             FrameCaptureAction::Regression)
                     {
                         ImageRegressionSettings settings;
                         settings.channelThreshold = static_cast<uint8_t>(
@@ -853,7 +905,8 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
 
                         lastDifferencePath =
                             MakeDifferencePath(lastCapturePath);
-                        regressionResult = RunImageRegression(
+                        const ImageRegressionResult regressionResult =
+                            RunImageRegression(
                             baselinePath.string(), lastCapturePath.string(),
                             lastDifferencePath.string(), settings);
 
@@ -895,15 +948,16 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                             "Saved to: " + lastCapturePath.string();
                     }
 
-                    pendingAction = PendingCaptureAction::None;
+                    pendingAction = FrameCaptureAction::None;
                     pendingSignature.clear();
                 }
             }
 
             Renderer& renderer = Renderer::Get();
             const bool captureBusy = renderer.HasFrameCaptureRequest() ||
-                                     pendingAction !=
-                                         PendingCaptureAction::None;
+                                     pendingAction != FrameCaptureAction::None ||
+                                     m_WarmupCaptureAction !=
+                                         FrameCaptureAction::None;
             const bool baselineExists =
                 std::filesystem::exists(baselinePath) &&
                 std::filesystem::exists(signaturePath);
@@ -920,7 +974,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                     captureSucceeded = false;
                     captureStatusIsError = false;
                     captureStatus = "Capture requested...";
-                    pendingAction = PendingCaptureAction::Capture;
+                    pendingAction = FrameCaptureAction::Capture;
                 }
             }
 
@@ -929,22 +983,25 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             {
                 const std::filesystem::path candidatePath =
                     MakeFrameCapturePath();
-                if (renderer.RequestFrameCapture(candidatePath))
-                {
-                    pendingSignature = currentSignature;
-                    lastCapturePath = candidatePath;
-                    lastDifferencePath.clear();
-                    captureSucceeded = false;
-                    captureStatusIsError = false;
-                    captureStatus = "Capturing regression baseline...";
-                    pendingAction = PendingCaptureAction::Baseline;
-                }
+                activePath->InvalidateHistory();
+                m_EditorCamera.ResetTemporalHistory();
+                m_CaptureTemporalFrameIndex = 0;
+                pendingSignature = currentSignature;
+                m_WarmupCapturePath = candidatePath;
+                m_WarmupCaptureAction = FrameCaptureAction::Baseline;
+                m_CaptureWarmup.Start(static_cast<uint32_t>(
+                    std::max(m_CaptureWarmupFrames, 1)));
+                lastDifferencePath.clear();
+                captureSucceeded = false;
+                captureStatusIsError = false;
+                captureStatus = "Warming temporal history...";
             }
             ImGui::EndDisabled();
 
             ImGui::TextDisabled("Baseline: %s",
                                 baselineExists ? baselinePath.string().c_str()
                                                : "Not created");
+            ImGui::InputInt("Warm-up frames", &m_CaptureWarmupFrames);
             ImGui::InputInt("Per-channel tolerance", &channelThreshold);
             ImGui::InputInt("Allowed different pixels",
                             &allowedDifferentPixels);
@@ -974,24 +1031,35 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                 {
                     const std::filesystem::path actualPath =
                         MakeFrameCapturePath();
-                    if (renderer.RequestFrameCapture(actualPath))
-                    {
-                        pendingSignature = currentSignature;
-                        lastCapturePath = actualPath;
-                        lastDifferencePath.clear();
-                        captureSucceeded = false;
-                        captureStatusIsError = false;
-                        captureStatus = "Capturing regression image...";
-                        pendingAction = PendingCaptureAction::Regression;
-                    }
+                    activePath->InvalidateHistory();
+                    m_EditorCamera.ResetTemporalHistory();
+                    m_CaptureTemporalFrameIndex = 0;
+                    pendingSignature = currentSignature;
+                    m_WarmupCapturePath = actualPath;
+                    m_WarmupCaptureAction =
+                        FrameCaptureAction::Regression;
+                    m_CaptureWarmup.Start(static_cast<uint32_t>(
+                        std::max(m_CaptureWarmupFrames, 1)));
+                    lastDifferencePath.clear();
+                    captureSucceeded = false;
+                    captureStatusIsError = false;
+                    captureStatus = "Warming temporal history...";
                 }
             }
             ImGui::EndDisabled();
 
             if (captureBusy)
             {
-                ImGui::TextDisabled(
-                    "Waiting for GPU capture and CPU PNG write...");
+                if (m_WarmupCaptureAction != FrameCaptureAction::None)
+                {
+                    ImGui::TextDisabled("Warm-up frames remaining: %u",
+                                        m_CaptureWarmup.GetRemainingFrames());
+                }
+                else
+                {
+                    ImGui::TextDisabled(
+                        "Waiting for GPU capture and CPU PNG write...");
+                }
             }
 
             if (!captureStatus.empty())

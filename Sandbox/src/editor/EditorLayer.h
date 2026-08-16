@@ -6,9 +6,11 @@
 #include "Scene/Scene.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Graph/ResourceNames.h"
+#include "Renderer/Capture/FrameWarmupCounter.h"
 #include "Assets/AssetImporter.h"
 #include <vector>
 #include <string>
+#include <filesystem>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include <imgui.h>
@@ -50,6 +52,14 @@ private:
         Failed
     };
 
+    enum class FrameCaptureAction
+    {
+        None,
+        Capture,
+        Baseline,
+        Regression
+    };
+
                 // UI Panels (Accept active path as parameter)
     void DrawMenuBar();
     void DrawRenderPathPanel(RenderPath* activePath);
@@ -65,6 +75,7 @@ private:
     void PrepareBenchmarkScene();
     void UpdateBenchmarkSceneState();
     void InvalidateBenchmarkScenePreset();
+    void UpdateFrameCaptureWarmup();
 
 private:
     EditorCamera m_EditorCamera;
@@ -102,6 +113,24 @@ private:
     BenchmarkSceneState m_BenchmarkSceneState =
         BenchmarkSceneState::Unprepared;
     uint32_t m_BenchmarkPrepareStartFrame = 0;
+
+    FrameCaptureAction m_PendingCaptureAction = FrameCaptureAction::None;
+    FrameCaptureAction m_WarmupCaptureAction = FrameCaptureAction::None;
+    std::filesystem::path m_WarmupCapturePath;
+    std::filesystem::path m_LastCapturePath;
+    std::filesystem::path m_LastDifferencePath;
+    std::string m_CaptureStatus;
+    std::string m_PendingRegressionSignature;
+    bool m_CaptureSucceeded = false;
+    bool m_CaptureStatusIsError = false;
+    FrameWarmupCounter m_CaptureWarmup;
+    uint32_t m_CaptureTemporalFrameIndex = 0;
+    int m_CaptureWarmupFrames = 30;
+    int m_ChannelThreshold = 2;
+    int m_AllowedDifferentPixels = 0;
+    int m_AllowedMaxChannelDifference = 8;
+    float m_AllowedRmse = 1.0f;
+    int m_DifferenceAmplification = 8;
 
                 // Resize debounce
     float m_ResizeTimer = 0.0f;

@@ -138,6 +138,14 @@ void EditorCamera::UpdateTAAState(uint32_t totalFrameCount, bool enabled)
     m_TAA.CurrentJitter.y = (haltonY - 0.5f) * (2.0f / (float)m_ViewportHeight);
 }
 
+void EditorCamera::ResetTemporalHistory()
+{
+    m_TAA.CurrentJitter = glm::vec2(0.0f);
+    m_TAA.PrevJitter = glm::vec2(0.0f);
+    m_TAA.PrevView = m_ViewMatrix;
+    m_TAA.PrevProj = m_Projection;
+}
+
 void EditorCamera::OnEvent(Event& e)
 {
     EventDispatcher dispatcher(e);

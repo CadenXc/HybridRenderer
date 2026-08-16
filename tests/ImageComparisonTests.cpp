@@ -1,5 +1,7 @@
 #include "Renderer/Capture/ImageComparison.h"
 #include "Renderer/Capture/ImageRegression.h"
+#include "Renderer/Capture/FrameWarmupCounter.h"
+#include "Scene/EditorCamera.h"
 
 #include <chrono>
 #include <cmath>
@@ -338,6 +340,41 @@ void TestMissingRegressionSignatureIsRejected()
     Require(!result.success && !result.matches,
             "missing regression signature must be rejected");
 }
+
+void TestWarmupCompletesAfterExactRenderedFrameCount()
+{
+    Chimera::FrameWarmupCounter warmup;
+    warmup.Start(3);
+
+    Require(warmup.IsActive() && warmup.GetRemainingFrames() == 3,
+            "warm-up should start with the requested frame count");
+    Require(!warmup.AdvanceAfterRenderedFrame() &&
+                warmup.GetRemainingFrames() == 2,
+            "warm-up completed one frame too early");
+    Require(!warmup.AdvanceAfterRenderedFrame() &&
+                warmup.GetRemainingFrames() == 1,
+            "warm-up completed one frame too early");
+    Require(warmup.AdvanceAfterRenderedFrame(),
+            "warm-up did not complete on the requested rendered frame");
+    Require(!warmup.IsActive() && warmup.GetRemainingFrames() == 0,
+            "completed warm-up should become inactive");
+    Require(!warmup.AdvanceAfterRenderedFrame(),
+            "completed warm-up must not trigger more than once");
+}
+
+void TestTemporalHistoryResetClearsJitter()
+{
+    Chimera::EditorCamera camera(45.0f, 16.0f / 9.0f, 0.1f, 1000.0f);
+    camera.SetViewportSize(1600.0f, 900.0f);
+    camera.UpdateTAAState(5, true);
+    Require(camera.GetJitter() != glm::vec2(0.0f),
+            "enabled TAA should produce sub-pixel jitter");
+
+    camera.ResetTemporalHistory();
+    Require(camera.GetJitter() == glm::vec2(0.0f) &&
+                camera.GetPrevJitter() == glm::vec2(0.0f),
+            "temporal reset should clear current and previous jitter");
+}
 } // namespace
 
 int main()
@@ -385,6 +422,12 @@ int main()
 
         TestMissingRegressionSignatureIsRejected();
         std::cout << "[PASS] missing regression signature is rejected\n";
+
+        TestWarmupCompletesAfterExactRenderedFrameCount();
+        std::cout << "[PASS] warm-up completes after exact frame count\n";
+
+        TestTemporalHistoryResetClearsJitter();
+        std::cout << "[PASS] temporal history reset clears jitter\n";
 
         return 0;
     }
