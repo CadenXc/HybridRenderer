@@ -23,4 +23,10 @@ ImageComparisonResult CompareRgba8(
 ImageComparisonResult ComparePngFiles(
     const std::string& referencePath, const std::string& actualPath,
     uint8_t channelThreshold = 0);
+
+ImageComparisonResult ComparePngFilesAndWriteDifference(
+    const std::string& referencePath, const std::string& actualPath,
+    const std::string& differenceOutputPath,
+    uint8_t channelThreshold = 0,
+    uint8_t differenceAmplification = 4);
 } // namespace Chimera

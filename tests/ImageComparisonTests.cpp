@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include <stb_image.h>
 #include <stb_image_write.h>
 
 namespace
@@ -173,6 +174,58 @@ void TestMissingPngIsRejected()
     Require(result.error.find("actual") != std::string::npos,
             "load error must identify the failed image role");
 }
+
+void TestDifferencePngVisualizesAmplifiedError()
+{
+    TemporaryPngDirectory directory;
+    const std::filesystem::path referencePath = directory.path / "reference.png";
+    const std::filesystem::path actualPath = directory.path / "actual.png";
+    const std::filesystem::path differencePath = directory.path / "difference.png";
+    WritePng(referencePath, 1, 1, {10, 20, 30, 255});
+    WritePng(actualPath, 1, 1, {12, 25, 20, 255});
+
+    const Chimera::ImageComparisonResult result =
+        Chimera::ComparePngFilesAndWriteDifference(
+            referencePath.string(), actualPath.string(),
+            differencePath.string(), 2, 10);
+
+    Require(result.success, "difference PNG should be written successfully");
+    Require(std::filesystem::exists(differencePath),
+            "difference PNG was not created");
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_uc* pixels = stbi_load(differencePath.string().c_str(), &width,
+                                &height, &channels, STBI_rgb);
+    Require(pixels != nullptr, "difference PNG could not be decoded");
+    const std::vector<uint8_t> decoded(pixels, pixels + 3);
+    stbi_image_free(pixels);
+
+    Require(width == 1 && height == 1,
+            "difference PNG dimensions are incorrect");
+    Require(decoded == std::vector<uint8_t>({0, 50, 100}),
+            "difference PNG does not contain amplified RGB error");
+}
+
+void TestDifferencePngReportsWriteFailure()
+{
+    TemporaryPngDirectory directory;
+    const std::filesystem::path referencePath = directory.path / "reference.png";
+    const std::filesystem::path actualPath = directory.path / "actual.png";
+    WritePng(referencePath, 1, 1, {0, 0, 0, 255});
+    WritePng(actualPath, 1, 1, {1, 0, 0, 255});
+
+    const Chimera::ImageComparisonResult result =
+        Chimera::ComparePngFilesAndWriteDifference(
+            referencePath.string(), actualPath.string(),
+            (directory.path / "missing-directory" / "difference.png")
+                .string());
+
+    Require(!result.success, "difference PNG write failure must be reported");
+    Require(result.error.find("write") != std::string::npos,
+            "difference PNG write failure must explain the error");
+}
 } // namespace
 
 int main()
@@ -199,6 +252,12 @@ int main()
 
         TestMissingPngIsRejected();
         std::cout << "[PASS] missing PNG is rejected\n";
+
+        TestDifferencePngVisualizesAmplifiedError();
+        std::cout << "[PASS] difference PNG visualizes amplified error\n";
+
+        TestDifferencePngReportsWriteFailure();
+        std::cout << "[PASS] difference PNG write failure is reported\n";
 
         return 0;
     }
