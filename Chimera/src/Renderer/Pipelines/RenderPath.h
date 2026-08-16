@@ -56,6 +56,11 @@ public:
         return m_RenderGraph != nullptr;
     }
 
+    bool IsReadyForCapture() const
+    {
+        return m_RenderGraph && !m_NeedsRebuild && !m_NeedsResize;
+    }
+
     void InvalidateHistory()
     {
        m_NeedsRebuild = true;

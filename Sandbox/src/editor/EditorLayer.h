@@ -7,6 +7,7 @@
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Capture/FrameWarmupCounter.h"
+#include "Renderer/Capture/CaptureReadinessTracker.h"
 #include "Assets/AssetImporter.h"
 #include <vector>
 #include <string>
@@ -76,6 +77,7 @@ private:
     void UpdateBenchmarkSceneState();
     void InvalidateBenchmarkScenePreset();
     void UpdateFrameCaptureWarmup();
+    void UpdateFrameCaptureReadiness();
 
 private:
     EditorCamera m_EditorCamera;
@@ -124,6 +126,7 @@ private:
     bool m_CaptureSucceeded = false;
     bool m_CaptureStatusIsError = false;
     FrameWarmupCounter m_CaptureWarmup;
+    CaptureReadinessTracker m_CaptureReadiness;
     uint32_t m_CaptureTemporalFrameIndex = 0;
     int m_CaptureWarmupFrames = 30;
     int m_ChannelThreshold = 2;

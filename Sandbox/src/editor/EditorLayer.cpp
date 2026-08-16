@@ -450,9 +450,32 @@ void EditorLayer::UpdateFrameCaptureWarmup()
     m_WarmupCapturePath.clear();
 }
 
+void EditorLayer::UpdateFrameCaptureReadiness()
+{
+    RenderPath* activePath = GetRenderPath();
+    Scene* scene = GetActiveSceneRaw();
+    const bool prerequisitesReady =
+        activePath && activePath->IsReadyForCapture() &&
+        !ResourceManager::Get().HasPendingModelLoads() &&
+        (!scene || !scene->HasPendingGpuUpdates());
+
+    std::string signature;
+    if (activePath && activePath->HasRenderGraph())
+    {
+        signature = MakeRegressionSignature(
+            *activePath, m_EditorCamera, m_RenderFlags, m_DisplayMode,
+            m_Exposure, m_AmbientStrength, m_ClearColor, m_LightRadius,
+            m_ActiveAssetPath,
+            static_cast<uint32_t>(std::max(m_CaptureWarmupFrames, 1)), scene);
+    }
+
+    m_CaptureReadiness.Update(prerequisitesReady, signature);
+}
+
 void EditorLayer::OnImGuiRender()
 {
     UpdateFrameCaptureWarmup();
+    UpdateFrameCaptureReadiness();
 
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->Pos);
@@ -838,10 +861,10 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                 MakeRegressionBaselinePath();
             const std::filesystem::path signaturePath =
                 MakeRegressionSignaturePath();
-            const bool renderConfigurationReady =
+            const bool hasRenderConfiguration =
                 activePath && activePath->HasRenderGraph();
             const std::string currentSignature =
-                renderConfigurationReady
+                hasRenderConfiguration
                     ? MakeRegressionSignature(
                           *activePath, m_EditorCamera, m_RenderFlags,
                           m_DisplayMode, m_Exposure, m_AmbientStrength,
@@ -850,6 +873,8 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                               std::max(m_CaptureWarmupFrames, 1)),
                           GetActiveSceneRaw())
                     : std::string{};
+            const bool renderConfigurationReady =
+                m_CaptureReadiness.IsReadyFor(currentSignature);
 
             if (pendingAction != FrameCaptureAction::None &&
                 !lastCapturePath.empty())
@@ -990,7 +1015,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                 std::filesystem::exists(baselinePath) &&
                 std::filesystem::exists(signaturePath);
 
-            ImGui::BeginDisabled(captureBusy || !renderConfigurationReady);
+            ImGui::BeginDisabled(captureBusy);
             if (ImGui::Button("Capture Frame"))
             {
                 const std::filesystem::path capturePath =
@@ -1005,8 +1030,10 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                     pendingAction = FrameCaptureAction::Capture;
                 }
             }
+            ImGui::EndDisabled();
 
             ImGui::SameLine();
+            ImGui::BeginDisabled(captureBusy || !renderConfigurationReady);
             if (ImGui::Button("Set Regression Baseline"))
             {
                 const std::filesystem::path candidatePath =
@@ -1025,6 +1052,33 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                 captureStatus = "Warming temporal history...";
             }
             ImGui::EndDisabled();
+
+            if (!renderConfigurationReady)
+            {
+                if (ResourceManager::Get().HasPendingModelLoads())
+                {
+                    ImGui::TextDisabled(
+                        "Regression capture readiness: loading model assets...");
+                }
+                else if (activePath && !activePath->IsReadyForCapture())
+                {
+                    ImGui::TextDisabled(
+                        "Regression capture readiness: rebuilding RenderGraph...");
+                }
+                else if (Scene* scene = GetActiveSceneRaw();
+                         scene && scene->HasPendingGpuUpdates())
+                {
+                    ImGui::TextDisabled(
+                        "Regression capture readiness: synchronizing TLAS/materials...");
+                }
+                else
+                {
+                    ImGui::TextDisabled(
+                        "Regression capture readiness: stabilizing %u / %u frames",
+                        m_CaptureReadiness.GetStableFrameCount(),
+                        m_CaptureReadiness.GetRequiredStableFrameCount());
+                }
+            }
 
             ImGui::TextDisabled("Baseline: %s",
                                 baselineExists ? baselinePath.string().c_str()

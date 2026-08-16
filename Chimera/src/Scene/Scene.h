@@ -89,6 +89,10 @@ public:
     {
         m_NeedsMaterialSync = true;
     }
+    bool HasPendingGpuUpdates() const
+    {
+        return m_NeedsTLASRebuild || m_NeedsMaterialSync;
+    }
 
     void UpdateWorldTransforms();
 

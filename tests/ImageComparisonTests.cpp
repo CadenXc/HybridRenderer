@@ -1,6 +1,7 @@
 #include "Renderer/Capture/ImageComparison.h"
 #include "Renderer/Capture/ImageRegression.h"
 #include "Renderer/Capture/FrameWarmupCounter.h"
+#include "Renderer/Capture/CaptureReadinessTracker.h"
 #include "Scene/EditorCamera.h"
 
 #include <chrono>
@@ -375,6 +376,30 @@ void TestTemporalHistoryResetClearsJitter()
                 camera.GetPrevJitter() == glm::vec2(0.0f),
             "temporal reset should clear current and previous jitter");
 }
+
+void TestCaptureReadinessRequiresStableRenderedFrames()
+{
+    Chimera::CaptureReadinessTracker readiness(2);
+    readiness.Update(true, "scene-a");
+    Require(!readiness.IsReadyFor("scene-a") &&
+                readiness.GetStableFrameCount() == 1,
+            "capture became ready before the required stable frame count");
+
+    readiness.Update(true, "scene-a");
+    Require(readiness.IsReadyFor("scene-a") &&
+                readiness.GetStableFrameCount() == 2,
+            "capture did not become ready after stable rendered frames");
+
+    readiness.Update(true, "scene-b");
+    Require(!readiness.IsReadyFor("scene-b") &&
+                readiness.GetStableFrameCount() == 1,
+            "scene signature change did not restart stabilization");
+
+    readiness.Update(false, "scene-b");
+    Require(!readiness.IsReadyFor("scene-b") &&
+                readiness.GetStableFrameCount() == 0,
+            "unready GPU prerequisites did not reset stabilization");
+}
 } // namespace
 
 int main()
@@ -428,6 +453,9 @@ int main()
 
         TestTemporalHistoryResetClearsJitter();
         std::cout << "[PASS] temporal history reset clears jitter\n";
+
+        TestCaptureReadinessRequiresStableRenderedFrames();
+        std::cout << "[PASS] capture readiness requires stable frames\n";
 
         return 0;
     }
