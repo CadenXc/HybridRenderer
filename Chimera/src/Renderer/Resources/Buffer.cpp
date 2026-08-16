@@ -190,4 +190,14 @@ void Buffer::Flush(VkDeviceSize size, VkDeviceSize offset)
     }
     vmaFlushAllocation(m_Allocator, m_Allocation, offset, size);
 }
+
+void Buffer::Invalidate(VkDeviceSize size, VkDeviceSize offset)
+{
+    if (m_IsCoherent)
+    {
+        return;
+    }
+
+    vmaInvalidateAllocation(m_Allocator, m_Allocation, offset, size);
+}
 } // namespace Chimera

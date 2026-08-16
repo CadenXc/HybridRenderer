@@ -264,6 +264,8 @@ void Application::Run()
                     m_RenderPath->Render(frameInfo);
                 }
 
+                m_Renderer->RecordFrameCapture(cmd);
+
                 m_ImGuiLayer->Begin();
                 for (auto& layer : m_LayerStack)
                 {

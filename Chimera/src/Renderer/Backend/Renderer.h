@@ -30,14 +30,19 @@ public:
         return *s_Instance;
     }
 
-        // Core rendering loop: begin frame
-    // Returns command buffer for recording. Returns VK_NULL_HANDLE if swapchain
-    // is out of date
     VkCommandBuffer BeginFrame();
 
-    // Core rendering loop: end frame
-    // Submits command buffer and requests present
     void EndFrame();
+
+    bool RequestFrameCapture(const std::filesystem::path& outputPath);
+
+    void RecordFrameCapture(VkCommandBuffer commandBuffer);
+
+    bool HasFrameCaptureRequest() const
+    {
+        return m_FrameCaptureRequested;
+    }
+
 
     // Resets internal frame state in case of exception
     void ResetFrameState()
@@ -82,6 +87,8 @@ private:
     void FreeFrameResources();
     void RecreateSwapchain();
 
+    void ProcessCompletedFrameCapture(FrameResource& frameResource);
+
 private:
     static Renderer* s_Instance;
     VkCommandPool m_CommandPool = VK_NULL_HANDLE;
@@ -94,5 +101,8 @@ private:
 
     bool m_IsFrameInProgress = false;
     bool m_NeedResize = false;
+
+    std::filesystem::path m_FrameCapturePath;
+    bool m_FrameCaptureRequested = false;
 };
 } // namespace Chimera

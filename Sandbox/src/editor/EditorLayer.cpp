@@ -66,6 +66,36 @@ std::filesystem::path MakeBenchmarkCsvPath()
     return std::filesystem::current_path() / "benchmark-results" /
            filename.str();
 }
+
+std::filesystem::path MakeFrameCapturePath()
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t timestamp =
+        std::chrono::system_clock::to_time_t(now);
+
+    const auto milliseconds =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) %
+        1000;
+
+    std::tm localTime{};
+    localtime_s(&localTime, &timestamp);
+
+    std::ostringstream filename;
+    filename << "frame-"
+             << std::put_time(
+                    &localTime, "%Y%m%d-%H%M%S")
+             << '-'
+             << std::setfill('0')
+             << std::setw(3)
+             << milliseconds.count()
+             << ".png";
+
+    return std::filesystem::current_path() /
+           "frame-captures" /
+           filename.str();
+}
+
 } // namespace
 
 EditorLayer::EditorLayer()
@@ -646,6 +676,120 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             }
             ImGui::TreePop();
         }
+
+        if (ImGui::TreeNode("Frame Capture"))
+{
+    static std::filesystem::path lastCapturePath;
+    static std::string captureStatus;
+    static bool captureSucceeded = false;
+    static bool captureStatusIsError = false;
+
+    if (!lastCapturePath.empty() &&
+        !captureSucceeded)
+    {
+        std::error_code fileError;
+
+        if (std::filesystem::exists(
+                lastCapturePath, fileError))
+        {
+            captureSucceeded = true;
+            captureStatusIsError = false;
+            captureStatus =
+                "Saved to: " +
+                lastCapturePath.string();
+        }
+    }
+
+    Renderer& renderer = Renderer::Get();
+
+    ImGui::BeginDisabled(
+        renderer.HasFrameCaptureRequest());
+
+    if (ImGui::Button("Capture Frame"))
+    {
+        const std::filesystem::path capturePath =
+            MakeFrameCapturePath();
+
+        if (renderer.RequestFrameCapture(
+                capturePath))
+        {
+            lastCapturePath = capturePath;
+            captureSucceeded = false;
+            captureStatusIsError = false;
+            captureStatus =
+                "Capture requested...";
+        }
+        else
+        {
+            captureSucceeded = false;
+            captureStatusIsError = true;
+            captureStatus =
+                "Capture request rejected";
+        }
+    }
+
+    ImGui::EndDisabled();
+
+    if (renderer.HasFrameCaptureRequest())
+    {
+        ImGui::TextDisabled(
+            "The GPU copy will be recorded next frame.");
+    }
+
+    if (!captureStatus.empty())
+    {
+        const ImVec4 statusColor =
+            captureStatusIsError
+                ? ImVec4(1, 0.3f, 0.3f, 1)
+                : captureSucceeded
+                      ? ImVec4(0, 1, 0, 1)
+                      : ImVec4(1, 0.8f, 0, 1);
+
+        ImGui::TextColored(
+            statusColor,
+            "%s",
+            captureStatus.c_str());
+    }
+
+    if (captureSucceeded &&
+        !lastCapturePath.empty() &&
+        ImGui::Button("Open Capture"))
+    {
+        std::error_code fileError;
+        const bool captureExists =
+            std::filesystem::exists(
+                lastCapturePath, fileError);
+
+        if (fileError || !captureExists)
+        {
+            captureSucceeded = false;
+            captureStatusIsError = true;
+            captureStatus =
+                "Open failed: captured image no longer exists";
+            lastCapturePath.clear();
+        }
+        else
+        {
+            const HINSTANCE openResult = ShellExecuteW(
+                nullptr,
+                L"open",
+                lastCapturePath.c_str(),
+                nullptr,
+                nullptr,
+                SW_SHOWNORMAL);
+
+            if (reinterpret_cast<intptr_t>(openResult) <= 32)
+            {
+                captureStatusIsError = true;
+                captureStatus =
+                    "Open failed: Windows could not open the PNG";
+            }
+        }
+    }
+
+    ImGui::TreePop();
+}
+
         if (ImGui::TreeNode("GPU Benchmark"))
         {
             static std::string exportStatus;
