@@ -25,8 +25,22 @@ struct ImageRegressionResult
     std::string error;
 };
 
+struct ImageRegressionSignatureResult
+{
+    bool success = false;
+    bool matches = false;
+    std::string error;
+};
+
 ImageRegressionResult RunImageRegression(
     const std::string& baselinePath, const std::string& actualPath,
     const std::string& differencePath,
     const ImageRegressionSettings& settings = {});
+
+bool WriteImageRegressionSignature(
+    const std::string& signaturePath, const std::string& signature,
+    std::string& error);
+
+ImageRegressionSignatureResult ValidateImageRegressionSignature(
+    const std::string& signaturePath, const std::string& expectedSignature);
 } // namespace Chimera

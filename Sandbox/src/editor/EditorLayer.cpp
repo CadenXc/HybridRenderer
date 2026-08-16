@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include "Renderer/Pipelines/RenderPathFactory.h"
 #include "Renderer/RenderState.h"
@@ -101,6 +102,53 @@ std::filesystem::path MakeRegressionBaselinePath()
 {
     return std::filesystem::current_path() / "frame-captures" /
            "regression-baseline.png";
+}
+
+std::filesystem::path MakeRegressionSignaturePath()
+{
+    return std::filesystem::current_path() / "frame-captures" /
+           "regression-baseline.txt";
+}
+
+std::string MakeRegressionSignature(
+    const RenderPath& renderPath, const EditorCamera& camera,
+    RenderFlags renderFlags, DisplayMode displayMode, float exposure,
+    float ambientStrength, const glm::vec4& clearColor, float lightRadius,
+    const std::string& assetPath, Scene* scene)
+{
+    std::ostringstream signature;
+    signature << std::setprecision(std::numeric_limits<float>::max_digits10)
+              << "version=1\n"
+              << "renderPath=" << RenderPathTypeToString(renderPath.GetType())
+              << '\n'
+              << "width=" << renderPath.GetRenderGraph().GetWidth() << '\n'
+              << "height=" << renderPath.GetRenderGraph().GetHeight() << '\n'
+              << "renderFlags=" << static_cast<uint32_t>(renderFlags) << '\n'
+              << "displayMode=" << static_cast<uint32_t>(displayMode) << '\n'
+              << "exposure=" << exposure << '\n'
+              << "ambientStrength=" << ambientStrength << '\n'
+              << "clearColor=" << clearColor.x << ',' << clearColor.y << ','
+              << clearColor.z << ',' << clearColor.w << '\n'
+              << "lightRadius=" << lightRadius << '\n'
+              << "assetPath=" << assetPath << '\n'
+              << "cameraFocalPoint=" << camera.GetFocalPoint().x << ','
+              << camera.GetFocalPoint().y << ',' << camera.GetFocalPoint().z
+              << '\n'
+              << "cameraDistance=" << camera.GetDistance() << '\n'
+              << "cameraPitch=" << camera.GetPitch() << '\n'
+              << "cameraYaw=" << camera.GetYaw() << '\n'
+              << "cameraFov=" << camera.GetFOV() << '\n';
+
+    if (scene)
+    {
+        const Light& light = scene->GetMainLight();
+        signature << "lightDirection=" << light.direction.x << ','
+                  << light.direction.y << ',' << light.direction.z << ','
+                  << light.direction.w << '\n'
+                  << "lightColor=" << light.color.x << ',' << light.color.y
+                  << ',' << light.color.z << ',' << light.color.w << '\n';
+    }
+    return signature.str();
 }
 
 std::filesystem::path MakeDifferencePath(
@@ -714,9 +762,22 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             static int allowedMaxChannelDifference = 8;
             static float allowedRmse = 1.0f;
             static int differenceAmplification = 8;
+            static std::string pendingSignature;
 
             const std::filesystem::path baselinePath =
                 MakeRegressionBaselinePath();
+            const std::filesystem::path signaturePath =
+                MakeRegressionSignaturePath();
+            const bool renderConfigurationReady =
+                activePath && activePath->HasRenderGraph();
+            const std::string currentSignature =
+                renderConfigurationReady
+                    ? MakeRegressionSignature(
+                          *activePath, m_EditorCamera, m_RenderFlags,
+                          m_DisplayMode, m_Exposure, m_AmbientStrength,
+                          m_ClearColor, m_LightRadius, m_ActiveAssetPath,
+                          GetActiveSceneRaw())
+                    : std::string{};
 
             if (pendingAction != PendingCaptureAction::None &&
                 !lastCapturePath.empty())
@@ -736,10 +797,23 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                         if (!fileError)
                         {
                             std::filesystem::remove(lastCapturePath, fileError);
-                            lastCapturePath = baselinePath;
-                            captureStatus =
-                                "Regression baseline updated: " +
-                                baselinePath.string();
+                            std::string signatureError;
+                            if (WriteImageRegressionSignature(
+                                    signaturePath.string(), pendingSignature,
+                                    signatureError))
+                            {
+                                lastCapturePath = baselinePath;
+                                captureStatus =
+                                    "Regression baseline updated: " +
+                                    baselinePath.string();
+                            }
+                            else
+                            {
+                                captureSucceeded = false;
+                                captureStatusIsError = true;
+                                captureStatus = "Baseline metadata failed: " +
+                                                signatureError;
+                            }
                         }
                         else
                         {
@@ -748,6 +822,16 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                             captureStatus = "Baseline update failed: " +
                                             fileError.message();
                         }
+                    }
+                    else if (pendingAction ==
+                                 PendingCaptureAction::Regression &&
+                             pendingSignature != currentSignature)
+                    {
+                        captureStatusIsError = true;
+                        captureStatus =
+                            "Regression blocked: render configuration changed "
+                            "while capture was pending. Capture again.";
+                        lastDifferencePath.clear();
                     }
                     else if (pendingAction ==
                              PendingCaptureAction::Regression)
@@ -812,6 +896,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                     }
 
                     pendingAction = PendingCaptureAction::None;
+                    pendingSignature.clear();
                 }
             }
 
@@ -820,9 +905,10 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                                      pendingAction !=
                                          PendingCaptureAction::None;
             const bool baselineExists =
-                std::filesystem::exists(baselinePath);
+                std::filesystem::exists(baselinePath) &&
+                std::filesystem::exists(signaturePath);
 
-            ImGui::BeginDisabled(captureBusy);
+            ImGui::BeginDisabled(captureBusy || !renderConfigurationReady);
             if (ImGui::Button("Capture Frame"))
             {
                 const std::filesystem::path capturePath =
@@ -845,6 +931,7 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
                     MakeFrameCapturePath();
                 if (renderer.RequestFrameCapture(candidatePath))
                 {
+                    pendingSignature = currentSignature;
                     lastCapturePath = candidatePath;
                     lastDifferencePath.clear();
                     captureSucceeded = false;
@@ -868,19 +955,35 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             ImGui::InputInt("Difference amplification",
                             &differenceAmplification);
 
-            ImGui::BeginDisabled(captureBusy || !baselineExists);
+            ImGui::BeginDisabled(captureBusy || !baselineExists ||
+                                 !renderConfigurationReady);
             if (ImGui::Button("Capture and Compare"))
             {
-                const std::filesystem::path actualPath =
-                    MakeFrameCapturePath();
-                if (renderer.RequestFrameCapture(actualPath))
+                const ImageRegressionSignatureResult signatureResult =
+                    ValidateImageRegressionSignature(signaturePath.string(),
+                                                     currentSignature);
+                if (!signatureResult.success || !signatureResult.matches)
                 {
-                    lastCapturePath = actualPath;
-                    lastDifferencePath.clear();
                     captureSucceeded = false;
-                    captureStatusIsError = false;
-                    captureStatus = "Capturing regression image...";
-                    pendingAction = PendingCaptureAction::Regression;
+                    captureStatusIsError = true;
+                    captureStatus = "Regression blocked: " +
+                                    signatureResult.error +
+                                    ". Capture a new baseline.";
+                }
+                else
+                {
+                    const std::filesystem::path actualPath =
+                        MakeFrameCapturePath();
+                    if (renderer.RequestFrameCapture(actualPath))
+                    {
+                        pendingSignature = currentSignature;
+                        lastCapturePath = actualPath;
+                        lastDifferencePath.clear();
+                        captureSucceeded = false;
+                        captureStatusIsError = false;
+                        captureStatus = "Capturing regression image...";
+                        pendingAction = PendingCaptureAction::Regression;
+                    }
                 }
             }
             ImGui::EndDisabled();

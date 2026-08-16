@@ -303,6 +303,41 @@ void TestRegressionAppliesEveryAcceptanceLimit()
     Require(result.success && !result.passed,
             "RMSE limit must independently reject regression");
 }
+
+void TestRegressionSignatureRoundTripAndMismatch()
+{
+    TemporaryPngDirectory directory;
+    const std::filesystem::path signaturePath = directory.path / "baseline.txt";
+    const std::string signature =
+        "version=1\nrenderPath=Forward\nwidth=1600\nheight=900\n";
+    std::string error;
+    Require(Chimera::WriteImageRegressionSignature(
+                signaturePath.string(), signature, error),
+            "regression signature should be written");
+
+    Chimera::ImageRegressionSignatureResult result =
+        Chimera::ValidateImageRegressionSignature(signaturePath.string(),
+                                                  signature);
+    Require(result.success && result.matches,
+            "stored regression signature should match its source");
+
+    result = Chimera::ValidateImageRegressionSignature(
+        signaturePath.string(), signature + "renderFlags=1\n");
+    Require(result.success && !result.matches,
+            "changed render configuration must not match baseline signature");
+    Require(!result.error.empty(),
+            "signature mismatch should explain why comparison is blocked");
+}
+
+void TestMissingRegressionSignatureIsRejected()
+{
+    TemporaryPngDirectory directory;
+    const Chimera::ImageRegressionSignatureResult result =
+        Chimera::ValidateImageRegressionSignature(
+            (directory.path / "missing.txt").string(), "version=1\n");
+    Require(!result.success && !result.matches,
+            "missing regression signature must be rejected");
+}
 } // namespace
 
 int main()
@@ -344,6 +379,12 @@ int main()
 
         TestRegressionAppliesEveryAcceptanceLimit();
         std::cout << "[PASS] regression applies every acceptance limit\n";
+
+        TestRegressionSignatureRoundTripAndMismatch();
+        std::cout << "[PASS] regression signature round-trip and mismatch\n";
+
+        TestMissingRegressionSignatureIsRejected();
+        std::cout << "[PASS] missing regression signature is rejected\n";
 
         return 0;
     }

@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "ImageRegression.h"
 
+#include <fstream>
+#include <sstream>
+
 namespace Chimera
 {
 ImageRegressionResult RunImageRegression(
@@ -48,6 +51,66 @@ ImageRegressionResult RunImageRegression(
     }
 
     result.success = true;
+    return result;
+}
+
+bool WriteImageRegressionSignature(
+    const std::string& signaturePath, const std::string& signature,
+    std::string& error)
+{
+    if (signaturePath.empty())
+    {
+        error = "signature path must not be empty";
+        return false;
+    }
+
+    std::ofstream output(signaturePath, std::ios::binary | std::ios::trunc);
+    if (!output)
+    {
+        error = "failed to open regression signature for writing: " +
+                signaturePath;
+        return false;
+    }
+
+    output.write(signature.data(), static_cast<std::streamsize>(signature.size()));
+    if (!output)
+    {
+        error = "failed to write regression signature: " + signaturePath;
+        return false;
+    }
+
+    error.clear();
+    return true;
+}
+
+ImageRegressionSignatureResult ValidateImageRegressionSignature(
+    const std::string& signaturePath, const std::string& expectedSignature)
+{
+    ImageRegressionSignatureResult result;
+    std::ifstream input(signaturePath, std::ios::binary);
+    if (!input)
+    {
+        result.error = "failed to open regression signature: " +
+                       signaturePath;
+        return result;
+    }
+
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    if (input.bad())
+    {
+        result.error = "failed to read regression signature: " +
+                       signaturePath;
+        return result;
+    }
+
+    result.success = true;
+    result.matches = contents.str() == expectedSignature;
+    if (!result.matches)
+    {
+        result.error =
+            "current render configuration does not match the baseline";
+    }
     return result;
 }
 } // namespace Chimera
