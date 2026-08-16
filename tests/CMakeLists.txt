@@ -61,3 +61,20 @@ add_test(
     NAME ShaderAbiTests
     COMMAND ShaderAbiTests
 )
+
+add_executable(ImageComparisonTests
+    ImageComparisonTests.cpp
+)
+
+target_link_libraries(ImageComparisonTests
+    PRIVATE Chimera
+)
+
+add_test(
+    NAME ImageComparisonTests
+    COMMAND ImageComparisonTests
+)
+
+set_tests_properties(ImageComparisonTests PROPERTIES
+    TIMEOUT 10
+)
