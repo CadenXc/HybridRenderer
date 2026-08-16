@@ -118,7 +118,7 @@ std::string MakeRegressionSignature(
 {
     std::ostringstream signature;
     signature << std::setprecision(std::numeric_limits<float>::max_digits10)
-              << "version=3\n"
+              << "version=4\n"
               << "temporalSequence=local-halton-and-gpu-seed-v1\n"
               << "warmupFrames=" << warmupFrameCount << '\n'
               << "renderPath=" << RenderPathTypeToString(renderPath.GetType())
@@ -143,12 +143,42 @@ std::string MakeRegressionSignature(
 
     if (scene)
     {
-        const Light& light = scene->GetMainLight();
-        signature << "lightDirection=" << light.direction.x << ','
-                  << light.direction.y << ',' << light.direction.z << ','
-                  << light.direction.w << '\n'
-                  << "lightColor=" << light.color.x << ',' << light.color.y
-                  << ',' << light.color.z << ',' << light.color.w << '\n';
+        const std::vector<Entity>& entities = scene->GetEntities();
+        signature << "entityCount=" << entities.size() << '\n';
+        for (size_t index = 0; index < entities.size(); ++index)
+        {
+            const Entity& entity = entities[index];
+            signature << "entity[" << index << "].name=" << entity.name
+                      << '\n'
+                      << "entity[" << index << "].position="
+                      << entity.transform.position.x << ','
+                      << entity.transform.position.y << ','
+                      << entity.transform.position.z << '\n'
+                      << "entity[" << index << "].rotation="
+                      << entity.transform.rotation.x << ','
+                      << entity.transform.rotation.y << ','
+                      << entity.transform.rotation.z << '\n'
+                      << "entity[" << index << "].scale="
+                      << entity.transform.scale.x << ','
+                      << entity.transform.scale.y << ','
+                      << entity.transform.scale.z << '\n';
+        }
+
+        const std::vector<Light>& lights = scene->GetLights();
+        signature << "lightCount=" << lights.size() << '\n';
+        for (size_t index = 0; index < lights.size(); ++index)
+        {
+            const Light& light = lights[index];
+            signature << "light[" << index << "].position="
+                      << light.position.x << ',' << light.position.y << ','
+                      << light.position.z << ',' << light.position.w << '\n'
+                      << "light[" << index << "].direction="
+                      << light.direction.x << ',' << light.direction.y << ','
+                      << light.direction.z << ',' << light.direction.w << '\n'
+                      << "light[" << index << "].color=" << light.color.x
+                      << ',' << light.color.y << ',' << light.color.z << ','
+                      << light.color.w << '\n';
+        }
     }
     return signature.str();
 }
@@ -358,8 +388,6 @@ void EditorLayer::OnUpdate(Timestep ts)
     context.PrevJitter = m_EditorCamera.GetPrevJitter();
     context.CameraPosition = m_EditorCamera.GetPosition();
     context.ViewportSize = m_ViewportSize;
-    context.DeltaTime = ts.GetSeconds();
-    context.Time = (float)glfwGetTime();
     context.FrameIndex = temporalFrameIndex;
     context.RenderFlags = m_RenderFlags;
     context.Exposure = m_Exposure;

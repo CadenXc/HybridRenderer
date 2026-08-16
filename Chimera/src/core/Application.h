@@ -34,8 +34,6 @@ struct AppFrameContext
     glm::mat4 PrevView = glm::mat4(1.0f);
     glm::mat4 PrevProj = glm::mat4(1.0f);
     glm::vec3 CameraPosition;
-    float DeltaTime;
-    float Time;
     uint32_t FrameIndex;
     DisplayMode DisplayMode = DisplayMode::Final;
     RenderFlags RenderFlags = RenderFlags_LightBit;
