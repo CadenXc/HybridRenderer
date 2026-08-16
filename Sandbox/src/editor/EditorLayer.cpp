@@ -118,8 +118,8 @@ std::string MakeRegressionSignature(
 {
     std::ostringstream signature;
     signature << std::setprecision(std::numeric_limits<float>::max_digits10)
-              << "version=2\n"
-              << "temporalSequence=local-halton-v1\n"
+              << "version=3\n"
+              << "temporalSequence=local-halton-and-gpu-seed-v1\n"
               << "warmupFrames=" << warmupFrameCount << '\n'
               << "renderPath=" << RenderPathTypeToString(renderPath.GetType())
               << '\n'
@@ -360,7 +360,7 @@ void EditorLayer::OnUpdate(Timestep ts)
     context.ViewportSize = m_ViewportSize;
     context.DeltaTime = ts.GetSeconds();
     context.Time = (float)glfwGetTime();
-    context.FrameIndex = Application::Get().GetTotalFrameCount();
+    context.FrameIndex = temporalFrameIndex;
     context.RenderFlags = m_RenderFlags;
     context.Exposure = m_Exposure;
     context.DisplayMode = m_DisplayMode;

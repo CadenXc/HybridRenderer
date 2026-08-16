@@ -77,7 +77,7 @@ void main()
 
     // B. 面光源采样 (Next Event Estimation - Emissive Area Lights)
     // 根据 CDF 随机采样场景中的发光体。
-    uint seed = InitRandomSeed(gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x, frameData.x);
+    uint seed = InitRandomSeed(gl_LaunchIDEXT.x + gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x, frameData.y);
     int sampledInst = INVALID_ID;
     vec3 sampledLightDir = SampleLights(worldPos, RandomFloat(seed), RandomFloat(seed), vec2(RandomFloat(seed), RandomFloat(seed)), sampledInst);
     

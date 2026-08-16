@@ -350,7 +350,7 @@ void Application::UpdateGlobalUBO(uint32_t frameIndex)
         }
     }
     ubo.frameData =
-        glm::uvec4(frameIndex, m_TotalFrameCount,
+        glm::uvec4(frameIndex, m_FrameContext.FrameIndex,
                    static_cast<uint32_t>(m_FrameContext.DisplayMode),
                    static_cast<uint32_t>(currentFlags));
 

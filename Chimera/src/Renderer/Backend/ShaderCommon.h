@@ -227,8 +227,8 @@ struct UniformBufferObject
     LightData sunLight;
 
     vec4 displayData; // x: width, y: height, z: 1/width, w: 1/height
-    uvec4 frameData; // x: frameIndex, y: frameCount, z: displayMode, w:
-                     // renderFlags
+    uvec4 frameData; // x: frame-in-flight index, y: temporal/random sample index,
+                     // z: displayMode, w: renderFlags
     vec4 postData; // x: exposure, y: ambientStrength, zw: blueNoiseTextureIndex
     vec4 envData; // x: skyboxTextureIndex, y: lightCount, zw: padding
     vec4 svgfAlpha; // x: alphaColor, y: alphaMoments, zw: padding

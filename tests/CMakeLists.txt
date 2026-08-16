@@ -57,6 +57,10 @@ target_link_libraries(ShaderAbiTests
     PRIVATE Chimera
 )
 
+target_compile_definitions(ShaderAbiTests
+    PRIVATE CHIMERA_SHADER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/Chimera/shaders"
+)
+
 add_test(
     NAME ShaderAbiTests
     COMMAND ShaderAbiTests
