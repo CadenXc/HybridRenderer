@@ -17,6 +17,8 @@ static_assert(std::is_standard_layout_v<CameraData>);
 static_assert(std::is_standard_layout_v<LightData>);
 static_assert(std::is_standard_layout_v<UniformBufferObject>);
 static_assert(std::is_standard_layout_v<GpuMaterial>);
+static_assert(std::is_standard_layout_v<GpuAABB>);
+static_assert(std::is_standard_layout_v<GpuInstance>);
 
 static_assert(sizeof(CameraData) == 480);
 static_assert(sizeof(LightData) == 112);
@@ -42,6 +44,25 @@ static_assert(offsetof(GpuMaterial, transmissionDepth) == 60);
 static_assert(offsetof(GpuMaterial, emissionTexture) == 64);
 static_assert(offsetof(GpuMaterial, normalTexture) == 76);
 static_assert(sizeof(GpuMaterial) == 80);
+
+static_assert(offsetof(GpuAABB, min) == 0);
+static_assert(offsetof(GpuAABB, pad0) == 12);
+static_assert(offsetof(GpuAABB, max) == 16);
+static_assert(offsetof(GpuAABB, pad1) == 28);
+static_assert(sizeof(GpuAABB) == 32);
+
+static_assert(offsetof(GpuInstance, transform) == 0);
+static_assert(offsetof(GpuInstance, inverseTransform) == 64);
+static_assert(offsetof(GpuInstance, normalTransform) == 128);
+static_assert(offsetof(GpuInstance, bounds) == 192);
+static_assert(offsetof(GpuInstance, shape) == 224);
+static_assert(offsetof(GpuInstance, index) == 228);
+static_assert(offsetof(GpuInstance, material) == 232);
+static_assert(offsetof(GpuInstance, selected) == 236);
+static_assert(offsetof(GpuInstance, vertexAddress) == 240);
+static_assert(offsetof(GpuInstance, indexAddress) == 248);
+static_assert(offsetof(GpuInstance, prevTransform) == 256);
+static_assert(sizeof(GpuInstance) == 320);
 static_assert(static_cast<uint32_t>(DisplayMode::TAAHistory) == 12);
 static_assert(RenderFlags_TAAHighQualityBit == (1u << 12));
 static_assert(RenderFlags_ManualOutputSrgbBit == (1u << 13));

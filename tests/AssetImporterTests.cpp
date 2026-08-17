@@ -5,6 +5,7 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <stb_image.h>
@@ -28,6 +29,28 @@ void TestTangentHandednessPreservesBitangentDirection()
     Require(Chimera::CalculateTangentHandedness(
                 normal, tangent, glm::vec3(0.0f, -1.0f, 0.0f)) == -1.0f,
             "mirrored UV orientation must have negative tangent handedness");
+}
+
+void TestAssimpMatrixConversionPreservesPointTransform()
+{
+    const aiMatrix4x4 assimpMatrix(
+        0.0f, -2.0f, 0.0f, 3.0f,
+        1.0f,  0.0f, 0.0f, 4.0f,
+        0.0f,  0.0f, 0.5f, 5.0f,
+        0.0f,  0.0f, 0.0f, 1.0f);
+    const aiVector3D assimpPoint(2.0f, 1.0f, 6.0f);
+    const aiVector3D expected = assimpMatrix * assimpPoint;
+
+    const glm::mat4 glmMatrix = Chimera::ConvertAssimpMatrix(assimpMatrix);
+    const glm::vec4 actual =
+        glmMatrix * glm::vec4(assimpPoint.x, assimpPoint.y, assimpPoint.z, 1.0f);
+
+    constexpr float epsilon = 1e-6f;
+    Require(std::abs(actual.x - expected.x) < epsilon &&
+                std::abs(actual.y - expected.y) < epsilon &&
+                std::abs(actual.z - expected.z) < epsilon &&
+                std::abs(actual.w - 1.0f) < epsilon,
+            "Assimp-to-GLM conversion must preserve affine point transforms");
 }
 
 void TestGlbEmbeddedTextureCanBeResolvedAndDecoded()
@@ -178,6 +201,8 @@ int main()
     {
         TestTangentHandednessPreservesBitangentDirection();
         std::cout << "[PASS] tangent handedness preserves imported bitangent direction\n";
+        TestAssimpMatrixConversionPreservesPointTransform();
+        std::cout << "[PASS] Assimp-to-GLM matrix conversion preserves point transforms\n";
         TestGlbEmbeddedTextureCanBeResolvedAndDecoded();
         std::cout << "[PASS] GLB embedded texture resolves and decodes from memory\n";
         TestTextureCoordinateFixtureKeepsExpectedGeometryAndUVs();

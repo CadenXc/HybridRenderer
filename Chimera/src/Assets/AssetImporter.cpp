@@ -20,7 +20,7 @@ float CalculateTangentHandedness(const glm::vec3& normal,
                                                                    : 1.0f;
 }
 
-static glm::mat4 AssimpToGlmMatrix(const aiMatrix4x4& from)
+glm::mat4 ConvertAssimpMatrix(const aiMatrix4x4& from)
 {
     glm::mat4 to;
     to[0][0] = from.a1;
@@ -46,7 +46,7 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
                           const glm::mat4& parentTransform,
                           ImportedScene& outScene, uint32_t parentIdx)
 {
-    glm::mat4 localTransform = AssimpToGlmMatrix(node->mTransformation);
+    glm::mat4 localTransform = ConvertAssimpMatrix(node->mTransformation);
     glm::mat4 worldTransform = parentTransform * localTransform;
 
     Node n{};
