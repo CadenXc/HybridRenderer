@@ -12,18 +12,26 @@ layout(push_constant) uniform PushConstants
     int useAlphaTest;
 } pc;
 
+vec2 ApplyPrimaryRayJitter(vec2 pixelNdc)
+{
+    // Rasterization adds jitter in NDC. For ray tracing, move the sample
+    // position by the inverse offset so TAA can recover it with uv - jitter/2.
+    return pixelNdc - camera.jitterData.xy;
+}
+
 void main() 
 {
     const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
     const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
-    vec2 d = inUV * 2.0 - 1.0;
+    const vec2 pixelNdc = inUV * 2.0 - 1.0;
+    const vec2 sampleNdc = ApplyPrimaryRayJitter(pixelNdc);
 
     // 1. Ray Origin (Camera World Position)
     vec3 origin = camera.position.xyz;
     
     // 2. Ray Direction Calculation (Stable Inverse Transform)
     // Step A: Invert projection to get view space point
-    vec4 target = camera.projInverse * vec4(d.x, d.y, 1.0, 1.0);
+    vec4 target = camera.projInverse * vec4(sampleNdc, 1.0, 1.0);
     // Step B: Transform View direction to World Space
     vec3 rayDirView = normalize(target.xyz / target.w);
     vec3 direction = normalize((camera.viewInverse * vec4(rayDirView, 0.0)).xyz);

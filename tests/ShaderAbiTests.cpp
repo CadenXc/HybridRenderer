@@ -1,5 +1,6 @@
 #include "Renderer/Backend/ShaderCommon.h"
 
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -82,6 +83,36 @@ void TestStochasticShadersUseTemporalSampleIndex()
             "closest-hit randomness still uses frame-in-flight index");
     }
 }
+
+void TestRaytracePrimaryRayJitterContract()
+{
+    // camera.jitterData.xy is expressed in NDC. Converting an NDC offset to
+    // texture UV halves it, so this is the same convention used by TAA:
+    // sampleUv = pixelUv - jitterNdc * 0.5.
+    const glm::vec2 pixelUv(0.625f, 0.375f);
+    const glm::vec2 jitterNdc(0.25f, -0.125f);
+    const glm::vec2 pixelNdc = pixelUv * 2.0f - glm::vec2(1.0f);
+    const glm::vec2 sampleNdc = pixelNdc - jitterNdc;
+    const glm::vec2 sampleUv = sampleNdc * 0.5f + glm::vec2(0.5f);
+    const glm::vec2 expectedUv = pixelUv - jitterNdc * 0.5f;
+
+    constexpr float epsilon = 1e-6f;
+    if (std::abs(sampleUv.x - expectedUv.x) > epsilon ||
+        std::abs(sampleUv.y - expectedUv.y) > epsilon)
+    {
+        throw std::runtime_error("NDC-to-UV jitter conversion has the wrong scale or sign");
+    }
+
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string raytrace =
+        ReadTextFile(shaderRoot / "raytracing/raytrace.rgen");
+    if (raytrace.find("return pixelNdc - camera.jitterData.xy;") == std::string::npos ||
+        raytrace.find("ApplyPrimaryRayJitter(pixelNdc)") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "ray tracing primary rays do not apply the TAA jitter convention");
+    }
+}
 } // namespace
 
 int main()
@@ -91,6 +122,8 @@ int main()
         std::cout << "[PASS] shader ABI layout matches expected offsets\n";
         TestStochasticShadersUseTemporalSampleIndex();
         std::cout << "[PASS] stochastic shaders use temporal sample index\n";
+        TestRaytracePrimaryRayJitterContract();
+        std::cout << "[PASS] ray tracing primary rays share the TAA jitter convention\n";
         return 0;
     }
     catch (const std::exception& error)
