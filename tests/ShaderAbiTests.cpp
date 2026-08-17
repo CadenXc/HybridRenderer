@@ -41,6 +41,7 @@ static_assert(offsetof(GpuMaterial, emissionTexture) == 64);
 static_assert(offsetof(GpuMaterial, normalTexture) == 76);
 static_assert(sizeof(GpuMaterial) == 80);
 static_assert(static_cast<uint32_t>(DisplayMode::TAAHistory) == 12);
+static_assert(RenderFlags_TAAHighQualityBit == (1u << 12));
 
 namespace
 {
@@ -202,11 +203,12 @@ void TestTaaUsesCatmullRomHistoryReconstruction()
         ReadTextFile(shaderRoot / "postprocess/taa.comp");
 
     if (taa.find("vec3 SampleHistoryCatmullRom(vec2 uv)") == std::string::npos ||
-        taa.find("SampleHistoryCatmullRom(prevUV)") == std::string::npos ||
-        taa.find("texture(historyColor, prevUV)") != std::string::npos)
+        taa.find("RENDER_FLAG_TAA_HIGH_QUALITY_BIT") == std::string::npos ||
+        taa.find("? SampleHistoryCatmullRom(prevUV)") == std::string::npos ||
+        taa.find(": texture(historyColor, prevUV).rgb") == std::string::npos)
     {
         throw std::runtime_error(
-            "TAA history does not use Catmull-Rom reconstruction");
+            "TAA history quality flag does not select Catmull-Rom or bilinear reconstruction");
     }
 }
 } // namespace

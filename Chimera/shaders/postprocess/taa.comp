@@ -222,7 +222,11 @@ void main()
     vec3 boxMax = mu + varianceMultiplier * sigma;
     
     // 4. Sample and Clip History
-    vec3 historyRGB = SampleHistoryCatmullRom(prevUV);
+    const bool highQualityHistory =
+        (frameData.w & RENDER_FLAG_TAA_HIGH_QUALITY_BIT) != 0;
+    vec3 historyRGB = highQualityHistory
+                          ? SampleHistoryCatmullRom(prevUV)
+                          : texture(historyColor, prevUV).rgb;
     
     // [SAFETY] History NaN/Inf check
     if (any(isnan(historyRGB)) || any(isinf(historyRGB))) historyRGB = currentRGB;

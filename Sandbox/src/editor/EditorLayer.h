@@ -88,7 +88,8 @@ private:
                 // UI Visibility
     bool m_ShowControlPanel = true;
     DisplayMode m_DisplayMode = DisplayMode::Final;
-    RenderFlags m_RenderFlags = RenderFlags_LightBit | RenderFlags_ShadowBit;
+    RenderFlags m_RenderFlags = RenderFlags_LightBit | RenderFlags_ShadowBit |
+                                RenderFlags_TAAHighQualityBit;
 
     float m_Exposure = 1.0f;
     float m_AmbientStrength = 1.0f;

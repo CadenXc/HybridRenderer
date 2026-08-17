@@ -207,7 +207,7 @@ EditorLayer::EditorLayer()
 
     m_RenderFlags = RenderFlags_LightBit | RenderFlags_ShadowBit |
                     RenderFlags_SVGFTemporalBit | RenderFlags_SVGFSpatialBit |
-                    RenderFlags_IBLBit;
+                    RenderFlags_IBLBit | RenderFlags_TAAHighQualityBit;
 
     m_AmbientStrength = 0.0f;
     m_Exposure = 1.0f;
@@ -691,6 +691,12 @@ void EditorLayer::DrawFeatureToggles(RenderPath* activePath)
         ImGui::Unindent();
     }
     toggleFlag("TAA", RenderFlags_TAABit);
+    if (m_RenderFlags & RenderFlags_TAABit)
+    {
+        ImGui::Indent();
+        toggleFlag("High Quality History", RenderFlags_TAAHighQualityBit);
+        ImGui::Unindent();
+    }
     ImGui::Spacing();
     toggleFlag("IBL Lighting", RenderFlags_IBLBit);
     toggleFlag("Emissive", RenderFlags_EmissiveBit);
