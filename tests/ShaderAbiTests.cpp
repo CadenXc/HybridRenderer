@@ -194,6 +194,21 @@ void TestTaaHistoryDebugViewContract()
             "TAA History display mode does not visualize history acceptance");
     }
 }
+
+void TestTaaUsesCatmullRomHistoryReconstruction()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string taa =
+        ReadTextFile(shaderRoot / "postprocess/taa.comp");
+
+    if (taa.find("vec3 SampleHistoryCatmullRom(vec2 uv)") == std::string::npos ||
+        taa.find("SampleHistoryCatmullRom(prevUV)") == std::string::npos ||
+        taa.find("texture(historyColor, prevUV)") != std::string::npos)
+    {
+        throw std::runtime_error(
+            "TAA history does not use Catmull-Rom reconstruction");
+    }
+}
 } // namespace
 
 int main()
@@ -215,6 +230,8 @@ int main()
         std::cout << "[PASS] TAA rejects history with inconsistent depth\n";
         TestTaaHistoryDebugViewContract();
         std::cout << "[PASS] TAA History display mode visualizes history acceptance\n";
+        TestTaaUsesCatmullRomHistoryReconstruction();
+        std::cout << "[PASS] TAA history uses Catmull-Rom reconstruction\n";
         return 0;
     }
     catch (const std::exception& error)

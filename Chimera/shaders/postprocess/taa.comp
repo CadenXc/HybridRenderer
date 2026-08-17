@@ -57,6 +57,42 @@ vec3 ReconstructWorldPosition(float depth, vec2 uv)
     return world.xyz / world.w;
 }
 
+vec3 SampleHistoryCatmullRom(vec2 uv)
+{
+    const vec2 extent = vec2(textureSize(historyColor, 0));
+    const vec2 samplePosition = uv * extent;
+    const vec2 texelPosition1 = floor(samplePosition - 0.5) + 0.5;
+    const vec2 f = samplePosition - texelPosition1;
+
+    const vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+    const vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    const vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+    const vec2 w3 = f * f * (-0.5 + 0.5 * f);
+    const vec2 w12 = w1 + w2;
+
+    const vec2 texelPosition0 = texelPosition1 - 1.0;
+    const vec2 texelPosition12 = texelPosition1 + w2 / w12;
+    const vec2 texelPosition3 = texelPosition1 + 2.0;
+
+    const vec2 minPosition = vec2(0.5);
+    const vec2 maxPosition = extent - vec2(0.5);
+    const vec2 uv0 = clamp(texelPosition0, minPosition, maxPosition) / extent;
+    const vec2 uv12 = clamp(texelPosition12, minPosition, maxPosition) / extent;
+    const vec2 uv3 = clamp(texelPosition3, minPosition, maxPosition) / extent;
+
+    vec3 result = vec3(0.0);
+    result += texture(historyColor, vec2(uv0.x, uv0.y)).rgb * w0.x * w0.y;
+    result += texture(historyColor, vec2(uv12.x, uv0.y)).rgb * w12.x * w0.y;
+    result += texture(historyColor, vec2(uv3.x, uv0.y)).rgb * w3.x * w0.y;
+    result += texture(historyColor, vec2(uv0.x, uv12.y)).rgb * w0.x * w12.y;
+    result += texture(historyColor, vec2(uv12.x, uv12.y)).rgb * w12.x * w12.y;
+    result += texture(historyColor, vec2(uv3.x, uv12.y)).rgb * w3.x * w12.y;
+    result += texture(historyColor, vec2(uv0.x, uv3.y)).rgb * w0.x * w3.y;
+    result += texture(historyColor, vec2(uv12.x, uv3.y)).rgb * w12.x * w3.y;
+    result += texture(historyColor, vec2(uv3.x, uv3.y)).rgb * w3.x * w3.y;
+    return result;
+}
+
 bool IsDepthHistoryConsistent(vec2 currentUv, vec2 previousUv,
                               float currentDepth)
 {
@@ -186,7 +222,7 @@ void main()
     vec3 boxMax = mu + varianceMultiplier * sigma;
     
     // 4. Sample and Clip History
-    vec3 historyRGB = texture(historyColor, prevUV).rgb;
+    vec3 historyRGB = SampleHistoryCatmullRom(prevUV);
     
     // [SAFETY] History NaN/Inf check
     if (any(isnan(historyRGB)) || any(isinf(historyRGB))) historyRGB = currentRGB;
