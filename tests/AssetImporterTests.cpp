@@ -4,7 +4,9 @@
 #include <assimp/material.h>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <algorithm>
 #include <iostream>
+#include <limits>
 #include <stb_image.h>
 #include <stdexcept>
 
@@ -76,6 +78,98 @@ void TestGlbEmbeddedTextureCanBeResolvedAndDecoded()
     Require(width > 0 && height > 0,
             "decoded embedded image must have a non-zero extent");
 }
+
+struct ImportedFixtureSummary
+{
+    aiVector3D min{std::numeric_limits<float>::max()};
+    aiVector3D max{std::numeric_limits<float>::lowest()};
+    aiVector2D uvMin{std::numeric_limits<float>::max()};
+    aiVector2D uvMax{std::numeric_limits<float>::lowest()};
+    unsigned int meshCount = 0;
+    unsigned int texturedMeshCount = 0;
+    bool hasUV = false;
+};
+
+void AccumulateImportedGeometry(const aiScene* scene, const aiNode* node,
+                                const aiMatrix4x4& parentTransform,
+                                ImportedFixtureSummary& summary)
+{
+    const aiMatrix4x4 worldTransform = parentTransform * node->mTransformation;
+    for (unsigned int nodeMeshIndex = 0; nodeMeshIndex < node->mNumMeshes;
+         ++nodeMeshIndex)
+    {
+        const aiMesh* mesh = scene->mMeshes[node->mMeshes[nodeMeshIndex]];
+        ++summary.meshCount;
+
+        aiString textureReference;
+        const bool hasBaseColorTexture =
+            scene->mMaterials[mesh->mMaterialIndex]->GetTexture(
+                aiTextureType_DIFFUSE, 0, &textureReference) == AI_SUCCESS;
+        if (hasBaseColorTexture) ++summary.texturedMeshCount;
+
+        for (unsigned int vertexIndex = 0; vertexIndex < mesh->mNumVertices;
+             ++vertexIndex)
+        {
+            const aiVector3D position =
+                worldTransform * mesh->mVertices[vertexIndex];
+            summary.min.x = std::min(summary.min.x, position.x);
+            summary.min.y = std::min(summary.min.y, position.y);
+            summary.min.z = std::min(summary.min.z, position.z);
+            summary.max.x = std::max(summary.max.x, position.x);
+            summary.max.y = std::max(summary.max.y, position.y);
+            summary.max.z = std::max(summary.max.z, position.z);
+
+            if (hasBaseColorTexture && mesh->HasTextureCoords(0))
+            {
+                const aiVector3D uv = mesh->mTextureCoords[0][vertexIndex];
+                summary.uvMin.x = std::min(summary.uvMin.x, uv.x);
+                summary.uvMin.y = std::min(summary.uvMin.y, uv.y);
+                summary.uvMax.x = std::max(summary.uvMax.x, uv.x);
+                summary.uvMax.y = std::max(summary.uvMax.y, uv.y);
+                summary.hasUV = true;
+            }
+        }
+    }
+
+    for (unsigned int childIndex = 0; childIndex < node->mNumChildren;
+         ++childIndex)
+    {
+        AccumulateImportedGeometry(scene, node->mChildren[childIndex],
+                                   worldTransform, summary);
+    }
+}
+
+void TestTextureCoordinateFixtureKeepsExpectedGeometryAndUVs()
+{
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(
+        CHIMERA_EMBEDDED_GLTF_FIXTURE,
+        aiProcess_Triangulate | aiProcess_FlipUVs |
+            aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals |
+            aiProcess_JoinIdenticalVertices | aiProcess_SortByPType |
+            aiProcess_ImproveCacheLocality);
+
+    Require(scene != nullptr, importer.GetErrorString());
+    Require(scene->mRootNode != nullptr,
+            "textured GLB fixture must have a root node");
+
+    ImportedFixtureSummary summary;
+    AccumulateImportedGeometry(scene, scene->mRootNode, aiMatrix4x4(), summary);
+
+    const aiVector3D extent = summary.max - summary.min;
+    Require(summary.meshCount == 5,
+            "TextureCoordinateTest must import exactly five meshes");
+    Require(summary.texturedMeshCount == 4,
+            "TextureCoordinateTest must keep four textured meshes");
+    Require(extent.x > 2.3f && extent.y > 2.3f,
+            "imported fixture must remain a two-dimensional XY test card");
+    Require(extent.z < 0.1f,
+            "imported fixture must not be rotated into a deep Z extent");
+    Require(summary.hasUV, "textured meshes must retain TEXCOORD_0");
+    Require(summary.uvMax.x - summary.uvMin.x > 0.5f &&
+                summary.uvMax.y - summary.uvMin.y > 0.5f,
+            "imported texture coordinates must not collapse to one value");
+}
 } // namespace
 
 int main()
@@ -86,6 +180,8 @@ int main()
         std::cout << "[PASS] tangent handedness preserves imported bitangent direction\n";
         TestGlbEmbeddedTextureCanBeResolvedAndDecoded();
         std::cout << "[PASS] GLB embedded texture resolves and decodes from memory\n";
+        TestTextureCoordinateFixtureKeepsExpectedGeometryAndUVs();
+        std::cout << "[PASS] GLB fixture preserves its XY geometry and UV range\n";
         return 0;
     }
     catch (const std::exception& error)
