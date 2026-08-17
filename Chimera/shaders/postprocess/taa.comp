@@ -7,8 +7,9 @@ layout(set = 2, binding = 0) uniform sampler2D curColor;
 layout(set = 2, binding = 1) uniform sampler2D historyColor;
 layout(set = 2, binding = 2) uniform sampler2D gMotion;
 layout(set = 2, binding = 3) uniform sampler2D gDepth;
+layout(set = 2, binding = 4) uniform sampler2D historyDepth;
 
-layout(set = 2, binding = 4, rgba16f) uniform image2D outFinal;
+layout(set = 2, binding = 5, rgba16f) uniform image2D outFinal;
 
 // --- Helper Functions ---
 vec3 RGBToYCoCg(vec3 rgb) 
@@ -47,6 +48,47 @@ vec3 UnToneMap(vec3 color)
 ivec2 ClampPixel(ivec2 pixel, ivec2 extent)
 {
     return clamp(pixel, ivec2(0), extent - ivec2(1));
+}
+
+vec3 ReconstructWorldPosition(float depth, vec2 uv)
+{
+    const vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    const vec4 world = camera.viewProjInverse * clip;
+    return world.xyz / world.w;
+}
+
+bool IsDepthHistoryConsistent(vec2 currentUv, vec2 previousUv,
+                              float currentDepth)
+{
+    if (any(lessThan(previousUv, vec2(0.0))) ||
+        any(greaterThan(previousUv, vec2(1.0))))
+    {
+        return false;
+    }
+
+    const ivec2 historyExtent = textureSize(historyDepth, 0);
+    const ivec2 historyPixel =
+        ClampPixel(ivec2(previousUv * vec2(historyExtent)), historyExtent);
+    const float previousDepth = texelFetch(historyDepth, historyPixel, 0).r;
+
+    // Reversed-Z clear depth represents the infinitely distant background.
+    if (currentDepth <= 1e-6)
+    {
+        return previousDepth <= 1e-4;
+    }
+
+    const vec3 worldPosition =
+        ReconstructWorldPosition(currentDepth, currentUv);
+    const vec4 previousClip =
+        camera.prevProj * camera.prevView * vec4(worldPosition, 1.0);
+    if (previousClip.w <= 1e-6)
+    {
+        return false;
+    }
+
+    const float expectedPreviousDepth = previousClip.z / previousClip.w;
+    const float tolerance = max(1e-4, abs(expectedPreviousDepth) * 0.01);
+    return abs(previousDepth - expectedPreviousDepth) <= tolerance;
 }
 
 // Standard AABB Clipping using ray-box intersection (Reference project style)
@@ -157,7 +199,11 @@ void main()
     // [ADJUST] Increased floor and sensitivity to kill ghosting
     float alpha = clamp(0.1 + motionLen * 0.1, 0.1, 0.9);
 
-    if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0)))) alpha = 1.0;
+    const float currentDepth = texelFetch(gDepth, pixel, 0).r;
+    if (!IsDepthHistoryConsistent(unjitteredUV, prevUV, currentDepth))
+    {
+        alpha = 1.0;
+    }
     
     // Safety check: only accumulate if the history bit is explicitly set by the engine
     bool historyAvailable = (frameData.w & RENDER_FLAG_TAA_HISTORY_BIT) != 0;

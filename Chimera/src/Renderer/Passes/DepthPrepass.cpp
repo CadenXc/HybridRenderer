@@ -17,7 +17,8 @@ void DepthPrepass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 {
     data.depth = builder.Write(RS::Depth)
                      .Format(VK_FORMAT_D32_SFLOAT)
-                     .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE);
+                     .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE)
+                     .SaveAsHistory(RS::Depth);
 }
 
 void DepthPrepass::Execute(const PassData& data, RenderGraphRegistry& reg,

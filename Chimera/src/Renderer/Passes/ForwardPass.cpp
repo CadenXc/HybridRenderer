@@ -27,7 +27,8 @@ void ForwardPass::Setup(ForwardPassData& data,
 
     data.depth = builder.Write(RS::Depth)
                      .Format(VK_FORMAT_D32_SFLOAT)
-                     .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE);
+                     .ClearDepthStencil(CH_DEPTH_CLEAR_VALUE)
+                     .SaveAsHistory(RS::Depth);
 }
 
 void ForwardPass::Execute(const ForwardPassData& data, RenderGraphRegistry& reg,

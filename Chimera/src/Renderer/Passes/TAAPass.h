@@ -12,6 +12,7 @@ struct TAAPassData
     RGResourceHandle current;
     RGResourceHandle motion;
     RGResourceHandle depth;
+    RGResourceHandle historyDepth;
     RGResourceHandle history;
     RGResourceHandle output;
 };

@@ -394,8 +394,8 @@ void TestTAAFirstFramePreservesHistoryBinding()
 
     taaPass.Setup(data, taaBuilder);
 
-    Require(taaGraphPass.inputs.size() == 4,
-            "TAA first frame must preserve all four input bindings");
+    Require(taaGraphPass.inputs.size() == 5,
+            "TAA first frame must preserve all five input bindings");
 
     Require(data.history == data.current,
             "TAA first frame should use current color as history fallback");
@@ -412,6 +412,12 @@ void TestTAAFirstFramePreservesHistoryBinding()
     Require(taaGraphPass.inputs[3].handle == data.depth,
             "TAA binding 3 should contain depth");
 
+    Require(taaGraphPass.inputs[4].handle == data.historyDepth,
+            "TAA binding 4 should contain history depth fallback");
+
+    Require(data.historyDepth == data.depth,
+            "TAA first frame should use current depth as history fallback");
+
     Require(taaGraphPass.inputs[0].bindingName == "curColor",
             "TAA current color must bind to curColor");
 
@@ -423,6 +429,9 @@ void TestTAAFirstFramePreservesHistoryBinding()
 
     Require(taaGraphPass.inputs[3].bindingName == "gDepth",
             "TAA depth must bind to gDepth");
+
+    Require(taaGraphPass.inputs[4].bindingName == "historyDepth",
+            "TAA history depth fallback must preserve its named binding");
 
     Require(taaGraphPass.outputs.size() == 1,
             "TAA must declare exactly one output");

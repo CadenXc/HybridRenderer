@@ -19,8 +19,10 @@ void TAAPass::Setup(PassData& data, RenderGraph::PassBuilder& builder)
 
     data.motion = builder.ReadCompute(RS::Motion, "gMotion");
     data.depth = builder.ReadCompute(RS::Depth, "gDepth");
+    data.historyDepth =
+        builder.ReadHistorySafe(RS::Depth, RS::Depth, "historyDepth");
 
-        // write new accumulated result and save it for the next frame
+    // write new accumulated result and save it for the next frame
     data.output = builder.WriteStorage("TAAOutput")
                       .Format(VK_FORMAT_R16G16B16A16_SFLOAT)
                       .SaveAsHistory("TAAOutput")

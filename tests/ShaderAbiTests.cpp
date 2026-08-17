@@ -161,6 +161,22 @@ void TestTaaNeighborhoodClampsTexelCoordinates()
             "TAA neighborhood texelFetch coordinates are not clamped at image edges");
     }
 }
+
+void TestTaaRejectsInconsistentDepthHistory()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string taa =
+        ReadTextFile(shaderRoot / "postprocess/taa.comp");
+
+    if (taa.find("uniform sampler2D historyDepth") == std::string::npos ||
+        taa.find("camera.prevProj * camera.prevView") == std::string::npos ||
+        taa.find("!IsDepthHistoryConsistent(unjitteredUV, prevUV, currentDepth)") ==
+            std::string::npos)
+    {
+        throw std::runtime_error(
+            "TAA does not reject history from a different depth surface");
+    }
+}
 } // namespace
 
 int main()
@@ -178,6 +194,8 @@ int main()
         std::cout << "[PASS] ray tracing Motion display mode visualizes motion vectors\n";
         TestTaaNeighborhoodClampsTexelCoordinates();
         std::cout << "[PASS] TAA neighborhood fetches clamp image-edge coordinates\n";
+        TestTaaRejectsInconsistentDepthHistory();
+        std::cout << "[PASS] TAA rejects history with inconsistent depth\n";
         return 0;
     }
     catch (const std::exception& error)
