@@ -13,7 +13,7 @@
  * 
  * Key Features:
  * 1. World Reconstruction: Uses G-Buffer depth and normal to reconstruct 3D context.
- * 2. Next Event Estimation (NEE): Importance sampling of emissive area lights for soft shadows.
+ * 2. Directional-light cone sampling: Uses the sun angular radius for soft shadows.
  * 3. Ambient Occlusion: Cosine-weighted hemisphere sampling for local occlusion.
  * 4. Hardware Ray Query: Uses VK_KHR_ray_query (Inline Ray Tracing) for optimal visibility checks.
  * 5. Alpha Testing: Supports cut-out materials (e.g., foliage) via programmable intersection in common.glsl.
@@ -51,37 +51,17 @@ void main()
     vec3 worldPos = GetWorldPos(depth, inUV, camera.viewProjInverse);
     vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 
-    // 5. Soft Shadow Calculation (Next Event Estimation)
+    // 5. Soft sun-shadow calculation
     float shadow = 1.0;
     bool lightEnabled = (frameData.w & RENDER_FLAG_LIGHT_BIT) != 0;
     bool shadowsEnabled = (frameData.w & RENDER_FLAG_SHADOW_BIT) != 0;
     if (lightEnabled && shadowsEnabled)
     {
-        // Sample one light source from the scene's light buffer using importance sampling (CDF).
-        float randL = RandomFloat(seed);
-        float randEl = RandomFloat(seed);
         vec2 randUV = vec2(RandomFloat(seed), RandomFloat(seed));
-        
-        int sampledLightInstance = INVALID_ID;
-        // SampleLights calculates a direction vector L towards a random point on a random light source.
-        vec3 L = SampleLights(worldPos, randL, randEl, randUV, sampledLightInstance);
-        
-        if (length(L) > 0.01)
-        {
-            // Apply a small bias along the normal to prevent self-intersection (shadow acne).
-            vec3 origin = OffsetRay(worldPos, worldNormal);
-            
-            // Perform a visibility check using Hardware Ray Query.
-            // CalculateRayQueryShadow returns 0.0 if occluded, 1.0 if visible.
-            shadow = CalculateRayQueryShadow(origin, L, 1e10);
-        }
-        else if (sunLight.intensity.x > 0.0) 
-        {
-            // Fallback to the global directional sun light if no area lights were sampled.
-            vec3 L_sun = normalize(-sunLight.direction.xyz);
-            vec3 origin = OffsetRay(worldPos, worldNormal);
-            shadow = CalculateRayQueryShadow(origin, L_sun, 1e10);
-        }
+        vec3 sunDirection = SampleConeAroundDirection(
+            -sunLight.direction.xyz, sunLight.intensity.y, randUV);
+        vec3 origin = OffsetRay(worldPos, worldNormal);
+        shadow = CalculateRayQueryShadow(origin, sunDirection, 1e10);
     }
 
     // 6. Ambient Occlusion Calculation

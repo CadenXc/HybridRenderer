@@ -99,6 +99,21 @@ vec3 SquareToUniformCone(vec2 u, float cosThetaMax)
     return vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
 }
 
+vec3 SampleConeAroundDirection(vec3 direction, float angularRadius, vec2 u)
+{
+    vec3 axis = normalize(direction);
+    if (angularRadius <= 0.0) return axis;
+
+    vec3 tangentSeed =
+        abs(axis.z) < 0.999 ? vec3(0.0, 0.0, 1.0)
+                            : vec3(1.0, 0.0, 0.0);
+    vec3 bitangent = normalize(cross(axis, tangentSeed));
+    vec3 tangent = cross(bitangent, axis);
+    vec3 coneSample = SquareToUniformCone(u, cos(angularRadius));
+    return normalize(tangent * coneSample.x + bitangent * coneSample.y +
+                     axis * coneSample.z);
+}
+
 vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
 {
     vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);

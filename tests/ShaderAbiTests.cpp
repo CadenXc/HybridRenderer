@@ -305,6 +305,27 @@ void TestDirectLightShadersHonorLightAndShadowFlags()
         }
     }
 }
+
+void TestHybridShadowVisibilityMatchesSunDirection()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string shadow =
+        ReadTextFile(shaderRoot / "raytracing/rt_shadow.rgen");
+    const std::string composition =
+        ReadTextFile(shaderRoot / "postprocess/composition.frag");
+
+    if (shadow.find("SampleLights(") != std::string::npos ||
+        shadow.find("SampleConeAroundDirection(") == std::string::npos ||
+        shadow.find("-sunLight.direction.xyz") == std::string::npos ||
+        composition.find("normalize(-sunLight.direction.xyz)") ==
+            std::string::npos ||
+        composition.find("shadowFactor * lightIntensity") ==
+            std::string::npos)
+    {
+        throw std::runtime_error(
+            "Hybrid shadow visibility is not evaluated for the composed sun light");
+    }
+}
 } // namespace
 
 int main()
@@ -336,6 +357,8 @@ int main()
         std::cout << "[PASS] all environment consumers honor the IBL flag\n";
         TestDirectLightShadersHonorLightAndShadowFlags();
         std::cout << "[PASS] direct-light shaders separate light and shadow flags\n";
+        TestHybridShadowVisibilityMatchesSunDirection();
+        std::cout << "[PASS] Hybrid shadow visibility matches the composed sun direction\n";
         return 0;
     }
     catch (const std::exception& error)

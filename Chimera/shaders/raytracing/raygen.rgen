@@ -34,16 +34,8 @@ void main()
     // 2. 计算软阴影采样方向
     vec3 lightDirection = normalize(-sunLight.direction.xyz);
     float lightRadius = sunLight.intensity.y; 
-
-    if (lightRadius > 0.0)
-    {
-        vec3 tangent = abs(lightDirection.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
-        vec3 bitangent = normalize(cross(lightDirection, tangent));
-        tangent = cross(bitangent, lightDirection);
-
-        vec3 coneSample = SquareToUniformCone(randSample, cos(lightRadius));
-        lightDirection = normalize(tangent * coneSample.x + bitangent * coneSample.y + lightDirection * coneSample.z);
-    }
+    lightDirection =
+        SampleConeAroundDirection(lightDirection, lightRadius, randSample);
 
     // 3. 硬件光线追踪阴影
     float shadow = 1.0;
