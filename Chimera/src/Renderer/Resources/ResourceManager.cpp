@@ -650,9 +650,10 @@ void ResourceManager::DestroyGraphImage(GraphImage& i)
 
 TextureHandle ResourceManager::LoadTexture(const std::string& p, bool srgb)
 {
+    const std::string cacheKey = MakeTextureCacheKey(p, srgb);
     {
         std::lock_guard<std::mutex> lock(m_AssetMutex);
-        if (m_TextureMap.count(p)) return m_TextureMap[p];
+        if (m_TextureMap.count(cacheKey)) return m_TextureMap[cacheKey];
     }
     int tw, th, tc;
     unsigned char* px = stbi_load(p.c_str(), &tw, &th, &tc, 4);
@@ -685,7 +686,7 @@ TextureHandle ResourceManager::LoadTexture(const std::string& p, bool srgb)
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     }
-    return AddTexture(std::move(im), p);
+    return AddTexture(std::move(im), cacheKey);
 }
 
 TextureHandle ResourceManager::LoadHDRTexture(const std::string& p)
@@ -892,6 +893,11 @@ Buffer* ResourceManager::GetBuffer(BufferHandle h)
 TextureHandle ResourceManager::GetTextureIndex(const std::string& n)
 {
     return m_TextureMap.count(n) ? m_TextureMap[n] : TextureHandle();
+}
+TextureHandle ResourceManager::GetTextureIndex(const std::string& path,
+                                               bool srgb)
+{
+    return GetTextureIndex(MakeTextureCacheKey(path, srgb));
 }
 void AddRefInternal(Handle<Image> h)
 {

@@ -13,6 +13,11 @@
 
 namespace Chimera
 {
+inline std::string MakeTextureCacheKey(const std::string& path, bool srgb)
+{
+    return path + (srgb ? "#srgb" : "#linear");
+}
+
 class ResourceManager
 {
 public:
@@ -114,6 +119,7 @@ public:
     TextureHandle AddTexture(std::unique_ptr<Image> texture,
                              const std::string& name = "");
     TextureHandle GetTextureIndex(const std::string& name);
+    TextureHandle GetTextureIndex(const std::string& path, bool srgb);
 
     MaterialHandle CreateMaterial(const std::string& name = "");
     MaterialHandle AddMaterial(std::unique_ptr<Material> material,

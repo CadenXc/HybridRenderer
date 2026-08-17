@@ -166,9 +166,10 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         std::string fullPath = baseDir + texPath.C_Str();
         std::replace(fullPath.begin(), fullPath.end(), '\\', '/');
 
-        if (uniquePaths.find(fullPath) == uniquePaths.end())
+        const std::string cacheKey = MakeTextureCacheKey(fullPath, srgb);
+        if (uniquePaths.find(cacheKey) == uniquePaths.end())
         {
-            uniquePaths.insert(fullPath);
+            uniquePaths.insert(cacheKey);
             textureFutures.push_back(
                 Application::Get().GetTaskSystem()->Enqueue(
                     [fullPath, srgb]()
@@ -210,7 +211,7 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         {
             std::string fullPath = baseDir + texPath.C_Str();
             std::replace(fullPath.begin(), fullPath.end(), '\\', '/');
-            return ResourceManager::Get().GetTextureIndex(fullPath);
+            return ResourceManager::Get().GetTextureIndex(fullPath, srgb);
         }
         return TextureHandle();
     };

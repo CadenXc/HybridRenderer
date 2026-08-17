@@ -82,3 +82,20 @@ add_test(
 set_tests_properties(ImageComparisonTests PROPERTIES
     TIMEOUT 10
 )
+
+add_executable(ResourceIdentityTests
+    ResourceIdentityTests.cpp
+)
+
+target_link_libraries(ResourceIdentityTests
+    PRIVATE Chimera
+)
+
+add_test(
+    NAME ResourceIdentityTests
+    COMMAND ResourceIdentityTests
+)
+
+set_tests_properties(ResourceIdentityTests PROPERTIES
+    TIMEOUT 10
+)
