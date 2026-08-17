@@ -99,3 +99,20 @@ add_test(
 set_tests_properties(ResourceIdentityTests PROPERTIES
     TIMEOUT 10
 )
+
+add_executable(AssetImporterTests
+    AssetImporterTests.cpp
+)
+
+target_link_libraries(AssetImporterTests
+    PRIVATE Chimera
+)
+
+add_test(
+    NAME AssetImporterTests
+    COMMAND AssetImporterTests
+)
+
+set_tests_properties(AssetImporterTests PROPERTIES
+    TIMEOUT 10
+)

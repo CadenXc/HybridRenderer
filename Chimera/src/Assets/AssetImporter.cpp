@@ -12,6 +12,14 @@
 
 namespace Chimera
 {
+float CalculateTangentHandedness(const glm::vec3& normal,
+                                 const glm::vec3& tangent,
+                                 const glm::vec3& bitangent)
+{
+    return glm::dot(glm::cross(normal, tangent), bitangent) < 0.0f ? -1.0f
+                                                                   : 1.0f;
+}
+
 static glm::mat4 AssimpToGlmMatrix(const aiMatrix4x4& from)
 {
     glm::mat4 to;
@@ -78,8 +86,17 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
                 v.texCoord = {aMesh->mTextureCoords[0][j].x,
                               aMesh->mTextureCoords[0][j].y};
             if (aMesh->HasTangentsAndBitangents())
-                v.tangent = {aMesh->mTangents[j].x, aMesh->mTangents[j].y,
-                             aMesh->mTangents[j].z, 1.0f};
+            {
+                const glm::vec3 tangent{aMesh->mTangents[j].x,
+                                        aMesh->mTangents[j].y,
+                                        aMesh->mTangents[j].z};
+                const glm::vec3 bitangent{aMesh->mBitangents[j].x,
+                                          aMesh->mBitangents[j].y,
+                                          aMesh->mBitangents[j].z};
+                v.tangent = {tangent,
+                             CalculateTangentHandedness(v.normal, tangent,
+                                                        bitangent)};
+            }
 
             outScene.Vertices.push_back(v);
             mesh.localBounds.Merge(v.pos);
