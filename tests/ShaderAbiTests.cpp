@@ -132,6 +132,20 @@ void TestRaytraceBackgroundMotionContract()
             "ray tracing misses do not use previous-frame directional reprojection");
     }
 }
+
+void TestRaytraceMotionDebugViewContract()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string raytrace =
+        ReadTextFile(shaderRoot / "raytracing/raytrace.rgen");
+
+    if (raytrace.find("frameData.z == DISPLAY_MODE_MOTION") == std::string::npos ||
+        raytrace.find("abs(motionVector) * 10.0") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "ray tracing Motion display mode does not visualize its motion image values");
+    }
+}
 } // namespace
 
 int main()
@@ -145,6 +159,8 @@ int main()
         std::cout << "[PASS] ray tracing primary rays share the TAA jitter convention\n";
         TestRaytraceBackgroundMotionContract();
         std::cout << "[PASS] ray tracing background motion uses directional reprojection\n";
+        TestRaytraceMotionDebugViewContract();
+        std::cout << "[PASS] ray tracing Motion display mode visualizes motion vectors\n";
         return 0;
     }
     catch (const std::exception& error)
