@@ -45,7 +45,7 @@ void main()
 
     // 2. 世界坐标重建 (World Position Reconstruction)
     // [FIX] 减去 TAA Jitter 以重建未抖动的原始位置，防止反射画面产生“果冻效应”
-    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec2 unjitteredUV = RemoveCameraJitter(inUV);
     vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
     
     // 获取法线和材质参数

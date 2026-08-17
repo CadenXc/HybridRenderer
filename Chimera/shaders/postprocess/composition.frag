@@ -92,7 +92,9 @@ void main()
     if (displayMode == DISPLAY_MODE_REFLECTION) { outFinalColor = vec4(reflRadiance, 1.0); return; }
 
     // --- 5. 最终物理光照合成 (基于着色模型) ---
-    vec3 worldPos = GetWorldPos(depth, inUV, camera.viewProjInverse);
+    vec2 unjitteredUV = RemoveCameraJitter(inUV);
+    vec3 worldPos =
+        GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
     vec3 viewDir = normalize(camera.position.xyz - worldPos);
     vec3 lightDir = normalize(-sunLight.direction.xyz);
     vec3 lightIntensity = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0 ? (sunLight.color.rgb * sunLight.intensity.x) : vec3(0.0);

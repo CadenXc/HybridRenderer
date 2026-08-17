@@ -48,7 +48,9 @@ void main()
     
     // 4. World-Space Reconstruction
     // We reconstruct the world position from depth to avoid storing it in the G-Buffer (saving bandwidth).
-    vec3 worldPos = GetWorldPos(depth, inUV, camera.viewProjInverse);
+    vec2 unjitteredUV = RemoveCameraJitter(inUV);
+    vec3 worldPos =
+        GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
     vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 
     // 5. Soft sun-shadow calculation

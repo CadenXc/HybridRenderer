@@ -19,7 +19,7 @@ void main()
         return;
     }
 
-    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec2 unjitteredUV = RemoveCameraJitter(inUV);
     vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
     vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 

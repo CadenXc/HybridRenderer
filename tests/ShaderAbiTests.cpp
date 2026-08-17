@@ -326,6 +326,31 @@ void TestHybridShadowVisibilityMatchesSunDirection()
             "Hybrid shadow visibility is not evaluated for the composed sun light");
     }
 }
+
+void TestGBufferWorldReconstructionRemovesCameraJitter()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::vector<std::filesystem::path> reconstructionShaders = {
+        "postprocess/composition.frag",
+        "raytracing/diffuse_gi.rgen",
+        "raytracing/raygen.rgen",
+        "raytracing/reflection.rgen",
+        "raytracing/rt_ao.rgen",
+        "raytracing/rt_shadow.rgen"};
+
+    for (const std::filesystem::path& relativePath : reconstructionShaders)
+    {
+        const std::string source = ReadTextFile(shaderRoot / relativePath);
+        if (source.find("RemoveCameraJitter(inUV)") == std::string::npos ||
+            source.find("GetWorldPos(depth, unjitteredUV,") ==
+                std::string::npos)
+        {
+            throw std::runtime_error(
+                "G-Buffer world reconstruction does not remove raster jitter: " +
+                relativePath.string());
+        }
+    }
+}
 } // namespace
 
 int main()
@@ -359,6 +384,8 @@ int main()
         std::cout << "[PASS] direct-light shaders separate light and shadow flags\n";
         TestHybridShadowVisibilityMatchesSunDirection();
         std::cout << "[PASS] Hybrid shadow visibility matches the composed sun direction\n";
+        TestGBufferWorldReconstructionRemovesCameraJitter();
+        std::cout << "[PASS] G-Buffer world reconstruction removes camera jitter\n";
         return 0;
     }
     catch (const std::exception& error)

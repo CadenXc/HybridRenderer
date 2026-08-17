@@ -49,7 +49,7 @@ void main()
 
     // 3. 世界坐标重建 (World Position Reconstruction)
     // [FIX] 补偿 TAA 带来的 Jitter，确保重建位置的精确性
-    vec2 unjitteredUV = inUV - camera.jitterData.xy * 0.5;
+    vec2 unjitteredUV = RemoveCameraJitter(inUV);
     vec3 worldPos = GetWorldPos(depth, unjitteredUV, camera.viewProjInverse);
     vec3 worldNormal = normalize(texture(gNormal, inUV).xyz);
 

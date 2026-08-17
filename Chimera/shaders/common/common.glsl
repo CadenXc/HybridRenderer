@@ -121,6 +121,11 @@ vec3 GetWorldPos(float depth, vec2 uv, mat4 invViewProj)
     return world.xyz / world.w;
 }
 
+vec2 RemoveCameraJitter(vec2 uv)
+{
+    return uv - camera.jitterData.xy * 0.5;
+}
+
 vec2 SampleEquirectangular(vec3 v)
 {
     float phi = atan(v.z, v.x);
