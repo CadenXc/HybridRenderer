@@ -169,8 +169,8 @@ bool IsDepthFormat(VkFormat format)
 bool IsSRGBFormat(VkFormat format)
 {
     static const std::vector<VkFormat> srgbFormats = {
-        VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8_SRGB, VK_FORMAT_R8G8B8_SRGB,
-        VK_FORMAT_B8G8R8_SRGB};
+        VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_B8G8R8A8_SRGB,
+        VK_FORMAT_R8G8B8_SRGB, VK_FORMAT_B8G8R8_SRGB};
     return std::find(srgbFormats.begin(), srgbFormats.end(), format) !=
            srgbFormats.end();
 }

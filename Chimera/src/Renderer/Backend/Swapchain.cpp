@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Swapchain.h"
+#include "Utils/VulkanBarrier.h"
 #include <algorithm>
 
 namespace Chimera
@@ -44,6 +45,11 @@ void Swapchain::Create()
 
     VkSurfaceFormatKHR surfaceFormat =
         ChooseSwapSurfaceFormat(swapChainSupport.formats);
+    CH_CORE_INFO("Swapchain: Selected format {0} ({1})",
+                 static_cast<int>(surfaceFormat.format),
+                 VulkanUtils::IsSRGBFormat(surfaceFormat.format)
+                     ? "hardware sRGB encoding"
+                     : "manual shader sRGB encoding");
     VkPresentModeKHR presentMode =
         ChooseSwapPresentMode(swapChainSupport.presentModes);
     VkExtent2D extent = ChooseSwapExtent(swapChainSupport.capabilities);

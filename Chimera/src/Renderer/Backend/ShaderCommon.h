@@ -77,7 +77,8 @@ enum RenderFlags_
     RenderFlags_SVGFSpatialBit = (1 << 9),
     RenderFlags_IBLBit = (1 << 10),
     RenderFlags_EmissiveBit = (1 << 11),
-    RenderFlags_TAAHighQualityBit = (1 << 12)
+    RenderFlags_TAAHighQualityBit = (1 << 12),
+    RenderFlags_ManualOutputSrgbBit = (1 << 13)
 };
 typedef uint32_t RenderFlags;
 
@@ -116,6 +117,7 @@ typedef uint32_t RenderFlags;
 #define RENDER_FLAG_IBL_BIT           (1 << 10)
 #define RENDER_FLAG_EMISSIVE_BIT      (1 << 11)
 #define RENDER_FLAG_TAA_HIGH_QUALITY_BIT (1 << 12)
+#define RENDER_FLAG_MANUAL_OUTPUT_SRGB_BIT (1 << 13)
 #endif
 
 // --- 2. Data Structures ---

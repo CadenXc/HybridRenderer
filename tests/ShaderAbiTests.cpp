@@ -42,6 +42,7 @@ static_assert(offsetof(GpuMaterial, normalTexture) == 76);
 static_assert(sizeof(GpuMaterial) == 80);
 static_assert(static_cast<uint32_t>(DisplayMode::TAAHistory) == 12);
 static_assert(RenderFlags_TAAHighQualityBit == (1u << 12));
+static_assert(RenderFlags_ManualOutputSrgbBit == (1u << 13));
 
 namespace
 {
@@ -211,6 +212,25 @@ void TestTaaUsesCatmullRomHistoryReconstruction()
             "TAA history quality flag does not select Catmull-Rom or bilinear reconstruction");
     }
 }
+
+void TestPostprocessHasNonSrgbSwapchainFallback()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string postprocess =
+        ReadTextFile(shaderRoot / "postprocess/postprocess.frag");
+
+    const size_t toneMap = postprocess.find("color = ToneMapACES(color);");
+    const size_t fallbackFlag =
+        postprocess.find("RENDER_FLAG_MANUAL_OUTPUT_SRGB_BIT", toneMap);
+    const size_t srgbEncode =
+        postprocess.find("color = LinearToSrgb(color);", fallbackFlag);
+    if (toneMap == std::string::npos || fallbackFlag == std::string::npos ||
+        srgbEncode == std::string::npos)
+    {
+        throw std::runtime_error(
+            "postprocess does not encode tone-mapped output for non-sRGB swapchains");
+    }
+}
 } // namespace
 
 int main()
@@ -234,6 +254,8 @@ int main()
         std::cout << "[PASS] TAA History display mode visualizes history acceptance\n";
         TestTaaUsesCatmullRomHistoryReconstruction();
         std::cout << "[PASS] TAA history uses Catmull-Rom reconstruction\n";
+        TestPostprocessHasNonSrgbSwapchainFallback();
+        std::cout << "[PASS] non-sRGB swapchains use manual output encoding\n";
         return 0;
     }
     catch (const std::exception& error)

@@ -14,6 +14,7 @@
 #include "Scene/EditorCamera.h"
 #include "Core/Input.h"
 #include "Core/TaskSystem.h"
+#include "Utils/VulkanBarrier.h"
 #include <imgui.h>
 
 namespace Chimera
@@ -348,6 +349,11 @@ void Application::UpdateGlobalUBO(uint32_t frameIndex)
         {
             currentFlags |= RenderFlags_TAAHistoryBit;
         }
+    }
+    if (m_Context &&
+        !VulkanUtils::IsSRGBFormat(m_Context->GetSwapChainImageFormat()))
+    {
+        currentFlags |= RenderFlags_ManualOutputSrgbBit;
     }
     ubo.frameData =
         glm::uvec4(frameIndex, m_FrameContext.FrameIndex,

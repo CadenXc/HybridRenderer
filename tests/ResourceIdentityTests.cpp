@@ -1,4 +1,5 @@
 #include "Renderer/Resources/ResourceManager.h"
+#include "Utils/VulkanBarrier.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -25,6 +26,16 @@ void TestTextureColorSpaceIsPartOfCacheIdentity()
                 Chimera::MakeTextureCacheKey("assets/other-texture.png", true),
             "different texture paths must have different cache keys");
 }
+
+void TestSwapchainSrgbFormatClassification()
+{
+    Require(Chimera::VulkanUtils::IsSRGBFormat(VK_FORMAT_R8G8B8A8_SRGB),
+            "R8G8B8A8_SRGB must use hardware sRGB encoding");
+    Require(Chimera::VulkanUtils::IsSRGBFormat(VK_FORMAT_B8G8R8A8_SRGB),
+            "B8G8R8A8_SRGB must use hardware sRGB encoding");
+    Require(!Chimera::VulkanUtils::IsSRGBFormat(VK_FORMAT_B8G8R8A8_UNORM),
+            "B8G8R8A8_UNORM must use manual shader sRGB encoding");
+}
 } // namespace
 
 int main()
@@ -33,6 +44,8 @@ int main()
     {
         TestTextureColorSpaceIsPartOfCacheIdentity();
         std::cout << "[PASS] texture cache identity includes color space\n";
+        TestSwapchainSrgbFormatClassification();
+        std::cout << "[PASS] swapchain sRGB formats select one encoding path\n";
         return 0;
     }
     catch (const std::exception& error)
