@@ -118,6 +118,7 @@ void main()
         // 合并环境漫反射和镜面反射
         ambient = (kD * envDiffuse * mat.Colour + F * envSpecular) * max(postData.y, 0.2); 
     }
+    ambient *= mat.AmbientOcclusion;
 
     // --- 5. 运动矢量计算 (Motion Vectors) ---
     // 将当前物体在上一帧的位置通过变换还原至上一帧屏幕坐标，以实现降噪算法的重投影（Reprojection）

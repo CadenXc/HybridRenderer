@@ -46,9 +46,9 @@ void main()
 
     // [Location 2]: PBR 参数
     // R: 粗糙度, G: 金属度, B: 预留AO, A: 材质类型编码
-    float ao = 1.0; 
     float shadingModelID = float(mat.MaterialType) / 255.0;
-    outMaterialParams = vec4(mat.Roughness, mat.Metallic, ao, shadingModelID);
+    outMaterialParams = vec4(mat.Roughness, mat.Metallic,
+                             mat.AmbientOcclusion, shadingModelID);
 
     // [Location 3]: 原始物体 ID (UINT)
     outObjectID = inObjectId;

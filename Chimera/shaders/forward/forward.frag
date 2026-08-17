@@ -57,6 +57,7 @@ void main()
         vec3 kD = (vec3(1.0) - F) * (1.0 - mat.Metallic);
         ambient = (kD * envDiffuse * mat.Colour + F * envSpecular) * ambStr;
     }
+    ambient *= mat.AmbientOcclusion;
     
     float safeCurW = abs(inCurPos.w) < 1e-6 ? 1e-6 : inCurPos.w;
     float safePrevW = abs(inPrevPos.w) < 1e-6 ? 1e-6 : inPrevPos.w;

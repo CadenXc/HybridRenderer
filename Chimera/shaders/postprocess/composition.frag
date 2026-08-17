@@ -111,10 +111,11 @@ void main()
     // C. 间接镜面反射 (RT Reflections * Fresnel)
     vec3 indirectSpecular = reflRadiance * F;
 
-    // D. 降级逻辑：若 GI 禁用则回退至简单的 AO 环境光
+    // D. 降级逻辑：若 GI 禁用则回退至简单的环境光
     if ((renderFlags & RENDER_FLAG_GI_BIT) == 0) {
-        indirectDiffuse = ambStr * baseColor * rtAO * 0.1;
+        indirectDiffuse = ambStr * baseColor * 0.1;
     }
+    indirectDiffuse *= clamp(gBufferAO * rtAO, 0.0, 1.0);
 
     // --- 6. 色调映射与输出 ---
     vec3 finalColor = directRadiance + indirectDiffuse + indirectSpecular + emissive; 

@@ -130,7 +130,7 @@ struct GpuMaterial
     vec3 colour;
     float metallic;
 
-    float padding;
+    int occlusionTexture;
     float anisotropy;
     float materialType;
     float opacity;

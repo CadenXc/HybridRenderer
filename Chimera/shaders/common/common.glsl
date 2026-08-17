@@ -338,6 +338,7 @@ struct MaterialPoint {
     float Roughness;
     float Metallic;
     float Opacity;
+    float AmbientOcclusion;
     int MaterialType;
 };
 
@@ -347,6 +348,13 @@ MaterialPoint GetMaterialPoint(GpuMaterial mat, vec2 uv) {
     p.Colour = albedo.rgb;
     p.Opacity = albedo.a;
     p.Emission = GetEmissive(mat, uv);
+    p.AmbientOcclusion = mat.occlusionTexture >= 0
+                             ? clamp(texture(textureArray[nonuniformEXT(
+                                                 mat.occlusionTexture)],
+                                             uv)
+                                         .r,
+                                     0.0, 1.0)
+                             : 1.0;
     
     float roughness = mat.roughness;
     float metallic = mat.metallic;

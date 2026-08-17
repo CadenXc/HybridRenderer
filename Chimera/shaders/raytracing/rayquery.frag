@@ -59,6 +59,7 @@ void main()
         vec3 kD = (vec3(1.0) - F) * (1.0 - mat.Metallic);
         ambient = (kD * envDiffuse * mat.Colour + F * envSpecular) * ambStr;
     }
+    ambient *= mat.AmbientOcclusion;
     outColor = vec4(ambient + directLighting * shadow + mat.Emission, mat.Opacity);
 
     vec2 cur = (inCurPos.xy / inCurPos.w) * 0.5 + 0.5;

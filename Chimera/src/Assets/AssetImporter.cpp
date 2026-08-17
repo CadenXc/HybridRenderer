@@ -245,6 +245,7 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         mat.opacity = 1.0f;
         mat.transmissionDepth = 0.01f;
         mat.scatteringColour = vec3(0.0f);
+        mat.occlusionTexture = -1;
 
         aiColor4D color;
         if (aiGetMaterialColor(aMat, AI_MATKEY_COLOR_DIFFUSE, &color) ==
@@ -295,6 +296,10 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         if (!hEmissive.IsValid())
             hEmissive = GetTexHandle(aMat, aiTextureType_EMISSION_COLOR, true);
         mat.emissionTexture = hEmissive.IsValid() ? (int)hEmissive.id : -1;
+
+        auto hOcclusion = GetTexHandle(aMat, aiTextureType_LIGHTMAP, false);
+        mat.occlusionTexture =
+            hOcclusion.IsValid() ? (int)hOcclusion.id : -1;
 
         outScene->Materials.push_back(mat);
     }
