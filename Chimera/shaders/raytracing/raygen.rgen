@@ -47,7 +47,9 @@ void main()
 
     // 3. 硬件光线追踪阴影
     float shadow = 1.0;
-    if ((frameData.w & RENDER_FLAG_SHADOW_BIT) != 0)
+    bool lightEnabled = (frameData.w & RENDER_FLAG_LIGHT_BIT) != 0;
+    bool shadowsEnabled = (frameData.w & RENDER_FLAG_SHADOW_BIT) != 0;
+    if (lightEnabled && shadowsEnabled)
     {
         vec3 origin = OffsetRay(worldPos, worldNormal);
         

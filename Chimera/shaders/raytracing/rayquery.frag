@@ -23,6 +23,8 @@ void main()
     vec3 worldNormal = CalculateNormal(rawMat, inNormal, inTangent, inUV);
     vec3 viewDirection = normalize(camera.position.xyz - inWorldPos);
     uint renderFlags = frameData.w;
+    bool lightEnabled = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
+    bool shadowsEnabled = (renderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
 
     vec3 ddx = dFdx(inWorldPos);
     vec3 ddy = dFdy(inWorldPos);
@@ -31,9 +33,14 @@ void main()
 
     vec3 lightDirection = normalize(-sunLight.direction.xyz);
     vec3 shadowOrigin = OffsetRay(inWorldPos, faceNormal);
-    float shadow = CalculateRayQueryShadow(shadowOrigin, lightDirection, 10000.0);
+    float shadow = lightEnabled && shadowsEnabled
+                       ? CalculateRayQueryShadow(shadowOrigin, lightDirection,
+                                                 10000.0)
+                       : 1.0;
 
-    vec3 lightIntensity = sunLight.color.rgb * sunLight.intensity.x;
+    vec3 lightIntensity = lightEnabled
+                              ? sunLight.color.rgb * sunLight.intensity.x
+                              : vec3(0.0);
     
     // --- [PLAGIARISM] SVGF PBR Evaluation ---
     vec3 directLighting = EvalPbr(mat.Colour, 1.5, mat.Roughness, mat.Metallic, worldNormal, viewDirection, lightDirection) * lightIntensity;

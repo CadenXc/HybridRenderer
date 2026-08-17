@@ -53,7 +53,9 @@ void main()
 
     // 5. Soft Shadow Calculation (Next Event Estimation)
     float shadow = 1.0;
-    if ((frameData.w & RENDER_FLAG_SHADOW_BIT) != 0)
+    bool lightEnabled = (frameData.w & RENDER_FLAG_LIGHT_BIT) != 0;
+    bool shadowsEnabled = (frameData.w & RENDER_FLAG_SHADOW_BIT) != 0;
+    if (lightEnabled && shadowsEnabled)
     {
         // Sample one light source from the scene's light buffer using importance sampling (CDF).
         float randL = RandomFloat(seed);

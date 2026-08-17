@@ -64,6 +64,7 @@ void main()
     // --- 3. 直接光照计算 (Direct Lighting) ---
     uint renderFlags = frameData.w;
     bool lightEnabled = (renderFlags & RENDER_FLAG_LIGHT_BIT) != 0;
+    bool shadowsEnabled = (renderFlags & RENDER_FLAG_SHADOW_BIT) != 0;
     vec3 viewDir = -gl_WorldRayDirectionEXT; // 反向射线方向即为视点方向
     
     // A. 太阳光 (Directional Sun Light)
@@ -72,7 +73,10 @@ void main()
     vec3 shadowOrigin = OffsetRay(worldPos, geoNormal);
     
     // 阴影检测：在 Closest Hit 内部调用 Ray Query (Inline) 以避免递归管线开销
-    float sunShadow = CalculateRayQueryShadow(shadowOrigin, sunDir, 1000.0);
+    float sunShadow = lightEnabled && shadowsEnabled
+                          ? CalculateRayQueryShadow(shadowOrigin, sunDir,
+                                                    1000.0)
+                          : 1.0;
     vec3 directLighting = EvalPbr(mat.Colour, 1.5, mat.Roughness, mat.Metallic, worldNormal, viewDir, sunDir) * sunShadow * sunIntensity;
 
     // B. 面光源采样 (Next Event Estimation - Emissive Area Lights)
@@ -82,7 +86,10 @@ void main()
     vec3 sampledLightDir = SampleLights(worldPos, RandomFloat(seed), RandomFloat(seed), vec2(RandomFloat(seed), RandomFloat(seed)), sampledInst);
     
     if (length(sampledLightDir) > 0.001) {
-        float shadow = CalculateRayQueryShadow(shadowOrigin, sampledLightDir, 1000.0);
+        float shadow = shadowsEnabled
+                           ? CalculateRayQueryShadow(shadowOrigin,
+                                                     sampledLightDir, 1000.0)
+                           : 1.0;
         if (shadow > 0.5) {
             if (sampledInst != INVALID_ID) {
                 GpuInstance sInst = instances[sampledInst];

@@ -281,6 +281,30 @@ void TestEnvironmentConsumersHonorIblFlag()
         }
     }
 }
+
+void TestDirectLightShadersHonorLightAndShadowFlags()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::vector<std::filesystem::path> directLightShaders = {
+        "forward/forward.frag",
+        "raytracing/closesthit.rchit",
+        "raytracing/raygen.rgen",
+        "raytracing/rayquery.frag",
+        "raytracing/rt_shadow.rgen"};
+
+    for (const std::filesystem::path& relativePath : directLightShaders)
+    {
+        const std::string source = ReadTextFile(shaderRoot / relativePath);
+        if (source.find("RENDER_FLAG_LIGHT_BIT") == std::string::npos ||
+            source.find("RENDER_FLAG_SHADOW_BIT") == std::string::npos ||
+            source.find("lightEnabled && shadowsEnabled") == std::string::npos)
+        {
+            throw std::runtime_error(
+                "direct-light shader does not separate radiance and visibility flags: " +
+                relativePath.string());
+        }
+    }
+}
 } // namespace
 
 int main()
@@ -310,6 +334,8 @@ int main()
         std::cout << "[PASS] normal mapping uses an orthogonal handed TBN frame\n";
         TestEnvironmentConsumersHonorIblFlag();
         std::cout << "[PASS] all environment consumers honor the IBL flag\n";
+        TestDirectLightShadersHonorLightAndShadowFlags();
+        std::cout << "[PASS] direct-light shaders separate light and shadow flags\n";
         return 0;
     }
     catch (const std::exception& error)
