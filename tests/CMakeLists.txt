@@ -108,6 +108,10 @@ target_link_libraries(AssetImporterTests
     PRIVATE Chimera
 )
 
+target_compile_definitions(AssetImporterTests
+    PRIVATE CHIMERA_EMBEDDED_GLTF_FIXTURE="${PROJECT_SOURCE_DIR}/Chimera/third_party/assimp/test/models/glTF2/BoxTextured-glTF-Binary/BoxTextured.glb"
+)
+
 add_test(
     NAME AssetImporterTests
     COMMAND AssetImporterTests
