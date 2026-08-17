@@ -19,12 +19,24 @@ vec2 ApplyPrimaryRayJitter(vec2 pixelNdc)
     return pixelNdc - camera.jitterData.xy;
 }
 
+vec2 CalculateBackgroundMotion(vec3 worldDirection, vec2 currentUv)
+{
+    // A sky direction represents a point at infinity. w=0 removes camera
+    // translation, while the previous view rotation still moves the sky.
+    const vec4 prevViewDirection = camera.prevView * vec4(worldDirection, 0.0);
+    const vec4 prevClip = camera.prevProj * prevViewDirection;
+    const float safePrevW = abs(prevClip.w) < 1e-6 ? 1e-6 : prevClip.w;
+    const vec2 prevUv = prevClip.xy / safePrevW * 0.5 + 0.5;
+    return currentUv - prevUv;
+}
+
 void main() 
 {
     const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
     const vec2 inUV = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
     const vec2 pixelNdc = inUV * 2.0 - 1.0;
     const vec2 sampleNdc = ApplyPrimaryRayJitter(pixelNdc);
+    const vec2 sampleUv = sampleNdc * 0.5 + 0.5;
 
     // 1. Ray Origin (Camera World Position)
     vec3 origin = camera.position.xyz;
@@ -67,8 +79,8 @@ void main()
             finalColor = mix(vec3(0.4, 0.5, 0.6), vec3(0.1, 0.2, 0.4), t);
         }
         
-        // Mark background for SVGF/TAA (No motion for background)
-        imageStore(rtMotionVector, ivec2(gl_LaunchIDEXT.xy), vec4(0.0));
+        const vec2 backgroundMotion = CalculateBackgroundMotion(direction, sampleUv);
+        imageStore(rtMotionVector, ivec2(gl_LaunchIDEXT.xy), vec4(backgroundMotion, 0.0, 0.0));
     } 
     else 
     {

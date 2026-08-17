@@ -113,6 +113,25 @@ void TestRaytracePrimaryRayJitterContract()
             "ray tracing primary rays do not apply the TAA jitter convention");
     }
 }
+
+void TestRaytraceBackgroundMotionContract()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string raytrace =
+        ReadTextFile(shaderRoot / "raytracing/raytrace.rgen");
+
+    if (raytrace.find("camera.prevView * vec4(worldDirection, 0.0)") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "ray tracing background motion does not ignore camera translation");
+    }
+    if (raytrace.find("return currentUv - prevUv;") == std::string::npos ||
+        raytrace.find("CalculateBackgroundMotion(direction, sampleUv)") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "ray tracing misses do not use previous-frame directional reprojection");
+    }
+}
 } // namespace
 
 int main()
@@ -124,6 +143,8 @@ int main()
         std::cout << "[PASS] stochastic shaders use temporal sample index\n";
         TestRaytracePrimaryRayJitterContract();
         std::cout << "[PASS] ray tracing primary rays share the TAA jitter convention\n";
+        TestRaytraceBackgroundMotionContract();
+        std::cout << "[PASS] ray tracing background motion uses directional reprojection\n";
         return 0;
     }
     catch (const std::exception& error)
