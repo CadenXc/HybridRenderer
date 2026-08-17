@@ -129,6 +129,11 @@ public:
     {
         return m_Device->GetRTProperties();
     }
+    const VkPhysicalDeviceAccelerationStructurePropertiesKHR&
+    GetAccelerationStructureProperties() const
+    {
+        return m_Device->GetAccelerationStructureProperties();
+    }
     VkSampleCountFlagBits GetMSAASamples() const
     {
         return m_Device->GetMaxUsableSampleCount();

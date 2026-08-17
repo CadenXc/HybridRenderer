@@ -71,6 +71,12 @@ public:
         return m_RayTracingProperties;
     }
 
+    const VkPhysicalDeviceAccelerationStructurePropertiesKHR&
+    GetAccelerationStructureProperties() const
+    {
+        return m_AccelerationStructureProperties;
+    }
+
     VkSampleCountFlagBits GetMaxUsableSampleCount() const
     {
         return VK_SAMPLE_COUNT_1_BIT;
@@ -97,6 +103,8 @@ private:
     VkDevice m_LogicalDevice = VK_NULL_HANDLE;
     VkPhysicalDeviceProperties m_DeviceProperties{};
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_RayTracingProperties{};
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR
+        m_AccelerationStructureProperties{};
 
     VkQueue m_GraphicsQueue = VK_NULL_HANDLE;
     VkQueue m_ComputeQueue = VK_NULL_HANDLE;

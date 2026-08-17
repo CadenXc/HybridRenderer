@@ -445,10 +445,14 @@ void Scene::UpdateTLAS()
     VK_CHECK(vkCreateAccelerationStructureKHR(device, &createInfo, nullptr,
                                               &newTLAS));
 
+    const VkDeviceSize scratchAlignment =
+        m_Context->GetAccelerationStructureProperties()
+            .minAccelerationStructureScratchOffsetAlignment;
     Buffer scratch(sizeInfo.buildScratchSize,
                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                   VMA_MEMORY_USAGE_GPU_ONLY);
+                   VMA_MEMORY_USAGE_GPU_ONLY, "TLAS_Scratch",
+                   scratchAlignment);
     buildInfo.dstAccelerationStructure = newTLAS;
     buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
     VkAccelerationStructureBuildRangeInfoKHR rangeInfo{count, 0, 0, 0};

@@ -166,10 +166,14 @@ void Model::BuildBLAS()
         VkAccelerationStructureKHR handle;
         vkCreateAccelerationStructureKHR(device, &createInfo, nullptr, &handle);
 
+        const VkDeviceSize scratchAlignment =
+            m_Context->GetAccelerationStructureProperties()
+                .minAccelerationStructureScratchOffsetAlignment;
         Buffer scratch(sizeInfo.buildScratchSize,
                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                       VMA_MEMORY_USAGE_GPU_ONLY);
+                       VMA_MEMORY_USAGE_GPU_ONLY, "BLAS_Scratch",
+                       scratchAlignment);
         buildInfo.dstAccelerationStructure = handle;
         buildInfo.scratchData.deviceAddress = scratch.GetDeviceAddress();
 

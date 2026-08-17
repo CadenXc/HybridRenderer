@@ -119,6 +119,10 @@ void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
         {
             m_RayTracingProperties.sType =
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+            m_AccelerationStructureProperties.sType =
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+            m_RayTracingProperties.pNext =
+                &m_AccelerationStructureProperties;
             VkPhysicalDeviceProperties2 prop2{
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
             prop2.pNext = &m_RayTracingProperties;
@@ -215,6 +219,13 @@ void VulkanDevice::CreateLogicalDevice(VkSurfaceKHR surface)
     CH_CORE_INFO("[Limits]");
     CH_CORE_INFO("  maxPushConstantsSize: {} bytes",
                  m_DeviceProperties.limits.maxPushConstantsSize);
+    if (m_RayTracingSupported)
+    {
+        CH_CORE_INFO(
+            "  minAccelerationStructureScratchOffsetAlignment: {} bytes",
+            m_AccelerationStructureProperties
+                .minAccelerationStructureScratchOffsetAlignment);
+    }
 
     const bool baseCapabilitiesSupported =
         supported.features.samplerAnisotropy &&
