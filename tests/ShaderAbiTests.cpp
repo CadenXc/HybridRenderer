@@ -36,6 +36,7 @@ static_assert(offsetof(GpuMaterial, roughness) == 12);
 static_assert(offsetof(GpuMaterial, colour) == 16);
 static_assert(offsetof(GpuMaterial, metallic) == 28);
 static_assert(offsetof(GpuMaterial, occlusionTexture) == 32);
+static_assert(offsetof(GpuMaterial, metallicTexture) == 36);
 static_assert(offsetof(GpuMaterial, scatteringColour) == 48);
 static_assert(offsetof(GpuMaterial, transmissionDepth) == 60);
 static_assert(offsetof(GpuMaterial, emissionTexture) == 64);
@@ -376,6 +377,25 @@ void TestMaterialOcclusionReachesIndirectLighting()
             "material occlusion is not connected from import to indirect lighting");
     }
 }
+
+void TestMetallicAndRoughnessTexturesKeepDistinctIdentities()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string common =
+        ReadTextFile(shaderRoot / "common/common.glsl");
+    const std::string importer = ReadTextFile(
+        shaderRoot.parent_path() / "src/Assets/AssetImporter.cpp");
+
+    if (importer.find("mat.roughnessTexture") == std::string::npos ||
+        importer.find("mat.metallicTexture") == std::string::npos ||
+        common.find("mat.roughnessTexture == mat.metallicTexture") ==
+            std::string::npos ||
+        common.find("mat.metallicTexture") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "metallic and roughness texture identities are not preserved");
+    }
+}
 } // namespace
 
 int main()
@@ -413,6 +433,8 @@ int main()
         std::cout << "[PASS] G-Buffer world reconstruction removes camera jitter\n";
         TestMaterialOcclusionReachesIndirectLighting();
         std::cout << "[PASS] material occlusion reaches indirect lighting\n";
+        TestMetallicAndRoughnessTexturesKeepDistinctIdentities();
+        std::cout << "[PASS] metallic and roughness textures keep distinct identities\n";
         return 0;
     }
     catch (const std::exception& error)

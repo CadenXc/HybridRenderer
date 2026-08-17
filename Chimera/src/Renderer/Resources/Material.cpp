@@ -13,6 +13,7 @@ Material::Material(const std::string& name) : m_Name(name)
     m_Data.opacity = 1.0f;
     m_Data.transmissionDepth = 0.01f;
     m_Data.occlusionTexture = -1;
+    m_Data.metallicTexture = -1;
     m_Data.colourTexture = -1;
     m_Data.normalTexture = -1;
     m_Data.roughnessTexture = -1;

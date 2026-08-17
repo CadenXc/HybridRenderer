@@ -131,7 +131,7 @@ struct GpuMaterial
     float metallic;
 
     int occlusionTexture;
-    float anisotropy;
+    int metallicTexture;
     float materialType;
     float opacity;
 

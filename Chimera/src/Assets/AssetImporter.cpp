@@ -246,6 +246,7 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         mat.transmissionDepth = 0.01f;
         mat.scatteringColour = vec3(0.0f);
         mat.occlusionTexture = -1;
+        mat.metallicTexture = -1;
 
         aiColor4D color;
         if (aiGetMaterialColor(aMat, AI_MATKEY_COLOR_DIFFUSE, &color) ==
@@ -277,20 +278,14 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
             hNormal = GetTexHandle(aMat, aiTextureType_HEIGHT, false);
         mat.normalTexture = hNormal.IsValid() ? (int)hNormal.id : -1;
 
-        auto hMetal = GetTexHandle(aMat, aiTextureType_METALNESS, false);
-        if (!hMetal.IsValid())
-            hMetal = GetTexHandle(aMat, aiTextureType_UNKNOWN,
-                                  false); // GLTF combined
-        if (!hMetal.IsValid())
-            hMetal = GetTexHandle(aMat, aiTextureType_DIFFUSE_ROUGHNESS, false);
-        if (!hMetal.IsValid())
-            hMetal = GetTexHandle(aMat, aiTextureType_SPECULAR,
-                                  false); // OBJ fallback
-        if (!hMetal.IsValid())
-            hMetal = GetTexHandle(aMat, aiTextureType_SHININESS,
-                                  false); // OBJ fallback
-
-        mat.roughnessTexture = hMetal.IsValid() ? (int)hMetal.id : -1;
+        auto hRoughness =
+            GetTexHandle(aMat, aiTextureType_DIFFUSE_ROUGHNESS, false);
+        auto hMetallic =
+            GetTexHandle(aMat, aiTextureType_METALNESS, false);
+        mat.roughnessTexture =
+            hRoughness.IsValid() ? (int)hRoughness.id : -1;
+        mat.metallicTexture =
+            hMetallic.IsValid() ? (int)hMetallic.id : -1;
 
         auto hEmissive = GetTexHandle(aMat, aiTextureType_EMISSIVE, true);
         if (!hEmissive.IsValid())

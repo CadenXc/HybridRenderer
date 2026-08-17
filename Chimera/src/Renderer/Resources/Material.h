@@ -44,9 +44,16 @@ public:
 
     void SetTextureIndices(int colour, int normal, int roughness)
     {
+        SetTextureIndices(colour, normal, roughness, roughness);
+    }
+
+    void SetTextureIndices(int colour, int normal, int roughness,
+                           int metallic)
+    {
         m_Data.colourTexture = colour;
         m_Data.normalTexture = normal;
         m_Data.roughnessTexture = roughness;
+        m_Data.metallicTexture = metallic;
         m_Dirty = true;
     }
 
@@ -65,6 +72,13 @@ public:
     void SetRoughnessTexture(TextureHandle handle)
     {
         m_Data.roughnessTexture =
+            (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
+        m_Dirty = true;
+    }
+
+    void SetMetallicTexture(TextureHandle handle)
+    {
+        m_Data.metallicTexture =
             (handle.id != 0xFFFFFFFF) ? (int)handle.id : -1;
         m_Dirty = true;
     }

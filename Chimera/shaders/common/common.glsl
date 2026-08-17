@@ -358,11 +358,21 @@ MaterialPoint GetMaterialPoint(GpuMaterial mat, vec2 uv) {
     
     float roughness = mat.roughness;
     float metallic = mat.metallic;
-    if (mat.roughnessTexture >= 0) {
+    if (mat.roughnessTexture >= 0 &&
+        mat.roughnessTexture == mat.metallicTexture) {
         vec4 mrSample = texture(textureArray[nonuniformEXT(mat.roughnessTexture)], uv);
         roughness *= mrSample.g;
         metallic *= mrSample.b;
+    } else {
+        if (mat.roughnessTexture >= 0)
+            roughness *= texture(textureArray[nonuniformEXT(
+                                     mat.roughnessTexture)], uv).g;
+        if (mat.metallicTexture >= 0)
+            metallic *= texture(textureArray[nonuniformEXT(
+                                    mat.metallicTexture)], uv).b;
     }
+    roughness = clamp(roughness, 0.0, 1.0);
+    metallic = clamp(metallic, 0.0, 1.0);
     
     // SVGF Squared Roughness logic
     p.Roughness = roughness * roughness;
