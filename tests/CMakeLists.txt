@@ -109,7 +109,7 @@ target_link_libraries(AssetImporterTests
 )
 
 target_compile_definitions(AssetImporterTests
-    PRIVATE CHIMERA_EMBEDDED_GLTF_FIXTURE="${PROJECT_SOURCE_DIR}/Chimera/third_party/assimp/test/models/glTF2/BoxTextured-glTF-Binary/BoxTextured.glb"
+    PRIVATE CHIMERA_EMBEDDED_GLTF_FIXTURE="${PROJECT_SOURCE_DIR}/Sandbox/assets/models/texture_coordinate_test/TextureCoordinateTest.glb"
 )
 
 add_test(

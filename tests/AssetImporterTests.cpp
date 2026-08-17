@@ -39,8 +39,18 @@ void TestGlbEmbeddedTextureCanBeResolvedAndDecoded()
             "textured GLB fixture must contain a material");
 
     aiString textureReference;
-    Require(scene->mMaterials[0]->GetTexture(aiTextureType_DIFFUSE, 0,
-                                             &textureReference) == AI_SUCCESS,
+    bool foundBaseColorTexture = false;
+    for (unsigned int materialIndex = 0;
+         materialIndex < scene->mNumMaterials; ++materialIndex)
+    {
+        if (scene->mMaterials[materialIndex]->GetTexture(
+                aiTextureType_DIFFUSE, 0, &textureReference) == AI_SUCCESS)
+        {
+            foundBaseColorTexture = true;
+            break;
+        }
+    }
+    Require(foundBaseColorTexture,
             "textured GLB material must expose its base-color texture");
     Require(textureReference.length > 0 && textureReference.C_Str()[0] == '*',
             "GLB image must be represented as an embedded texture reference");

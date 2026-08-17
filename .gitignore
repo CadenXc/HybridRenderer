@@ -31,6 +31,10 @@ Sandbox/assets/models/*
 !Sandbox/assets/models/smoke_test/Box.gltf
 !Sandbox/assets/models/smoke_test/LICENSE.md
 !Sandbox/assets/models/smoke_test/README.md
+!Sandbox/assets/models/texture_coordinate_test/
+!Sandbox/assets/models/texture_coordinate_test/TextureCoordinateTest.glb
+!Sandbox/assets/models/texture_coordinate_test/LICENSE.md
+!Sandbox/assets/models/texture_coordinate_test/README.md
 
 # Agents
 
