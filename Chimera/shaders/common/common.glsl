@@ -288,11 +288,19 @@ vec4 GetAlbedo(GpuMaterial mat, vec2 uv)
 
 vec3 CalculateNormal(GpuMaterial mat, vec3 N, vec4 tangent, vec2 uv) 
 {
-    if (mat.normalTexture < 0) return normalize(N);
-    vec3 T = normalize(tangent.xyz);
-    if (length(tangent.xyz) < 0.001) return normalize(N);
-    vec3 B = cross(N, T) * (abs(tangent.w) < 0.001 ? 1.0 : tangent.w);
-    mat3 TBN = mat3(T, B, N);
+    vec3 surfaceNormal = normalize(N);
+    if (mat.normalTexture < 0) return surfaceNormal;
+    if (dot(tangent.xyz, tangent.xyz) < 1e-6) return surfaceNormal;
+
+    vec3 orthogonalTangent =
+        tangent.xyz - surfaceNormal * dot(surfaceNormal, tangent.xyz);
+    if (dot(orthogonalTangent, orthogonalTangent) < 1e-6)
+        return surfaceNormal;
+
+    vec3 T = normalize(orthogonalTangent);
+    float handedness = abs(tangent.w) < 0.001 ? 1.0 : tangent.w;
+    vec3 B = cross(surfaceNormal, T) * handedness;
+    mat3 TBN = mat3(T, B, surfaceNormal);
     vec3 nm = texture(textureArray[nonuniformEXT(mat.normalTexture)], uv).xyz * 2.0 - 1.0;
     return normalize(TBN * nm);
 }

@@ -74,7 +74,7 @@ target_link_libraries(Chimera PUBLIC
     set(SHADER_BINARY_DIR "${CMAKE_BINARY_DIR}/shaders_compiled")
     file(MAKE_DIRECTORY ${SHADER_BINARY_DIR})
 
-    file(GLOB_RECURSE GLSL_SOURCE_FILES 
+    file(GLOB_RECURSE GLSL_SOURCE_FILES CONFIGURE_DEPENDS
         "${SHADER_SOURCE_DIR}/*.vert" 
         "${SHADER_SOURCE_DIR}/*.frag" 
         "${SHADER_SOURCE_DIR}/*.comp"
@@ -92,6 +92,7 @@ target_link_libraries(Chimera PUBLIC
         # [FIX] 使用全路径相对于根目录生成输出名，防止冲突
         file(RELATIVE_PATH REL_PATH ${SHADER_SOURCE_DIR} ${SHADER_FILE})
         set(SPIRV_BINARY "${SHADER_BINARY_DIR}/${REL_PATH}.spv")
+        set(SHADER_DEPFILE "${SPIRV_BINARY}.d")
         
         # 确保输出目录存在
         get_filename_component(OUT_DIR ${SPIRV_BINARY} DIRECTORY)
@@ -99,9 +100,16 @@ target_link_libraries(Chimera PUBLIC
         
         add_custom_command(
             OUTPUT ${SPIRV_BINARY}
-            COMMAND Vulkan::glslc --target-env=vulkan1.3 -I "${CMAKE_CURRENT_SOURCE_DIR}/src/Renderer/Backend" -I "${SHADER_SOURCE_DIR}/common" -I "${SHADER_SOURCE_DIR}" ${SHADER_FILE} -o ${SPIRV_BINARY}
+            COMMAND Vulkan::glslc --target-env=vulkan1.3
+                    -I "${CMAKE_CURRENT_SOURCE_DIR}/src/Renderer/Backend"
+                    -I "${SHADER_SOURCE_DIR}/common"
+                    -I "${SHADER_SOURCE_DIR}"
+                    -MD -MF ${SHADER_DEPFILE}
+                    ${SHADER_FILE} -o ${SPIRV_BINARY}
             DEPENDS ${SHADER_FILE}
+            DEPFILE ${SHADER_DEPFILE}
             COMMENT "Compiling Chimera Shader: ${REL_PATH} to SPIR-V..."
+            VERBATIM
         )
         list(APPEND SPIRV_BINARIES ${SPIRV_BINARY})
     endforeach()

@@ -231,6 +231,32 @@ void TestPostprocessHasNonSrgbSwapchainFallback()
             "postprocess does not encode tone-mapped output for non-sRGB swapchains");
     }
 }
+
+void TestNormalMapTangentFrameIsOrthogonalized()
+{
+    const glm::vec3 normal = glm::normalize(glm::vec3(0.0f, 0.0f, 1.0f));
+    const glm::vec3 interpolatedTangent(1.0f, 0.0f, 0.5f);
+    const glm::vec3 tangent = glm::normalize(
+        interpolatedTangent -
+        normal * glm::dot(normal, interpolatedTangent));
+    if (std::abs(glm::dot(normal, tangent)) > 1e-6f)
+    {
+        throw std::runtime_error(
+            "Gram-Schmidt tangent must be perpendicular to the surface normal");
+    }
+
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string common =
+        ReadTextFile(shaderRoot / "common/common.glsl");
+    if (common.find("tangent.xyz - surfaceNormal * dot(surfaceNormal, tangent.xyz)") ==
+            std::string::npos ||
+        common.find("cross(surfaceNormal, T) * handedness") ==
+            std::string::npos)
+    {
+        throw std::runtime_error(
+            "normal mapping does not construct an orthogonal handed TBN frame");
+    }
+}
 } // namespace
 
 int main()
@@ -256,6 +282,8 @@ int main()
         std::cout << "[PASS] TAA history uses Catmull-Rom reconstruction\n";
         TestPostprocessHasNonSrgbSwapchainFallback();
         std::cout << "[PASS] non-sRGB swapchains use manual output encoding\n";
+        TestNormalMapTangentFrameIsOrthogonalized();
+        std::cout << "[PASS] normal mapping uses an orthogonal handed TBN frame\n";
         return 0;
     }
     catch (const std::exception& error)
