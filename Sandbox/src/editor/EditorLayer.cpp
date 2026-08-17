@@ -645,7 +645,8 @@ void EditorLayer::DrawRenderPathPanel(RenderPath* activePath)
     const char* displayModes[] = {"Final Color", "Albedo",   "Normal",
                                   "Material",    "Motion",   "Depth",
                                   "Shadow",      "AO",       "Reflection",
-                                  "Diffuse GI",  "Emissive", "SVGF Variance"};
+                                  "Diffuse GI",  "Emissive", "SVGF Variance",
+                                  "TAA History"};
     int currentDisplayMode = (int)m_DisplayMode;
     if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes,
                      IM_ARRAYSIZE(displayModes)))

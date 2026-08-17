@@ -58,7 +58,8 @@ enum class DisplayMode : uint32_t
     Reflection = 8,
     GI = 9,
     Emissive = 10,
-    SVGFVariance = 11
+    SVGFVariance = 11,
+    TAAHistory = 12
 };
 
 enum RenderFlags_
@@ -99,6 +100,7 @@ typedef uint32_t RenderFlags;
 #define DISPLAY_MODE_GI               9
 #define DISPLAY_MODE_EMISSIVE         10
 #define DISPLAY_MODE_SVGF_VARIANCE    11
+#define DISPLAY_MODE_TAA_HISTORY      12
 
 #define RENDER_FLAG_LIGHT_BIT         (1 << 0)
 #define RENDER_FLAG_SHADOW_BIT        (1 << 1)

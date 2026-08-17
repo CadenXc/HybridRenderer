@@ -40,6 +40,7 @@ static_assert(offsetof(GpuMaterial, transmissionDepth) == 60);
 static_assert(offsetof(GpuMaterial, emissionTexture) == 64);
 static_assert(offsetof(GpuMaterial, normalTexture) == 76);
 static_assert(sizeof(GpuMaterial) == 80);
+static_assert(static_cast<uint32_t>(DisplayMode::TAAHistory) == 12);
 
 namespace
 {
@@ -170,11 +171,27 @@ void TestTaaRejectsInconsistentDepthHistory()
 
     if (taa.find("uniform sampler2D historyDepth") == std::string::npos ||
         taa.find("camera.prevProj * camera.prevView") == std::string::npos ||
-        taa.find("!IsDepthHistoryConsistent(unjitteredUV, prevUV, currentDepth)") ==
-            std::string::npos)
+        taa.find("IsDepthHistoryConsistent(unjitteredUV, prevUV, currentDepth)") ==
+            std::string::npos ||
+        taa.find("if (!historyAccepted) alpha = 1.0;") == std::string::npos)
     {
         throw std::runtime_error(
             "TAA does not reject history from a different depth surface");
+    }
+}
+
+void TestTaaHistoryDebugViewContract()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string taa =
+        ReadTextFile(shaderRoot / "postprocess/taa.comp");
+
+    if (taa.find("frameData.z == DISPLAY_MODE_TAA_HISTORY") == std::string::npos ||
+        taa.find("historyAvailable && depthHistoryConsistent") == std::string::npos ||
+        taa.find("historyAccepted ? vec3(0.0, 1.0, 0.0)") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "TAA History display mode does not visualize history acceptance");
     }
 }
 } // namespace
@@ -196,6 +213,8 @@ int main()
         std::cout << "[PASS] TAA neighborhood fetches clamp image-edge coordinates\n";
         TestTaaRejectsInconsistentDepthHistory();
         std::cout << "[PASS] TAA rejects history with inconsistent depth\n";
+        TestTaaHistoryDebugViewContract();
+        std::cout << "[PASS] TAA History display mode visualizes history acceptance\n";
         return 0;
     }
     catch (const std::exception& error)

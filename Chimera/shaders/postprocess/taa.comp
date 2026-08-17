@@ -200,14 +200,23 @@ void main()
     float alpha = clamp(0.1 + motionLen * 0.1, 0.1, 0.9);
 
     const float currentDepth = texelFetch(gDepth, pixel, 0).r;
-    if (!IsDepthHistoryConsistent(unjitteredUV, prevUV, currentDepth))
+    const bool depthHistoryConsistent =
+        IsDepthHistoryConsistent(unjitteredUV, prevUV, currentDepth);
+
+    // Safety check: only accumulate if the history bit is explicitly set by the engine.
+    const bool historyAvailable =
+        (frameData.w & RENDER_FLAG_TAA_HISTORY_BIT) != 0;
+    const bool historyAccepted = historyAvailable && depthHistoryConsistent;
+    if (!historyAccepted) alpha = 1.0;
+
+    if (frameData.z == DISPLAY_MODE_TAA_HISTORY)
     {
-        alpha = 1.0;
+        // Green: history accepted. Red: first frame, out of bounds, or depth mismatch.
+        const vec3 debugColor =
+            historyAccepted ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+        imageStore(outFinal, pixel, vec4(debugColor, 1.0));
+        return;
     }
-    
-    // Safety check: only accumulate if the history bit is explicitly set by the engine
-    bool historyAvailable = (frameData.w & RENDER_FLAG_TAA_HISTORY_BIT) != 0;
-    if (!historyAvailable) alpha = 1.0;
     
     vec3 resolvedYCoCg = mix(historyYCoCg, currentYCoCg, alpha);
     vec3 resolvedRGB = UnToneMap(YCoCgToRGB(resolvedYCoCg));
