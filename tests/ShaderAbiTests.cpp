@@ -146,6 +146,21 @@ void TestRaytraceMotionDebugViewContract()
             "ray tracing Motion display mode does not visualize its motion image values");
     }
 }
+
+void TestTaaNeighborhoodClampsTexelCoordinates()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string taa =
+        ReadTextFile(shaderRoot / "postprocess/taa.comp");
+
+    if (taa.find("ClampPixel(pixel + ivec2(x, y), depthExtent)") == std::string::npos ||
+        taa.find("texelFetch(gMotion, closestPixel, 0)") == std::string::npos ||
+        taa.find("ClampPixel(pixel + ivec2(x, y), colorExtent)") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "TAA neighborhood texelFetch coordinates are not clamped at image edges");
+    }
+}
 } // namespace
 
 int main()
@@ -161,6 +176,8 @@ int main()
         std::cout << "[PASS] ray tracing background motion uses directional reprojection\n";
         TestRaytraceMotionDebugViewContract();
         std::cout << "[PASS] ray tracing Motion display mode visualizes motion vectors\n";
+        TestTaaNeighborhoodClampsTexelCoordinates();
+        std::cout << "[PASS] TAA neighborhood fetches clamp image-edge coordinates\n";
         return 0;
     }
     catch (const std::exception& error)
