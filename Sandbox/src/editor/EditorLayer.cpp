@@ -717,6 +717,15 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
     if (ImGui::CollapsingHeader("Scene & Assets",
                                 ImGuiTreeNodeFlags_DefaultOpen))
     {
+        ChimeraAABB sceneBounds;
+        Scene* scene = ResourceManager::Get().GetActiveScene();
+        const bool canFrameScene =
+            scene && scene->TryGetWorldBounds(sceneBounds);
+        ImGui::BeginDisabled(!canFrameScene);
+        if (ImGui::Button("Frame Scene"))
+            m_EditorCamera.FrameBounds(sceneBounds);
+        ImGui::EndDisabled();
+
         if (ImGui::TreeNodeEx("Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
         {
             DrawSceneHierarchy();

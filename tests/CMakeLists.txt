@@ -120,3 +120,20 @@ add_test(
 set_tests_properties(AssetImporterTests PROPERTIES
     TIMEOUT 10
 )
+
+add_executable(EditorCameraTests
+    EditorCameraTests.cpp
+)
+
+target_link_libraries(EditorCameraTests
+    PRIVATE Chimera
+)
+
+add_test(
+    NAME EditorCameraTests
+    COMMAND EditorCameraTests
+)
+
+set_tests_properties(EditorCameraTests PROPERTIES
+    TIMEOUT 10
+)

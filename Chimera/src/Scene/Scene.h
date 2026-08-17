@@ -81,6 +81,8 @@ public:
         return m_Entities;
     }
 
+    bool TryGetWorldBounds(ChimeraAABB& outBounds) const;
+
     void MarkDirty()
     {
         m_NeedsTLASRebuild = true;

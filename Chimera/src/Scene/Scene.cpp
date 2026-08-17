@@ -215,6 +215,26 @@ void Scene::ClearScene()
     UpdateTLAS();
 }
 
+bool Scene::TryGetWorldBounds(ChimeraAABB& outBounds) const
+{
+    ChimeraAABB bounds;
+    for (const auto& entity : m_Entities)
+    {
+        if (!entity.mesh.model || !entity.mesh.model->IsReady()) continue;
+
+        const glm::mat4 entityTransform = entity.transform.GetTransform();
+        for (const auto& mesh : entity.mesh.model->GetMeshes())
+        {
+            bounds.Merge(
+                mesh.localBounds.Transform(entityTransform * mesh.transform));
+        }
+    }
+
+    if (!bounds.IsValid()) return false;
+    outBounds = bounds;
+    return true;
+}
+
 void Scene::BuildOctree()
 {
     m_OctreeRoot.reset();

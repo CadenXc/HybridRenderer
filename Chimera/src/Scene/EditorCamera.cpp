@@ -173,6 +173,32 @@ void EditorCamera::Reset()
     UpdateView();
 }
 
+void EditorCamera::FrameBounds(const ChimeraAABB& bounds, float padding)
+{
+    if (!bounds.IsValid()) return;
+
+    const glm::vec3 extent = bounds.GetExtent();
+    const float radius = glm::length(extent);
+    const float aspectRatio =
+        m_ViewportHeight > 0.0f ? m_ViewportWidth / m_ViewportHeight : 1.0f;
+    const float verticalHalfFov = glm::radians(m_FOV) * 0.5f;
+    const float horizontalHalfFov =
+        std::atan(std::tan(verticalHalfFov) * aspectRatio);
+    const float limitingHalfFov =
+        std::min(verticalHalfFov, horizontalHalfFov);
+    const float safePadding = std::max(padding, 1.0f);
+    const float distance =
+        radius > 0.0f
+            ? radius / std::sin(limitingHalfFov) * safePadding
+            : 1.0f;
+
+    m_FocalPoint = bounds.GetCenter();
+    m_Distance = std::max(distance, 1.0f);
+    m_IsUpdated = true;
+    UpdateView();
+    ResetTemporalHistory();
+}
+
 std::pair<float, float> EditorCamera::PanSpeed() const
 {
     float x = std::min(m_ViewportWidth / 1000.0f, 2.4f);

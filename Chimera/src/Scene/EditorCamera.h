@@ -46,6 +46,7 @@ public:
         m_IsUpdated = false;
     }
     void Reset();
+    void FrameBounds(const ChimeraAABB& bounds, float padding = 1.1f);
 
     inline float GetDistance() const
     {
