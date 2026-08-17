@@ -658,18 +658,52 @@ TextureHandle ResourceManager::LoadTexture(const std::string& p, bool srgb)
     int tw, th, tc;
     unsigned char* px = stbi_load(p.c_str(), &tw, &th, &tc, 4);
     if (!px) return TextureHandle();
-    VkDeviceSize s = (VkDeviceSize)tw * th * 4;
+    TextureHandle handle = LoadTextureFromPixels(
+        p, px, static_cast<uint32_t>(tw), static_cast<uint32_t>(th), srgb);
+    stbi_image_free(px);
+    return handle;
+}
+
+TextureHandle ResourceManager::LoadTextureFromMemory(
+    const std::string& identity, const unsigned char* encodedData,
+    size_t encodedSize, bool srgb)
+{
+    if (!encodedData || encodedSize == 0) return TextureHandle();
+
+    int tw, th, tc;
+    unsigned char* px = stbi_load_from_memory(
+        encodedData, static_cast<int>(encodedSize), &tw, &th, &tc, 4);
+    if (!px) return TextureHandle();
+    TextureHandle handle = LoadTextureFromPixels(
+        identity, px, static_cast<uint32_t>(tw), static_cast<uint32_t>(th),
+        srgb);
+    stbi_image_free(px);
+    return handle;
+}
+
+TextureHandle ResourceManager::LoadTextureFromPixels(
+    const std::string& identity, const unsigned char* rgbaPixels,
+    uint32_t width, uint32_t height, bool srgb)
+{
+    if (!rgbaPixels || width == 0 || height == 0) return TextureHandle();
+
+    const std::string cacheKey = MakeTextureCacheKey(identity, srgb);
+    {
+        std::lock_guard<std::mutex> lock(m_AssetMutex);
+        if (m_TextureMap.count(cacheKey)) return m_TextureMap[cacheKey];
+    }
+
+    const VkDeviceSize s = static_cast<VkDeviceSize>(width) * height * 4;
     Buffer st(s, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU,
               "Staging_LoadTexture");
-    st.Update(px, s);
-    stbi_image_free(px);
+    st.Update(rgbaPixels, s);
     VkFormat format = srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
     auto im = std::make_unique<Image>(
-        (uint32_t)tw, (uint32_t)th, format,
+        width, height, format,
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_SAMPLE_COUNT_1_BIT,
-        VK_IMAGE_TILING_OPTIMAL, "Texture_" + p);
+        VK_IMAGE_TILING_OPTIMAL, "Texture_" + identity);
     {
         ScopedCommandBuffer c;
         VulkanUtils::TransitionImageLayout(
@@ -677,7 +711,7 @@ TextureHandle ResourceManager::LoadTexture(const std::string& p, bool srgb)
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
         VkBufferImageCopy r{0,         0,
                             0,         {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                            {0, 0, 0}, {(uint32_t)tw, (uint32_t)th, 1}};
+                            {0, 0, 0}, {width, height, 1}};
         vkCmdCopyBufferToImage(c, (VkBuffer)st.GetBuffer(),
                                (VkImage)im->GetImage(),
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r);

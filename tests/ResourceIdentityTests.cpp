@@ -36,6 +36,20 @@ void TestSwapchainSrgbFormatClassification()
     Require(!Chimera::VulkanUtils::IsSRGBFormat(VK_FORMAT_B8G8R8A8_UNORM),
             "B8G8R8A8_UNORM must use manual shader sRGB encoding");
 }
+
+void TestEmbeddedTextureIdentityIncludesOwningModel()
+{
+    const std::string first =
+        Chimera::MakeEmbeddedTextureIdentity("models/a.glb", "*0");
+    const std::string second =
+        Chimera::MakeEmbeddedTextureIdentity("models/b.glb", "*0");
+
+    Require(first != second,
+            "same embedded texture reference in different GLBs must not collide");
+    Require(Chimera::MakeTextureCacheKey(first, true) !=
+                Chimera::MakeTextureCacheKey(first, false),
+            "embedded texture identity must still include color space");
+}
 } // namespace
 
 int main()
@@ -46,6 +60,8 @@ int main()
         std::cout << "[PASS] texture cache identity includes color space\n";
         TestSwapchainSrgbFormatClassification();
         std::cout << "[PASS] swapchain sRGB formats select one encoding path\n";
+        TestEmbeddedTextureIdentityIncludesOwningModel();
+        std::cout << "[PASS] embedded texture identity includes owning model\n";
         return 0;
     }
     catch (const std::exception& error)

@@ -180,17 +180,69 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
     auto QueueTexture = [&](const aiString& texPath, bool srgb)
     {
         if (texPath.length == 0) return;
-        std::string fullPath = baseDir + texPath.C_Str();
-        std::replace(fullPath.begin(), fullPath.end(), '\\', '/');
+        const aiTexture* embedded =
+            scene->GetEmbeddedTexture(texPath.C_Str());
+        std::string identity;
+        if (embedded)
+        {
+            identity = MakeEmbeddedTextureIdentity(path, texPath.C_Str());
+        }
+        else
+        {
+            identity = baseDir + texPath.C_Str();
+            std::replace(identity.begin(), identity.end(), '\\', '/');
+        }
 
-        const std::string cacheKey = MakeTextureCacheKey(fullPath, srgb);
+        const std::string cacheKey = MakeTextureCacheKey(identity, srgb);
         if (uniquePaths.find(cacheKey) == uniquePaths.end())
         {
             uniquePaths.insert(cacheKey);
-            textureFutures.push_back(
-                Application::Get().GetTaskSystem()->Enqueue(
-                    [fullPath, srgb]()
-                    { ResourceManager::Get().LoadTexture(fullPath, srgb); }));
+            if (!embedded)
+            {
+                textureFutures.push_back(
+                    Application::Get().GetTaskSystem()->Enqueue(
+                        [identity, srgb]()
+                        { ResourceManager::Get().LoadTexture(identity, srgb); }));
+            }
+            else if (embedded->mHeight == 0)
+            {
+                const auto* begin = reinterpret_cast<const unsigned char*>(
+                    embedded->pcData);
+                std::vector<unsigned char> encoded(begin,
+                                                   begin + embedded->mWidth);
+                textureFutures.push_back(
+                    Application::Get().GetTaskSystem()->Enqueue(
+                        [identity, srgb, encoded = std::move(encoded)]()
+                        {
+                            ResourceManager::Get().LoadTextureFromMemory(
+                                identity, encoded.data(), encoded.size(), srgb);
+                        }));
+            }
+            else
+            {
+                const size_t texelCount =
+                    static_cast<size_t>(embedded->mWidth) * embedded->mHeight;
+                std::vector<unsigned char> rgba(texelCount * 4);
+                for (size_t texelIndex = 0; texelIndex < texelCount;
+                     ++texelIndex)
+                {
+                    const aiTexel& texel = embedded->pcData[texelIndex];
+                    rgba[texelIndex * 4 + 0] = texel.r;
+                    rgba[texelIndex * 4 + 1] = texel.g;
+                    rgba[texelIndex * 4 + 2] = texel.b;
+                    rgba[texelIndex * 4 + 3] = texel.a;
+                }
+                const uint32_t width = embedded->mWidth;
+                const uint32_t height = embedded->mHeight;
+                textureFutures.push_back(
+                    Application::Get().GetTaskSystem()->Enqueue(
+                        [identity, srgb, width, height,
+                         rgba = std::move(rgba)]()
+                        {
+                            ResourceManager::Get().LoadTextureFromPixels(
+                                identity, rgba.data(), width, height, srgb);
+                        }));
+            }
         }
     };
 
@@ -226,9 +278,18 @@ std::shared_ptr<ImportedScene> AssetImporter::ImportScene(
         aiString texPath;
         if (mat->GetTexture(type, 0, &texPath) == AI_SUCCESS)
         {
-            std::string fullPath = baseDir + texPath.C_Str();
-            std::replace(fullPath.begin(), fullPath.end(), '\\', '/');
-            return ResourceManager::Get().GetTextureIndex(fullPath, srgb);
+            std::string identity;
+            if (scene->GetEmbeddedTexture(texPath.C_Str()))
+            {
+                identity =
+                    MakeEmbeddedTextureIdentity(path, texPath.C_Str());
+            }
+            else
+            {
+                identity = baseDir + texPath.C_Str();
+                std::replace(identity.begin(), identity.end(), '\\', '/');
+            }
+            return ResourceManager::Get().GetTextureIndex(identity, srgb);
         }
         return TextureHandle();
     };

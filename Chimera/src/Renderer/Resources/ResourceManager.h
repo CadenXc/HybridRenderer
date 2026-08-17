@@ -18,6 +18,12 @@ inline std::string MakeTextureCacheKey(const std::string& path, bool srgb)
     return path + (srgb ? "#srgb" : "#linear");
 }
 
+inline std::string MakeEmbeddedTextureIdentity(
+    const std::string& modelPath, const std::string& textureReference)
+{
+    return modelPath + "#embedded:" + textureReference;
+}
+
 class ResourceManager
 {
 public:
@@ -109,6 +115,14 @@ public:
     Buffer* GetBuffer(BufferHandle handle);
 
     TextureHandle LoadTexture(const std::string& path, bool srgb = true);
+    TextureHandle LoadTextureFromMemory(const std::string& identity,
+                                        const unsigned char* encodedData,
+                                        size_t encodedSize,
+                                        bool srgb = true);
+    TextureHandle LoadTextureFromPixels(const std::string& identity,
+                                        const unsigned char* rgbaPixels,
+                                        uint32_t width, uint32_t height,
+                                        bool srgb = true);
     TextureHandle LoadHDRTexture(const std::string& path);
     void LoadHDR(const std::string& path);
 
