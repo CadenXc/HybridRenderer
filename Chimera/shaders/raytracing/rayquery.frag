@@ -22,6 +22,7 @@ void main()
     MaterialPoint mat = GetMaterialPoint(rawMat, inUV);
     vec3 worldNormal = CalculateNormal(rawMat, inNormal, inTangent, inUV);
     vec3 viewDirection = normalize(camera.position.xyz - inWorldPos);
+    uint renderFlags = frameData.w;
 
     vec3 ddx = dFdx(inWorldPos);
     vec3 ddy = dFdy(inWorldPos);
@@ -41,7 +42,7 @@ void main()
     vec3 ambient = ambStr * mat.Colour; 
     int skyboxIdx = int(envData.x);
 
-    if (skyboxIdx >= 0)
+    if (skyboxIdx >= 0 && (renderFlags & RENDER_FLAG_IBL_BIT) != 0)
     {
         vec3 reflectDirection = reflect(-viewDirection, worldNormal);
         vec3 envSpecular = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(reflectDirection)).rgb;

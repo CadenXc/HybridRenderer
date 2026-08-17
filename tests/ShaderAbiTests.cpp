@@ -257,6 +257,30 @@ void TestNormalMapTangentFrameIsOrthogonalized()
             "normal mapping does not construct an orthogonal handed TBN frame");
     }
 }
+
+void TestEnvironmentConsumersHonorIblFlag()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::vector<std::filesystem::path> environmentConsumers = {
+        "forward/forward.frag",
+        "postprocess/composition.frag",
+        "postprocess/skybox.frag",
+        "raytracing/closesthit.rchit",
+        "raytracing/miss.rmiss",
+        "raytracing/rayquery.frag",
+        "raytracing/raytrace.rgen"};
+
+    for (const std::filesystem::path& relativePath : environmentConsumers)
+    {
+        const std::string source = ReadTextFile(shaderRoot / relativePath);
+        if (source.find("RENDER_FLAG_IBL_BIT") == std::string::npos)
+        {
+            throw std::runtime_error(
+                "environment consumer ignores the IBL render flag: " +
+                relativePath.string());
+        }
+    }
+}
 } // namespace
 
 int main()
@@ -284,6 +308,8 @@ int main()
         std::cout << "[PASS] non-sRGB swapchains use manual output encoding\n";
         TestNormalMapTangentFrameIsOrthogonalized();
         std::cout << "[PASS] normal mapping uses an orthogonal handed TBN frame\n";
+        TestEnvironmentConsumersHonorIblFlag();
+        std::cout << "[PASS] all environment consumers honor the IBL flag\n";
         return 0;
     }
     catch (const std::exception& error)

@@ -11,7 +11,7 @@ void main()
     // Reversed-Z: 0.0 is background
     
     int skyIdx = int(envData.x);
-    if (skyIdx >= 0) 
+    if (skyIdx >= 0 && (frameData.w & RENDER_FLAG_IBL_BIT) != 0)
     {
         // Reconstruct direction from UV assuming it's on far plane (0.0 in reversed-z)
         vec4 clip = vec4(inUV * 2.0 - 1.0, 0.0, 1.0);

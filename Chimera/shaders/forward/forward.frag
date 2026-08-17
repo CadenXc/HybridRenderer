@@ -42,7 +42,7 @@ void main()
     float ambStr = postData.y;
     int skyIdx = int(envData.x);
     vec3 ambient = ambStr * mat.Colour; // Base ambient fallback
-    if (skyIdx >= 0)
+    if (skyIdx >= 0 && (renderFlags & RENDER_FLAG_IBL_BIT) != 0)
     {
         vec3 reflectDirection = reflect(-viewDirection, worldNormal);
         vec3 envSpecular = texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(reflectDirection)).rgb;

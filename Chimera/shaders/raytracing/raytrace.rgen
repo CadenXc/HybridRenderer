@@ -69,11 +69,12 @@ void main()
     {
         // [MISS] Sample Environment Map
         int skyboxIdx = int(envData.x);
-        if (skyboxIdx >= 0)
+        bool hasIBL = (frameData.w & RENDER_FLAG_IBL_BIT) != 0;
+        if (skyboxIdx >= 0 && hasIBL)
         {
             finalColor = texture(textureArray[nonuniformEXT(skyboxIdx)], SampleEquirectangular(direction)).rgb;
         }
-        else
+        else if (hasIBL)
         {
             // Fallback Sky Gradient
             float t = 0.5 * (direction.y + 1.0);
