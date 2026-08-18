@@ -93,6 +93,7 @@ public:
 
 private:
     void BuildBLAS();
+    void DestroyBLAS();
 
 private:
     std::shared_ptr<VulkanContext> m_Context;

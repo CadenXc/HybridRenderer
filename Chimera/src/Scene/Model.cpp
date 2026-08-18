@@ -23,6 +23,13 @@ Model::Model(std::shared_ptr<VulkanContext> context)
 
 void Model::UploadToGPU(const ImportedScene& importedScene)
 {
+    if (m_VertexBuffer || m_IndexBuffer || m_TriangleBuffer ||
+        !m_BLASHandles.empty() || !m_BLASBuffers.empty())
+    {
+        throw std::logic_error(
+            "Model::UploadToGPU only supports one GPU upload per Model");
+    }
+
     m_Status = LoadingStatus::Uploading;
     m_VertexCount = (uint32_t)importedScene.Vertices.size();
     m_IndexCount = (uint32_t)importedScene.Indices.size();
@@ -103,12 +110,29 @@ void Model::UploadToGPU(const ImportedScene& importedScene)
 
     m_Meshes = importedScene.Meshes;
     m_TriangleData = importedScene.Triangles;
-    m_BLASBuffers.clear();
-    m_BLASHandles.clear();
 
     if (m_Context->IsRayTracingSupported()) BuildBLAS();
 
     m_Status = LoadingStatus::Ready;
+}
+
+void Model::DestroyBLAS()
+{
+    if (m_Context)
+    {
+        VkDevice device = m_Context->GetDevice();
+        if (device != VK_NULL_HANDLE && vkDestroyAccelerationStructureKHR)
+        {
+            for (VkAccelerationStructureKHR handle : m_BLASHandles)
+            {
+                if (handle != VK_NULL_HANDLE)
+                    vkDestroyAccelerationStructureKHR(device, handle, nullptr);
+            }
+        }
+    }
+
+    m_BLASHandles.clear();
+    m_BLASBuffers.clear();
 }
 
 void Model::BuildBLAS()
@@ -191,14 +215,10 @@ void Model::BuildBLAS()
 
 Model::~Model()
 {
+    DestroyBLAS();
+
     if (m_Context)
     {
-        VkDevice device = m_Context->GetDevice();
-        if (device != VK_NULL_HANDLE && vkDestroyAccelerationStructureKHR)
-        {
-            for (auto h : m_BLASHandles)
-                vkDestroyAccelerationStructureKHR(device, h, nullptr);
-        }
         for (const auto& mesh : m_Meshes)
             ResourceManager::Get().Release(MaterialHandle(mesh.materialIndex));
     }
