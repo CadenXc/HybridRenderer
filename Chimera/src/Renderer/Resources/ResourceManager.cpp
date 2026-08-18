@@ -120,8 +120,11 @@ void ResourceManager::ClearRuntimeAssets()
     }
     m_Buffers.clear();
     m_BufferRefCount.clear();
-    if (m_MaterialBuffer) m_MaterialBuffer.reset();
-    if (m_InstanceBuffer) m_InstanceBuffer.reset();
+
+    // Material and instance buffers are global resources referenced by the
+    // persistent scene descriptor sets. Keep their Vulkan handles alive while
+    // replacing a scene; the next material/instance sync overwrites their
+    // contents for the new scene.
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i)
         ClearResourceFreeQueue(i);
 }
