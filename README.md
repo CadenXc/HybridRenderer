@@ -2,6 +2,10 @@
 
 [![Windows CI](https://github.com/CadenXc/HybridRenderer/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/CadenXc/HybridRenderer/actions/workflows/windows-ci.yml)
 
+![Flight Helmet rendered with Chimera's Hybrid path](.github/assets/flight-helmet-hybrid.png)
+
+*Hybrid path showcase: ray-traced diffuse GI, SVGF denoising, TAA, and IBL.*
+
 Chimera is a Windows-only, real-time hybrid rendering project built with
 C++20 and Vulkan 1.3. It began as a graduation project and is now being
 developed as a learning-oriented renderer for studying rasterization,
@@ -210,6 +214,12 @@ validated rendering configuration yet.
 The default asset is the Khronos glTF Sample Assets `Box`, created by Cesium
 and distributed under CC BY 4.0. Its attribution and license are preserved in
 `Sandbox/assets/models/smoke_test`.
+
+The showcase image uses the
+[Flight Helmet](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/FlightHelmet)
+sample from Khronos glTF Sample Assets. Its model files are released under
+CC0 1.0. The model is used locally for the screenshot and is not bundled with
+this repository.
 
 Larger scenes such as Sponza are intentionally not bundled. Additional models
 can be placed under `Sandbox/assets/models`, and HDR environments under
