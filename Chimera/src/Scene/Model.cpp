@@ -138,6 +138,9 @@ void Model::DestroyBLAS()
 void Model::BuildBLAS()
 {
     VkDevice device = m_Context->GetDevice();
+    m_BLASBuffers.resize(m_Meshes.size());
+    m_BLASHandles.resize(m_Meshes.size(), VK_NULL_HANDLE);
+
     for (uint32_t i = 0; i < m_Meshes.size(); ++i)
     {
         const auto& mesh = m_Meshes[i];
@@ -208,8 +211,8 @@ void Model::BuildBLAS()
             ScopedCommandBuffer cmd;
             vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
         }
-        m_BLASBuffers.push_back(std::move(blasBuffer));
-        m_BLASHandles.push_back(handle);
+        m_BLASBuffers[i] = std::move(blasBuffer);
+        m_BLASHandles[i] = handle;
     }
 }
 

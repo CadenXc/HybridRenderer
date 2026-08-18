@@ -363,7 +363,9 @@ void Scene::UpdateTLAS()
         {
             if (i >= (uint32_t)blasHandles.size()) break;
             const Mesh& mesh = meshes[i];
-            if (mesh.indexCount == 0) continue;
+            if (mesh.indexCount == 0 ||
+                blasHandles[i] == VK_NULL_HANDLE)
+                continue;
 
             VkAccelerationStructureInstanceKHR inst{};
             glm::mat4 modelMatrix = entityTransform * mesh.transform;

@@ -138,7 +138,8 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
 
             outScene.Triangles.push_back(tri);
         }
-        mesh.indexCount = (uint32_t)aMesh->mNumFaces * 3;
+        mesh.indexCount =
+            (uint32_t)outScene.Indices.size() - mesh.indexOffset;
         outScene.Meshes.push_back(mesh);
 
         if (i == 0)
