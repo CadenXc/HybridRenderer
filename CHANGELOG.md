@@ -3,6 +3,10 @@
 Notable changes to HybridRenderer are recorded here. The project follows
 semantic versioning once a release is tagged.
 
+## [Unreleased]
+
+No changes yet.
+
 ## [0.1.0] - 2026-08-18
 
 This is the first public release of the renderer.

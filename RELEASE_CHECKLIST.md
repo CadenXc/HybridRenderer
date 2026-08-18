@@ -30,8 +30,10 @@ test suite does not prove that a Vulkan frame is visually correct.
       GPU, driver, resolution, scene, and feature flags.
 - [x] Move the changelog entries from `Unreleased` to `0.1.0` with the release
       date (`2026-08-18`).
-- [ ] Create the `v0.1.0` tag and GitHub release; attach screenshots and the
-      benchmark CSV rather than binaries with unverified runtime dependencies.
+- [x] Create the `v0.1.0` tag and
+      [GitHub release](https://github.com/CadenXc/HybridRenderer/releases/tag/v0.1.0);
+      attach screenshots and the benchmark CSV rather than binaries with
+      unverified runtime dependencies.
 
 ## Evidence boundaries
 
