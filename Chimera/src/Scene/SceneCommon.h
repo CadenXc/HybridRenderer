@@ -230,6 +230,7 @@ struct Mesh
     uint32_t indexCount = 0;
     uint32_t indexOffset = 0;
     uint32_t vertexOffset = 0;
+    uint32_t vertexCount = 0;
     int materialIndex = 0;
     glm::mat4 transform{1.0f};
     ChimeraAABB localBounds;

@@ -118,7 +118,7 @@ void Model::BuildBLAS()
     {
         const auto& mesh = m_Meshes[i];
         uint32_t maxPrimitiveCount = mesh.indexCount / 3;
-        if (maxPrimitiveCount == 0) continue;
+        if (maxPrimitiveCount == 0 || mesh.vertexCount == 0) continue;
 
         VkAccelerationStructureGeometryKHR geo{
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR};
@@ -135,7 +135,7 @@ void Model::BuildBLAS()
         geo.geometry.triangles.indexData.deviceAddress =
             m_IndexBuffer->GetDeviceAddress() +
             (mesh.indexOffset * sizeof(uint32_t));
-        geo.geometry.triangles.maxVertex = m_VertexCount;
+        geo.geometry.triangles.maxVertex = mesh.vertexCount - 1;
 
         VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
             VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};

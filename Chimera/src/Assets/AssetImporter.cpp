@@ -71,6 +71,7 @@ static void TraverseNodes(aiNode* node, const aiScene* scene,
 
         mesh.vertexOffset = (uint32_t)outScene.Vertices.size();
         mesh.indexOffset = (uint32_t)outScene.Indices.size();
+        mesh.vertexCount = (uint32_t)aMesh->mNumVertices;
 
         uint32_t meshVertexStart = (uint32_t)outScene.Vertices.size();
 

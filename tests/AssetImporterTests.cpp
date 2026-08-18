@@ -193,6 +193,41 @@ void TestTextureCoordinateFixtureKeepsExpectedGeometryAndUVs()
                 summary.uvMax.y - summary.uvMin.y > 0.5f,
             "imported texture coordinates must not collapse to one value");
 }
+
+void TestFixtureMeshIndicesStayInsideLocalVertexRanges()
+{
+    Assimp::Importer importer;
+    const aiScene* scene = importer.ReadFile(
+        CHIMERA_EMBEDDED_GLTF_FIXTURE,
+        aiProcess_Triangulate | aiProcess_FlipUVs |
+            aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals |
+            aiProcess_JoinIdenticalVertices | aiProcess_SortByPType |
+            aiProcess_ImproveCacheLocality);
+
+    Require(scene != nullptr, importer.GetErrorString());
+    Require(scene->mNumMeshes > 0, "imported fixture must contain meshes");
+
+    for (unsigned int meshIndex = 0; meshIndex < scene->mNumMeshes;
+         ++meshIndex)
+    {
+        const aiMesh* mesh = scene->mMeshes[meshIndex];
+        Require(mesh->mNumVertices > 0,
+                "each imported mesh must record a non-zero vertex count");
+
+        for (unsigned int faceIndex = 0; faceIndex < mesh->mNumFaces;
+             ++faceIndex)
+        {
+            const aiFace& face = mesh->mFaces[faceIndex];
+            Require(face.mNumIndices == 3,
+                    "triangulated fixture must contain only triangle faces");
+            for (unsigned int index = 0; index < face.mNumIndices; ++index)
+            {
+                Require(face.mIndices[index] < mesh->mNumVertices,
+                        "mesh-local index must stay below BLAS maxVertex + 1");
+            }
+        }
+    }
+}
 } // namespace
 
 int main()
@@ -207,6 +242,8 @@ int main()
         std::cout << "[PASS] GLB embedded texture resolves and decodes from memory\n";
         TestTextureCoordinateFixtureKeepsExpectedGeometryAndUVs();
         std::cout << "[PASS] GLB fixture preserves its XY geometry and UV range\n";
+        TestFixtureMeshIndicesStayInsideLocalVertexRanges();
+        std::cout << "[PASS] imported mesh indices stay inside local vertex ranges\n";
         return 0;
     }
     catch (const std::exception& error)
