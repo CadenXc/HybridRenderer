@@ -18,16 +18,18 @@ test suite does not prove that a Vulkan frame is visually correct.
 ## Required before tagging v0.1.0
 
 - [x] Push the branch and confirm `Windows CI` passes on GitHub. Run
-      `32092529882` completed successfully for commit `158b432`.
+      `32093464558` completed successfully for commit `75f384c`.
 - [x] Repeat the documented VS2022 Release configure/build/test commands from
-      a clean recursive checkout. GitHub Actions run `32092529882` completed
+      a clean recursive checkout. GitHub Actions run `32093464558` completed
       the VS2022 Release build and all eight tests.
-- [ ] Review the README, changelog, license, and known limitations as they
-      appear on GitHub.
+- [x] Review the README, changelog, license, and known limitations. The README
+      rendered with its CI badge and public release-checklist link at commit
+      `75f384c`; the release notes and limitations were reviewed during the
+      `0.1.0` documentation freeze.
 - [x] Capture one deterministic smoke baseline for each render path and record
       GPU, driver, resolution, scene, and feature flags.
-- [ ] Move the changelog entries from `Unreleased` to `0.1.0` with the release
-      date.
+- [x] Move the changelog entries from `Unreleased` to `0.1.0` with the release
+      date (`2026-08-18`).
 - [ ] Create the `v0.1.0` tag and GitHub release; attach screenshots and the
       benchmark CSV rather than binaries with unverified runtime dependencies.
 
@@ -60,3 +62,22 @@ test suite does not prove that a Vulkan frame is visually correct.
 These Box captures are correctness smoke evidence, not showcase-quality
 screenshots. Keep the original PNG files as local release artifacts and attach
 them to the GitHub release if no stronger fixed-scene captures replace them.
+
+## Captured v0.1 benchmark evidence (2026-08-18)
+
+- Artifact: `hybrid-benchmark.csv`.
+- Hardware and workload: NVIDIA GeForce RTX 5070 Ti, Hybrid render path,
+  1600x900, `smoke-test-box-v1` scene preset.
+- Sampling: 120 warmup frames followed by 300 captured frames per pass.
+- Render flags: `5891` (`Light`, `Shadow`, `SVGFTemporal`, `SVGFSpatial`,
+  `IBL`, and `TAAHighQuality`; the SVGF and TAA master flags are disabled).
+- Rows: six Render Graph passes, sorted by pass name.
+- SHA-256:
+  `4227B05E625D52A565C4009AC72D62999A44DCC3FC668C2CC49F21430965B499`.
+
+The CSV contains per-pass GPU timestamp statistics. It does not measure CPU
+frame time, queueing delay, presentation latency, or the sum of all work in a
+frame. The Hybrid path currently retains its RT shadow, reflection, and
+diffuse-GI dispatches whenever ray tracing and a TLAS are available, even when
+their contribution flags are disabled; interpret the corresponding rows as the
+cost of the current default graph rather than the cost of enabled effects only.

@@ -3,9 +3,9 @@
 Notable changes to HybridRenderer are recorded here. The project follows
 semantic versioning once a release is tagged.
 
-## [Unreleased]
+## [0.1.0] - 2026-08-18
 
-This section is the current `v0.1.0` release candidate.
+This is the first public release of the renderer.
 
 ### Added
 
@@ -48,5 +48,9 @@ This section is the current `v0.1.0` release candidate.
   not run the interactive Vulkan renderer on a GPU.
 - Non-RT hardware fallback and all temporal-effect combinations are not yet
   exhaustively validated.
+- The Hybrid path keeps its ray-traced shadow, reflection, and diffuse-GI
+  passes in the Render Graph whenever ray tracing and a TLAS are available.
+  Feature flags suppress shader contributions but do not remove those GPU
+  dispatches, so disabled effects can still have measurable pass cost.
 - Render Graph tracking is whole-resource based and does not schedule across
   multiple Vulkan queues.
