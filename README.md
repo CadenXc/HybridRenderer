@@ -22,18 +22,19 @@ clone can build and launch without downloading a large external model.
 | Forward path | Implemented | Forward shading, TAA, and post-processing are connected. This is the intended baseline path for correctness work. |
 | Hybrid path | Experimental | G-buffer rasterization feeds ray-traced shadows/AO, reflections, diffuse GI, optional SVGF, composition, and post-processing. |
 | Ray-traced path | Experimental | Depth prepass, ray-traced scene rendering, TAA, and post-processing are connected. Requires the complete RT capability set. |
-| Render Graph | Working prototype | Supports declared resources, history resources, pass execution, barriers, GPU timestamps, and Mermaid export. It is not yet a full dependency compiler with complete RAW/WAR/WAW analysis, topological sorting, and invariant checking. |
+| Render Graph | Working prototype | Tracks whole-resource RAW/WAR/WAW dependencies, builds topological execution layers, rejects cycles and invalid resource/descriptor contracts, and supports history resources, barriers, GPU timestamps, and Mermaid export. Subresource and multi-queue scheduling are not modeled. |
 | Scene and assets | Implemented with limitations | Asynchronous model import, glTF/OBJ loading, materials, bindless textures, scene instances, and BLAS/TLAS construction are present. |
 | Editor and diagnostics | Implemented | Runtime path switching, effect toggles, debug views, scene controls, frame statistics, per-pass GPU timing, and capability logging. |
-| Automated tests and CI | Not yet available | The project currently has no first-party unit-test suite or CI pipeline. |
+| Automated tests and CI | Available | Eight CTest executables cover core scheduling, Render Graph invariants, shader ABI, image comparison, resource identity, asset import, camera math, and benchmark recording. Windows CI builds and runs the Release suite without requiring a GPU. |
 | Non-RT fallback | Not fully validated | Device creation distinguishes base and ray-tracing capabilities, but the complete experience on non-RT hardware is still under development. |
 
 Recent correctness work has centralized per-frame rendering, fixed swapchain
 acquire synchronization for the initial transfer clear, propagated resize
-events through the active render path, hardened empty Render Graph execution,
-improved shutdown ordering, and added explicit device capability checks. These
-changes establish a better baseline, but they do not imply that every path and
-feature combination has been exhaustively validated.
+events through the active render path, added Render Graph dependency and
+contract checks, improved shutdown ordering, hardened ray-tracing resource
+lifetimes and alignment, and added explicit device capability checks. These
+changes establish a better baseline, but they do not imply that every path,
+GPU, or feature combination has been exhaustively validated.
 
 For the detailed audit, current risks, and learning roadmap, see the
 [Chinese deep-analysis report](docs/analysis/HybridRenderer-Deep-Analysis-ZH.md).
@@ -153,6 +154,25 @@ The configure command generates the selected build tree and Visual Studio
 solution. The build command compiles one configuration from that tree; they
 are two distinct steps.
 
+### Tests
+
+After building, run the CTest suite with the same configuration:
+
+```powershell
+ctest --test-dir build/vs2022 -C Debug --output-on-failure
+```
+
+For Visual Studio 2026 or Release, replace the build directory and
+configuration accordingly, for example:
+
+```powershell
+ctest --test-dir build/vs2026 -C Release --output-on-failure
+```
+
+The eight test executables exercise CPU-side contracts and shader compilation
+inputs. They do not replace launching `Sandbox` with Vulkan validation enabled
+or comparing deterministic captures on a real GPU.
+
 ## Run and Explore
 
 `Sandbox` starts with the embedded Box glTF smoke-test asset and selects the
@@ -211,12 +231,12 @@ Each dependency remains subject to its own license.
 
 Near-term priorities are:
 
-1. Add first-party tests for TaskSystem behavior, Render Graph invariants, and CPU/GPU shader ABI layouts.
-2. Complete Render Graph RAW/WAR/WAW dependency modeling, topological sorting, cycle detection, and actionable compile errors.
-3. Define history-resource behavior across first use, resize, camera cuts, scene changes, and render-path switches.
-4. Validate all TAA/SVGF flag combinations and non-RT fallback behavior.
-5. Audit SBT alignment and visibility, acceleration-structure replacement lifetimes, and descriptor contracts.
-6. Add deterministic captures, image comparisons, benchmark scenes, and CI for non-GPU checks and shader compilation.
+1. Expand deterministic GPU baselines beyond the embedded Box smoke scene and compare Forward, Hybrid, and Ray Traced output on more than one GPU family.
+2. Define and test history-resource resets across resize, camera cuts, scene changes, and render-path switches.
+3. Validate all TAA/SVGF flag combinations and complete the non-RT fallback experience.
+4. Extend Render Graph synchronization from whole-image tracking to explicit subresource ranges where needed.
+5. Add RenderDoc/Nsight evidence for descriptor, acceleration-structure, and frame-overlap behavior under sustained scene changes.
+6. Establish repeatable performance scenes and publish benchmark results with hardware, driver, resolution, and settings metadata.
 
 The long-term goal is an observable and verifiable Vulkan hybrid renderer:
 one where resource lifetimes, barriers, history, capabilities, and GPU timings

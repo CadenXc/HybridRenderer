@@ -1,0 +1,42 @@
+name: Windows CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: VS2022 Release
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
+
+      - name: Configure
+        run: cmake --preset vs2022
+
+      - name: Build
+        run: cmake --build --preset vs2022-release --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build/vs2022 -C Release --output-on-failure
