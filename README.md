@@ -1,5 +1,7 @@
 # Chimera Hybrid Renderer
 
+[![Windows CI](https://github.com/CadenXc/HybridRenderer/actions/workflows/windows-ci.yml/badge.svg)](https://github.com/CadenXc/HybridRenderer/actions/workflows/windows-ci.yml)
+
 Chimera is a Windows-only, real-time hybrid rendering project built with
 C++20 and Vulkan 1.3. It began as a graduation project and is now being
 developed as a learning-oriented renderer for studying rasterization,
@@ -36,8 +38,8 @@ lifetimes and alignment, and added explicit device capability checks. These
 changes establish a better baseline, but they do not imply that every path,
 GPU, or feature combination has been exhaustively validated.
 
-For the detailed audit, current risks, and learning roadmap, see the
-[Chinese deep-analysis report](docs/analysis/HybridRenderer-Deep-Analysis-ZH.md).
+For the current validation scope and the remaining release gates, see the
+[v0.1 release checklist](RELEASE_CHECKLIST.md).
 
 ## Rendering Architecture
 

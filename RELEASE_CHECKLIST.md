@@ -17,9 +17,10 @@ test suite does not prove that a Vulkan frame is visually correct.
 
 ## Required before tagging v0.1.0
 
-- [ ] Push the branch and confirm `Windows CI` passes on GitHub.
+- [x] Push the branch and confirm `Windows CI` passes on GitHub. Run
+      `32092529882` completed successfully for commit `158b432`.
 - [x] Repeat the documented VS2022 Release configure/build/test commands from
-      a clean recursive checkout. GitHub Actions run `32090847097` completed
+      a clean recursive checkout. GitHub Actions run `32092529882` completed
       the VS2022 Release build and all eight tests.
 - [ ] Review the README, changelog, license, and known limitations as they
       appear on GitHub.
