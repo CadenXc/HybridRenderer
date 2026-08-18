@@ -38,6 +38,8 @@ This section is the current `v0.1.0` release candidate.
 - Same-state write-after-write barriers and missing RAW/WAR/WAW dependencies.
 - Ray-tracing SBT visibility/alignment, acceleration-structure scratch
   alignment, per-mesh BLAS bounds, replacement lifetime, and null BLAS use.
+- Scene reloads now preserve the global material and instance buffers referenced
+  by persistent descriptor sets.
 
 ### Known limitations
 
