@@ -2,6 +2,7 @@
 #include "Renderer/Capture/ImageRegression.h"
 #include "Renderer/Capture/FrameWarmupCounter.h"
 #include "Renderer/Capture/CaptureReadinessTracker.h"
+#include "Renderer/Capture/TemporalHistoryAnalysis.h"
 #include "Scene/EditorCamera.h"
 
 #include <chrono>
@@ -400,6 +401,34 @@ void TestCaptureReadinessRequiresStableRenderedFrames()
                 readiness.GetStableFrameCount() == 0,
             "unready GPU prerequisites did not reset stabilization");
 }
+
+void TestTemporalHistoryDebugColorsAreClassified()
+{
+    const std::vector<uint8_t> pixels = {
+        8, 220, 7, 255, 230, 12, 10, 255, 80, 80, 80, 255};
+
+    const Chimera::TemporalHistoryDebugStatistics result =
+        Chimera::AnalyzeTemporalHistoryRgba8(pixels, 3, 1);
+
+    Require(result.success, "valid temporal history pixels were rejected");
+    Require(result.acceptedPixelCount == 1,
+            "green-dominant history pixel was not accepted");
+    Require(result.rejectedPixelCount == 1,
+            "red-dominant history pixel was not rejected");
+    Require(result.unclassifiedPixelCount == 1,
+            "neutral history pixel was not left unclassified");
+}
+
+void TestTemporalHistoryRejectsInvalidByteCount()
+{
+    const Chimera::TemporalHistoryDebugStatistics result =
+        Chimera::AnalyzeTemporalHistoryRgba8({255, 0, 0, 255}, 2, 1);
+
+    Require(!result.success,
+            "temporal history analysis accepted an invalid byte count");
+    Require(!result.error.empty(),
+            "invalid temporal history analysis did not explain the error");
+}
 } // namespace
 
 int main()
@@ -456,6 +485,12 @@ int main()
 
         TestCaptureReadinessRequiresStableRenderedFrames();
         std::cout << "[PASS] capture readiness requires stable frames\n";
+
+        TestTemporalHistoryDebugColorsAreClassified();
+        std::cout << "[PASS] temporal history debug colors are classified\n";
+
+        TestTemporalHistoryRejectsInvalidByteCount();
+        std::cout << "[PASS] temporal history rejects invalid byte count\n";
 
         return 0;
     }

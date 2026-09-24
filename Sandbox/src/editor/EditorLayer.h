@@ -8,6 +8,7 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Capture/FrameWarmupCounter.h"
 #include "Renderer/Capture/CaptureReadinessTracker.h"
+#include "Renderer/Capture/TemporalHistoryAnalysis.h"
 #include "Assets/AssetImporter.h"
 #include <vector>
 #include <string>
@@ -19,10 +20,15 @@
 namespace Chimera
 {
 
+struct EditorAutomationOptions
+{
+    bool taaDisocclusionSmokeTest = false;
+};
+
 class EditorLayer : public Layer
 {
 public:
-    EditorLayer();
+    explicit EditorLayer(EditorAutomationOptions automationOptions = {});
     ~EditorLayer() = default;
 
     virtual void OnAttach() override;
@@ -61,6 +67,16 @@ private:
         Regression
     };
 
+    enum class TaaDisocclusionSmokeState
+    {
+        Disabled,
+        WaitingForScene,
+        WarmingUp,
+        WaitingForStableCapture,
+        WaitingForMovedCapture,
+        Finished
+    };
+
                 // UI Panels (Accept active path as parameter)
     void DrawMenuBar();
     void DrawRenderPathPanel(RenderPath* activePath);
@@ -78,6 +94,10 @@ private:
     void InvalidateBenchmarkScenePreset();
     void UpdateFrameCaptureWarmup();
     void UpdateFrameCaptureReadiness();
+    void InitializeTaaDisocclusionSmokeTest();
+    void UpdateTaaDisocclusionSmokeTest();
+    void FinishTaaDisocclusionSmokeTest(bool passed,
+                                        const std::string& reason);
 
 private:
     EditorCamera m_EditorCamera;
@@ -135,6 +155,17 @@ private:
     int m_AllowedMaxChannelDifference = 8;
     float m_AllowedRmse = 1.0f;
     int m_DifferenceAmplification = 8;
+
+    EditorAutomationOptions m_AutomationOptions;
+    TaaDisocclusionSmokeState m_TaaSmokeState =
+        TaaDisocclusionSmokeState::Disabled;
+    std::filesystem::path m_TaaSmokeOutputDirectory;
+    std::filesystem::path m_TaaSmokeStableCapturePath;
+    std::filesystem::path m_TaaSmokeMovedCapturePath;
+    TemporalHistoryDebugStatistics m_TaaSmokeStableStatistics;
+    TemporalHistoryDebugStatistics m_TaaSmokeMovedStatistics;
+    uint32_t m_TaaSmokeWarmupFrameCount = 0;
+    uint32_t m_TaaSmokeStateFrameCount = 0;
 
                 // Resize debounce
     float m_ResizeTimer = 0.0f;
