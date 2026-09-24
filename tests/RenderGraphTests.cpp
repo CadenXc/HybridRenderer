@@ -838,6 +838,83 @@ void TestSVGFAtrousUsesNamedShaderBindings()
             "SVGF A-trous output must bind to outFiltered");
 }
 
+void TestSVGFPassCombinationsCompile()
+{
+    struct SVGFCase
+    {
+        bool temporal;
+        bool spatial;
+        size_t expectedPassCount;
+    };
+
+    constexpr std::array<SVGFCase, 4> cases = {{
+        {false, false, 1},
+        {true, false, 4},
+        {false, true, 5},
+        {true, true, 7},
+    }};
+
+    for (const auto& testCase : cases)
+    {
+        Chimera::RenderGraph graph(1280, 720);
+        Chimera::SVGFPass::Config config;
+        config.inputName = "SVGFTestRaw";
+        config.prefix = "SVGFTest";
+        config.historyBaseName = "SVGFTestHistory";
+        config.temporalEnabled = testCase.temporal;
+        config.spatialEnabled = testCase.spatial;
+
+        graph.AddPassRaw<EmptyPassData>(
+            "SVGFTestProducer",
+            [&](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
+            {
+                builder.WriteStorage(config.inputName)
+                    .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                builder.Write(Chimera::RS::Motion)
+                    .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                builder.Write(Chimera::RS::Depth)
+                    .Format(VK_FORMAT_D32_SFLOAT);
+                builder.Write(Chimera::RS::Normal)
+                    .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+                builder.Write(Chimera::RS::ObjectID)
+                    .Format(VK_FORMAT_R32_UINT);
+                builder.Write(Chimera::RS::Albedo)
+                    .Format(VK_FORMAT_R8G8B8A8_UNORM);
+                builder.Write(Chimera::RS::MaterialParams)
+                    .Format(VK_FORMAT_R8G8B8A8_UNORM);
+            },
+            [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+               VkCommandBuffer) {});
+
+        Chimera::SVGFPass::Add(graph, nullptr, config);
+        graph.Compile();
+
+        Require(graph.GetPassDependencies().size() ==
+                    testCase.expectedPassCount,
+                "SVGF flag combination produced an unexpected pass count");
+
+        const bool svgfEnabled = testCase.temporal || testCase.spatial;
+        Require(graph.ContainsImage("SVGFTest_Filtered_Final") == svgfEnabled,
+                "SVGF final output must exist exactly when filtering is enabled");
+
+        Require(graph.ContainsImage("SVGFTest_TemporalColor") ==
+                    testCase.temporal,
+                "SVGF temporal color must follow the temporal toggle");
+        Require(graph.ContainsImage("SVGFTest_EstimatedColor") ==
+                    testCase.temporal,
+                "SVGF variance estimate must follow the temporal toggle");
+
+        for (int iteration = 0; iteration < config.atrousIterations;
+             ++iteration)
+        {
+            const std::string filteredName =
+                "SVGFTest_Filtered_" + std::to_string(iteration);
+            Require(graph.ContainsImage(filteredName) == testCase.spatial,
+                    "SVGF A-trous outputs must follow the spatial toggle");
+        }
+    }
+}
+
 void TestMissingHistoryReadIsRejected()
 {
     Chimera::RenderGraph graph(1280, 720);
@@ -1178,6 +1255,9 @@ int main()
 
         TestSVGFAtrousUsesNamedShaderBindings();
         std::cout << "[PASS] SVGF A-trous uses named shader bindings\n";
+
+        TestSVGFPassCombinationsCompile();
+        std::cout << "[PASS] all SVGF temporal/spatial combinations compile\n";
 
         TestMissingHistoryReadIsRejected();
         std::cout << "[PASS] missing required history is rejected\n";
