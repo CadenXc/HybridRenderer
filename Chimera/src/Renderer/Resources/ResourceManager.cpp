@@ -830,6 +830,11 @@ void ResourceManager::ClearScene()
             ClearRuntimeAssets();
             auto newScene = std::make_shared<Scene>(m_Context);
             SetActiveScene(newScene);
+
+            if (auto* renderPath = Application::Get().GetActiveRenderPath())
+            {
+                renderPath->OnSceneUpdated();
+            }
         });
 }
 

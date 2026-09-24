@@ -723,7 +723,14 @@ void EditorLayer::DrawControlPanelContent(RenderPath* activePath)
             scene && scene->TryGetWorldBounds(sceneBounds);
         ImGui::BeginDisabled(!canFrameScene);
         if (ImGui::Button("Frame Scene"))
+        {
             m_EditorCamera.FrameBounds(sceneBounds);
+
+            if (activePath)
+            {
+                activePath->InvalidateHistory();
+            }
+        }
         ImGui::EndDisabled();
 
         if (ImGui::TreeNodeEx("Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
