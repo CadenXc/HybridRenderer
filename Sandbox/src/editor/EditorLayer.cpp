@@ -10,6 +10,7 @@
 #include "Renderer/Capture/ImageRegression.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Pipelines/RenderPath.h"
+#include "Renderer/Pipelines/RenderSettingsChange.h"
 #include "Scene/Scene.h"
 #include "Core/Input.h"
 #include "Scene/Model.h"
@@ -591,40 +592,43 @@ void EditorLayer::DrawLightSettings(RenderPath* activePath)
         return;
 
     auto& light = scene->GetMainLight();
-    bool changed = false;
+    bool temporalSignalChanged = false;
+    bool presentationChanged = false;
 
     if (ImGui::DragFloat3("Direction", &light.direction.x, 0.01f, -1.0f, 1.0f))
     {
         light.direction = glm::vec4(glm::normalize(glm::vec3(light.direction)),
                                     light.direction.w);
-        changed = true;
+        temporalSignalChanged = true;
     }
 
-    changed |= ImGui::ColorEdit3("Color", &light.color.x);
+    temporalSignalChanged |= ImGui::ColorEdit3("Color", &light.color.x);
 
     float intensity = light.color.a;
     if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 100.0f))
     {
         light.color.a = intensity;
-        changed = true;
+        temporalSignalChanged = true;
     }
 
     if (ImGui::SliderFloat("Light Radius (Soft Shadows)", &m_LightRadius, 0.0f,
                            0.5f))
     {
         light.direction.w = m_LightRadius;
-        changed = true;
+        temporalSignalChanged = true;
     }
 
     ImGui::Separator();
-    changed |= ImGui::DragFloat("Exposure", &m_Exposure, 0.05f, 0.01f, 10.0f);
-    changed |=
+    presentationChanged |=
+        ImGui::DragFloat("Exposure", &m_Exposure, 0.05f, 0.01f, 10.0f);
+    temporalSignalChanged |=
         ImGui::SliderFloat("Ambient Strength", &m_AmbientStrength, 0.0f, 2.0f);
 
-    if (changed)
+    if (temporalSignalChanged || presentationChanged)
     {
         InvalidateBenchmarkScenePreset();
-        if (activePath) activePath->OnSceneUpdated();
+        if (temporalSignalChanged && activePath)
+            activePath->InvalidateHistory();
     }
 
     ImGui::TreePop();
@@ -650,7 +654,10 @@ void EditorLayer::DrawRenderPathPanel(RenderPath* activePath)
     int currentDisplayMode = (int)m_DisplayMode;
     if (ImGui::Combo("Display Mode", &currentDisplayMode, displayModes,
                      IM_ARRAYSIZE(displayModes)))
+    {
         m_DisplayMode = (DisplayMode)currentDisplayMode;
+        if (activePath) activePath->InvalidateHistory();
+    }
 }
 
 void EditorLayer::DrawFeatureToggles(RenderPath* activePath)
@@ -658,7 +665,7 @@ void EditorLayer::DrawFeatureToggles(RenderPath* activePath)
     if (!ImGui::CollapsingHeader("Render Feature Toggles",
                                  ImGuiTreeNodeFlags_DefaultOpen))
         return;
-    bool changed = false;
+    const RenderFlags previousFlags = m_RenderFlags;
     auto toggleFlag = [&](const char* label, RenderFlags flag)
     {
         bool enabled = (m_RenderFlags & flag) != 0;
@@ -668,7 +675,6 @@ void EditorLayer::DrawFeatureToggles(RenderPath* activePath)
                 m_RenderFlags |= flag;
             else
                 m_RenderFlags &= ~flag;
-            changed = true;
         }
     };
     ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), "Ray Tracing");
@@ -700,7 +706,21 @@ void EditorLayer::DrawFeatureToggles(RenderPath* activePath)
     ImGui::Spacing();
     toggleFlag("IBL Lighting", RenderFlags_IBLBit);
     toggleFlag("Emissive", RenderFlags_EmissiveBit);
-    if (changed && activePath) activePath->OnSceneUpdated();
+    const RenderFlags changedFlags = previousFlags ^ m_RenderFlags;
+    if (activePath)
+    {
+        switch (ClassifyRenderFlagChanges(changedFlags))
+        {
+            case RenderSettingsChangeImpact::GraphRebuild:
+                activePath->RequestGraphRebuild();
+                break;
+            case RenderSettingsChangeImpact::HistoryInvalidation:
+                activePath->InvalidateHistory();
+                break;
+            case RenderSettingsChangeImpact::None:
+                break;
+        }
+    }
 }
 
 void EditorLayer::DrawControlPanelContent(RenderPath* activePath)

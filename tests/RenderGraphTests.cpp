@@ -8,6 +8,7 @@
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/SVGFPass.h"
 #include "Renderer/Pipelines/RenderPath.h"
+#include "Renderer/Pipelines/RenderSettingsChange.h"
 
 #include <array>
 #include <exception>
@@ -67,6 +68,36 @@ void TestHistoryInvalidationDoesNotRequestGraphRebuild()
     path.OnSceneUpdated();
     Require(path.NeedsRebuild(),
             "scene updates must still request a RenderGraph rebuild");
+}
+
+void TestRenderFlagChangeClassification()
+{
+    using Chimera::ClassifyRenderFlagChanges;
+    using Chimera::RenderSettingsChangeImpact;
+
+    Require(ClassifyRenderFlagChanges(Chimera::RenderFlags_None) ==
+                RenderSettingsChangeImpact::None,
+            "unchanged render flags must have no update impact");
+
+    Require(ClassifyRenderFlagChanges(Chimera::RenderFlags_TAABit) ==
+                RenderSettingsChangeImpact::GraphRebuild,
+            "the TAA toggle must rebuild the graph because it adds a pass");
+    Require(ClassifyRenderFlagChanges(Chimera::RenderFlags_SVGFSpatialBit) ==
+                RenderSettingsChangeImpact::GraphRebuild,
+            "SVGF topology toggles must rebuild the graph");
+
+    Require(ClassifyRenderFlagChanges(Chimera::RenderFlags_TAAHighQualityBit) ==
+                RenderSettingsChangeImpact::HistoryInvalidation,
+            "TAA quality changes must only invalidate temporal history");
+    Require(ClassifyRenderFlagChanges(Chimera::RenderFlags_LightBit |
+                                      Chimera::RenderFlags_IBLBit) ==
+                RenderSettingsChangeImpact::HistoryInvalidation,
+            "shader-only lighting flags must only invalidate history");
+
+    Require(ClassifyRenderFlagChanges(Chimera::RenderFlags_TAABit |
+                                      Chimera::RenderFlags_LightBit) ==
+                RenderSettingsChangeImpact::GraphRebuild,
+            "graph rebuild must dominate mixed flag changes");
 }
 
 void TestEmptyGraphCompilesAndExecutesSafely()
@@ -1085,6 +1116,9 @@ int main()
         TestHistoryInvalidationDoesNotRequestGraphRebuild();
         std::cout
             << "[PASS] history invalidation is separate from graph rebuild\n";
+
+        TestRenderFlagChangeClassification();
+        std::cout << "[PASS] render setting changes use the minimum update scope\n";
 
         TestInvalidReadIsRejected();
         std::cout << "[PASS] invalid resource read is rejected\n";
