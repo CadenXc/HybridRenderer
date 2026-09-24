@@ -55,7 +55,8 @@ EditorAutomationController::EditorAutomationController(
 bool EditorAutomationController::IsActive() const
 {
     return m_Options.taaDisocclusionSmokeTest ||
-           m_Options.objectMotionSmokeTest;
+           m_Options.objectMotionSmokeTest ||
+           m_Options.renderPathSmokeTest;
 }
 
 void EditorAutomationController::ConfigureRenderSettings(
@@ -74,6 +75,11 @@ void EditorAutomationController::ConfigureRenderSettings(
         displayMode = DisplayMode::Motion;
         showControlPanel = false;
     }
+    else if (m_Options.renderPathSmokeTest)
+    {
+        displayMode = DisplayMode::Final;
+        showControlPanel = false;
+    }
 }
 
 void EditorAutomationController::Initialize()
@@ -85,6 +91,10 @@ void EditorAutomationController::Initialize()
     else if (m_Options.objectMotionSmokeTest)
     {
         InitializeObjectMotionSmokeTest();
+    }
+    else if (m_Options.renderPathSmokeTest)
+    {
+        InitializeRenderPathSmokeTest();
     }
 }
 
@@ -100,6 +110,7 @@ void EditorAutomationController::UpdateAfterScene(
 {
     UpdateTaaDisocclusionSmokeTest(camera, scene, activePath, sceneReady,
                                    sceneFailed);
+    UpdateRenderPathSmokeTest(scene, activePath, sceneReady, sceneFailed);
 }
 
 void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
@@ -617,6 +628,261 @@ void EditorAutomationController::UpdateTaaDisocclusionSmokeTest(
         }
         case TaaDisocclusionSmokeState::Disabled:
         case TaaDisocclusionSmokeState::Finished:
+            return;
+    }
+}
+
+void EditorAutomationController::InitializeRenderPathSmokeTest()
+{
+    m_RenderPathSmokeOutputDirectory =
+        MakeSmokeOutputDirectory("render-path-smoke-results");
+    m_RenderPathSmokeCapturePaths = {
+        m_RenderPathSmokeOutputDirectory / "forward.png",
+        m_RenderPathSmokeOutputDirectory / "hybrid.png",
+        m_RenderPathSmokeOutputDirectory / "ray-tracing.png"};
+
+    std::error_code directoryError;
+    std::filesystem::create_directories(
+        m_RenderPathSmokeOutputDirectory, directoryError);
+    if (directoryError)
+    {
+        CH_CORE_ERROR("Render path smoke test could not create {}: {}",
+                      m_RenderPathSmokeOutputDirectory.string(),
+                      directoryError.message());
+        m_RenderPathSmokeState = RenderPathSmokeState::Finished;
+        Application::Get().Close();
+        return;
+    }
+
+    m_RenderPathSmokePathIndex = 0;
+    m_RenderPathSmokeState = RenderPathSmokeState::WaitingForScene;
+    m_RenderPathSmokeStateFrameCount = 0;
+    CH_CORE_INFO("Render path smoke test started; output: {}",
+                 m_RenderPathSmokeOutputDirectory.string());
+}
+
+void EditorAutomationController::RequestCurrentRenderPath()
+{
+    const RenderPathType targetPath =
+        m_RenderPathSmokePaths[m_RenderPathSmokePathIndex];
+    Application::Get().SwitchRenderPath(targetPath);
+    m_RenderPathSmokeState = RenderPathSmokeState::WaitingForPath;
+    m_RenderPathSmokeStateFrameCount = 0;
+    CH_CORE_INFO("Render path smoke: requested {} path",
+                 RenderPathTypeToString(targetPath));
+}
+
+void EditorAutomationController::FinishRenderPathSmokeTest(
+    bool passed, const std::string& reason)
+{
+    const std::filesystem::path resultPath =
+        m_RenderPathSmokeOutputDirectory / "result.txt";
+    std::ofstream resultFile(resultPath);
+    if (resultFile)
+    {
+        resultFile << (passed ? "PASS" : "FAIL") << '\n'
+                   << "reason=" << reason << '\n';
+
+        for (size_t index = 0; index < m_RenderPathSmokePaths.size(); ++index)
+        {
+            const char* pathName =
+                RenderPathTypeToString(m_RenderPathSmokePaths[index]);
+            resultFile << pathName << "Capture="
+                       << m_RenderPathSmokeCapturePaths[index].string()
+                       << '\n'
+                       << pathName << "Bytes="
+                       << m_RenderPathSmokeCaptureSizes[index] << '\n';
+
+            if (index > 0 &&
+                m_RenderPathSmokeComparisons[index].success)
+            {
+                resultFile << pathName << "VsForwardDifferentPixels="
+                           << m_RenderPathSmokeComparisons[index]
+                                  .differentPixelCount
+                           << '\n'
+                           << pathName << "VsForwardMaxChannelDifference="
+                           << static_cast<uint32_t>(
+                                  m_RenderPathSmokeComparisons[index]
+                                      .maxChannelDifference)
+                           << '\n'
+                           << pathName << "VsForwardRmse=" << std::fixed
+                           << std::setprecision(6)
+                           << m_RenderPathSmokeComparisons[index].rmse
+                           << '\n';
+            }
+        }
+    }
+
+    if (passed)
+    {
+        CH_CORE_INFO("Render path smoke test PASSED: {}", reason);
+    }
+    else
+    {
+        CH_CORE_ERROR("Render path smoke test FAILED: {}", reason);
+    }
+    CH_CORE_INFO("Render path smoke test result: {}", resultPath.string());
+
+    m_RenderPathSmokeState = RenderPathSmokeState::Finished;
+    Application::Get().Close();
+}
+
+void EditorAutomationController::UpdateRenderPathSmokeTest(
+    Scene* scene, RenderPath* activePath, bool sceneReady, bool sceneFailed)
+{
+    if (m_RenderPathSmokeState == RenderPathSmokeState::Disabled ||
+        m_RenderPathSmokeState == RenderPathSmokeState::Finished)
+    {
+        return;
+    }
+
+    ++m_RenderPathSmokeStateFrameCount;
+    if (m_RenderPathSmokeStateFrameCount > 900)
+    {
+        FinishRenderPathSmokeTest(
+            false, "timed out while waiting for the current test phase");
+        return;
+    }
+
+    if (sceneFailed)
+    {
+        FinishRenderPathSmokeTest(false, "benchmark scene failed to load");
+        return;
+    }
+
+    const bool ready =
+        IsReadyForCapture(scene, activePath, sceneReady, true);
+    const RenderPathType targetPath =
+        m_RenderPathSmokePaths[m_RenderPathSmokePathIndex];
+
+    switch (m_RenderPathSmokeState)
+    {
+        case RenderPathSmokeState::WaitingForScene:
+        {
+            if (!ready)
+            {
+                return;
+            }
+
+            RequestCurrentRenderPath();
+            return;
+        }
+        case RenderPathSmokeState::WaitingForPath:
+        {
+            if (!activePath || activePath->GetType() != targetPath || !ready)
+            {
+                return;
+            }
+
+            m_RenderPathSmokeState = RenderPathSmokeState::WarmingUp;
+            m_RenderPathSmokeWarmupFrameCount = 0;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: {} ready; warming up",
+                         RenderPathTypeToString(targetPath));
+            return;
+        }
+        case RenderPathSmokeState::WarmingUp:
+        {
+            if (!activePath || activePath->GetType() != targetPath)
+            {
+                FinishRenderPathSmokeTest(
+                    false, "active render path changed during warm-up");
+                return;
+            }
+            if (!ready)
+            {
+                return;
+            }
+
+            constexpr uint32_t WarmupFrameCount = 8;
+            ++m_RenderPathSmokeWarmupFrameCount;
+            if (m_RenderPathSmokeWarmupFrameCount < WarmupFrameCount)
+            {
+                return;
+            }
+
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_RenderPathSmokeCapturePaths[
+                        m_RenderPathSmokePathIndex]))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "render path capture request was rejected");
+                return;
+            }
+
+            m_RenderPathSmokeState = RenderPathSmokeState::WaitingForCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: {} capture requested",
+                         RenderPathTypeToString(targetPath));
+            return;
+        }
+        case RenderPathSmokeState::WaitingForCapture:
+        {
+            if (!activePath || activePath->GetType() != targetPath)
+            {
+                FinishRenderPathSmokeTest(
+                    false, "active render path changed before capture completed");
+                return;
+            }
+
+            const std::filesystem::path& capturePath =
+                m_RenderPathSmokeCapturePaths[m_RenderPathSmokePathIndex];
+            if (!std::filesystem::exists(capturePath))
+            {
+                return;
+            }
+
+            std::error_code fileError;
+            const uintmax_t captureSize =
+                std::filesystem::file_size(capturePath, fileError);
+            if (fileError || captureSize == 0)
+            {
+                FinishRenderPathSmokeTest(
+                    false, "render path capture file is empty or unreadable");
+                return;
+            }
+            m_RenderPathSmokeCaptureSizes[m_RenderPathSmokePathIndex] =
+                captureSize;
+
+            ImageComparisonResult comparison;
+            if (m_RenderPathSmokePathIndex == 0)
+            {
+                comparison = ComparePngFiles(
+                    capturePath.string(), capturePath.string());
+            }
+            else
+            {
+                comparison = ComparePngFiles(
+                    m_RenderPathSmokeCapturePaths[0].string(),
+                    capturePath.string());
+            }
+            if (!comparison.success)
+            {
+                FinishRenderPathSmokeTest(false, comparison.error);
+                return;
+            }
+            m_RenderPathSmokeComparisons[m_RenderPathSmokePathIndex] =
+                comparison;
+
+            CH_CORE_INFO(
+                "Render path smoke: {} captured ({} bytes)",
+                RenderPathTypeToString(targetPath), captureSize);
+
+            ++m_RenderPathSmokePathIndex;
+            if (m_RenderPathSmokePathIndex >=
+                m_RenderPathSmokePaths.size())
+            {
+                FinishRenderPathSmokeTest(
+                    true,
+                    "Forward, Hybrid, and RayTracing rendered valid captures");
+                return;
+            }
+
+            RequestCurrentRenderPath();
+            return;
+        }
+        case RenderPathSmokeState::Disabled:
+        case RenderPathSmokeState::Finished:
             return;
     }
 }

@@ -48,6 +48,11 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
         {
             automationOptions.objectMotionSmokeTest = true;
         }
+        else if (std::string_view(argv[argumentIndex]) ==
+                 "--render-path-smoke")
+        {
+            automationOptions.renderPathSmokeTest = true;
+        }
     }
 
     ChimeraApp* app = new ChimeraApp(spec, automationOptions);
