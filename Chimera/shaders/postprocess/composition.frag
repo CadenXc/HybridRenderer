@@ -75,6 +75,31 @@ void main()
     vec3 reflRadiance = texture(gReflection, inUV).rgb;
 
     // --- 4. 调试模式分支 ---
+    if (displayMode == DISPLAY_MODE_SVGF_VARIANCE)
+    {
+        bool varianceAvailable =
+            (renderFlags & RENDER_FLAG_SVGF_BIT) != 0 &&
+            (renderFlags & RENDER_FLAG_SVGF_TEMPORAL_BIT) != 0;
+
+        if (!varianceAvailable)
+        {
+            outFinalColor = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        float shadowVariance = texture(gShadow, inUV).a;
+        float reflectionVariance = texture(gReflection, inUV).a;
+        float giVariance = texture(gGI, inUV).a;
+
+        float variance =
+            max(shadowVariance, max(reflectionVariance, giVariance));
+
+        float visualizedVariance =
+            clamp(sqrt(max(variance, 0.0)) * 4.0, 0.0, 1.0);
+
+        outFinalColor = vec4(vec3(visualizedVariance), 1.0);
+        return;
+    }
     if (displayMode == DISPLAY_MODE_ALBEDO) { outFinalColor = vec4(baseColor, 1.0); return; }
     if (displayMode == DISPLAY_MODE_NORMAL) { outFinalColor = vec4(worldNormal * 0.5 + 0.5, 1.0); return; }
     if (displayMode == DISPLAY_MODE_MATERIAL) { outFinalColor = vec4(matParams.rgb, 1.0); return; }
