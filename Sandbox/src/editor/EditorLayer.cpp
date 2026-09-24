@@ -100,7 +100,7 @@ std::filesystem::path MakeFrameCapturePath()
            filename.str();
 }
 
-std::filesystem::path MakeTaaSmokeOutputDirectory()
+std::filesystem::path MakeSmokeOutputDirectory(const char* rootDirectory)
 {
     const auto now = std::chrono::system_clock::now();
     const std::time_t timestamp = std::chrono::system_clock::to_time_t(now);
@@ -115,7 +115,7 @@ std::filesystem::path MakeTaaSmokeOutputDirectory()
     directoryName << "run-" << std::put_time(&localTime, "%Y%m%d-%H%M%S")
                   << '-' << std::setfill('0') << std::setw(3)
                   << milliseconds.count();
-    return std::filesystem::current_path() / "taa-smoke-results" /
+    return std::filesystem::current_path() / rootDirectory /
            directoryName.str();
 }
 
@@ -238,6 +238,12 @@ EditorLayer::EditorLayer(EditorAutomationOptions automationOptions)
         m_DisplayMode = DisplayMode::TAAHistory;
         m_ShowControlPanel = false;
     }
+    else if (m_AutomationOptions.objectMotionSmokeTest)
+    {
+        m_RenderFlags = RenderFlags_LightBit;
+        m_DisplayMode = DisplayMode::Motion;
+        m_ShowControlPanel = false;
+    }
 
     m_AmbientStrength = 0.0f;
     m_Exposure = 1.0f;
@@ -266,6 +272,10 @@ void EditorLayer::OnAttach()
     if (m_AutomationOptions.taaDisocclusionSmokeTest)
     {
         InitializeTaaDisocclusionSmokeTest();
+    }
+    else if (m_AutomationOptions.objectMotionSmokeTest)
+    {
+        InitializeObjectMotionSmokeTest();
     }
 
         /*
@@ -378,7 +388,8 @@ void EditorLayer::InvalidateBenchmarkScenePreset()
 
 void EditorLayer::InitializeTaaDisocclusionSmokeTest()
 {
-    m_TaaSmokeOutputDirectory = MakeTaaSmokeOutputDirectory();
+    m_TaaSmokeOutputDirectory =
+        MakeSmokeOutputDirectory("taa-smoke-results");
     m_TaaSmokeStableCapturePath =
         m_TaaSmokeOutputDirectory / "stable-history.png";
     m_TaaSmokeMovedCapturePath =
@@ -401,6 +412,257 @@ void EditorLayer::InitializeTaaDisocclusionSmokeTest()
     m_TaaSmokeStateFrameCount = 0;
     CH_CORE_INFO("TAA disocclusion smoke test started; output: {}",
                  m_TaaSmokeOutputDirectory.string());
+}
+
+void EditorLayer::InitializeObjectMotionSmokeTest()
+{
+    m_ObjectMotionSmokeOutputDirectory =
+        MakeSmokeOutputDirectory("object-motion-smoke-results");
+    m_ObjectMotionBaselineCapturePath =
+        m_ObjectMotionSmokeOutputDirectory / "baseline-motion.png";
+    m_ObjectMotionMovedCapturePath =
+        m_ObjectMotionSmokeOutputDirectory / "moved-motion.png";
+    m_ObjectMotionStoppedCapturePath =
+        m_ObjectMotionSmokeOutputDirectory / "stopped-motion.png";
+
+    std::error_code directoryError;
+    std::filesystem::create_directories(
+        m_ObjectMotionSmokeOutputDirectory, directoryError);
+    if (directoryError)
+    {
+        CH_CORE_ERROR("Object motion smoke test could not create {}: {}",
+                      m_ObjectMotionSmokeOutputDirectory.string(),
+                      directoryError.message());
+        m_ObjectMotionSmokeState = ObjectMotionSmokeState::Finished;
+        Application::Get().Close();
+        return;
+    }
+
+    m_ObjectMotionSmokeState = ObjectMotionSmokeState::WaitingForScene;
+    m_ObjectMotionSmokeStateFrameCount = 0;
+    CH_CORE_INFO("Object motion smoke test started; output: {}",
+                 m_ObjectMotionSmokeOutputDirectory.string());
+}
+
+void EditorLayer::FinishObjectMotionSmokeTest(
+    bool passed, const std::string& reason)
+{
+    const std::filesystem::path resultPath =
+        m_ObjectMotionSmokeOutputDirectory / "result.txt";
+    std::ofstream resultFile(resultPath);
+    if (resultFile)
+    {
+        resultFile << (passed ? "PASS" : "FAIL") << '\n'
+                   << "reason=" << reason << '\n'
+                   << "baselineCapture="
+                   << m_ObjectMotionBaselineCapturePath.string() << '\n'
+                   << "movedCapture="
+                   << m_ObjectMotionMovedCapturePath.string() << '\n'
+                   << "movedDifferentPixels="
+                   << m_ObjectMotionMovedComparison.differentPixelCount
+                   << '\n'
+                   << "movedMaxChannelDifference="
+                   << static_cast<uint32_t>(
+                          m_ObjectMotionMovedComparison.maxChannelDifference)
+                   << '\n'
+                   << "movedRmse=" << std::fixed << std::setprecision(6)
+                   << m_ObjectMotionMovedComparison.rmse << '\n'
+                   << "stoppedCapture="
+                   << m_ObjectMotionStoppedCapturePath.string() << '\n'
+                   << "stoppedDifferentPixels="
+                   << m_ObjectMotionStoppedComparison.differentPixelCount
+                   << '\n'
+                   << "stoppedMaxChannelDifference="
+                   << static_cast<uint32_t>(
+                          m_ObjectMotionStoppedComparison.maxChannelDifference)
+                   << '\n'
+                   << "stoppedRmse="
+                   << m_ObjectMotionStoppedComparison.rmse << '\n';
+    }
+
+    if (passed)
+    {
+        CH_CORE_INFO("Object motion smoke test PASSED: {}", reason);
+    }
+    else
+    {
+        CH_CORE_ERROR("Object motion smoke test FAILED: {}", reason);
+    }
+    CH_CORE_INFO("Object motion smoke test result: {}", resultPath.string());
+
+    m_ObjectMotionSmokeState = ObjectMotionSmokeState::Finished;
+    Application::Get().Close();
+}
+
+void EditorLayer::UpdateObjectMotionSmokeTest()
+{
+    if (m_ObjectMotionSmokeState == ObjectMotionSmokeState::Disabled ||
+        m_ObjectMotionSmokeState == ObjectMotionSmokeState::Finished)
+    {
+        return;
+    }
+
+    ++m_ObjectMotionSmokeStateFrameCount;
+    if (m_ObjectMotionSmokeStateFrameCount > 900)
+    {
+        FinishObjectMotionSmokeTest(
+            false, "timed out while waiting for the current test phase");
+        return;
+    }
+
+    RenderPath* activePath = GetRenderPath();
+    Scene* scene = GetActiveSceneRaw();
+    const bool ready =
+        m_BenchmarkSceneState == BenchmarkSceneState::Ready && activePath &&
+        activePath->IsReadyForCapture() &&
+        !ResourceManager::Get().HasPendingModelLoads() && scene &&
+        !scene->GetEntities().empty() && !scene->HasPendingGpuUpdates();
+
+    switch (m_ObjectMotionSmokeState)
+    {
+        case ObjectMotionSmokeState::WaitingForScene:
+        {
+            if (m_BenchmarkSceneState == BenchmarkSceneState::Failed)
+            {
+                FinishObjectMotionSmokeTest(
+                    false, "benchmark scene failed to load");
+                return;
+            }
+            if (!ready)
+            {
+                return;
+            }
+
+            m_ObjectMotionSmokeState = ObjectMotionSmokeState::WarmingUp;
+            m_ObjectMotionSmokeWarmupFrameCount = 0;
+            m_ObjectMotionSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Object motion smoke: scene ready; warming up");
+            return;
+        }
+        case ObjectMotionSmokeState::WarmingUp:
+        {
+            if (!ready)
+            {
+                return;
+            }
+
+            constexpr uint32_t WarmupFrameCount = 8;
+            ++m_ObjectMotionSmokeWarmupFrameCount;
+            if (m_ObjectMotionSmokeWarmupFrameCount < WarmupFrameCount)
+            {
+                return;
+            }
+
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_ObjectMotionBaselineCapturePath))
+            {
+                FinishObjectMotionSmokeTest(
+                    false, "baseline motion capture request was rejected");
+                return;
+            }
+
+            m_ObjectMotionSmokeState =
+                ObjectMotionSmokeState::WaitingForBaselineCapture;
+            m_ObjectMotionSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Object motion smoke: baseline capture requested");
+            return;
+        }
+        case ObjectMotionSmokeState::WaitingForBaselineCapture:
+        {
+            if (!std::filesystem::exists(
+                    m_ObjectMotionBaselineCapturePath))
+            {
+                return;
+            }
+
+            const Entity& entity = scene->GetEntities().front();
+            scene->UpdateEntityTRS(
+                0, entity.transform.position + glm::vec3(0.75f, 0.0f, 0.0f),
+                entity.transform.rotation, entity.transform.scale);
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_ObjectMotionMovedCapturePath))
+            {
+                FinishObjectMotionSmokeTest(
+                    false, "moved motion capture request was rejected");
+                return;
+            }
+
+            m_ObjectMotionSmokeState =
+                ObjectMotionSmokeState::WaitingForMovedCapture;
+            m_ObjectMotionSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Object motion smoke: object moved; capture requested");
+            return;
+        }
+        case ObjectMotionSmokeState::WaitingForMovedCapture:
+        {
+            if (!std::filesystem::exists(m_ObjectMotionMovedCapturePath))
+            {
+                return;
+            }
+
+            m_ObjectMotionMovedComparison = ComparePngFiles(
+                m_ObjectMotionBaselineCapturePath.string(),
+                m_ObjectMotionMovedCapturePath.string(), 2);
+            if (!m_ObjectMotionMovedComparison.success)
+            {
+                FinishObjectMotionSmokeTest(
+                    false, m_ObjectMotionMovedComparison.error);
+                return;
+            }
+
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_ObjectMotionStoppedCapturePath))
+            {
+                FinishObjectMotionSmokeTest(
+                    false, "stopped motion capture request was rejected");
+                return;
+            }
+
+            m_ObjectMotionSmokeState =
+                ObjectMotionSmokeState::WaitingForStoppedCapture;
+            m_ObjectMotionSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Object motion smoke: stopped-frame capture requested");
+            return;
+        }
+        case ObjectMotionSmokeState::WaitingForStoppedCapture:
+        {
+            if (!std::filesystem::exists(m_ObjectMotionStoppedCapturePath))
+            {
+                return;
+            }
+
+            m_ObjectMotionStoppedComparison = ComparePngFiles(
+                m_ObjectMotionBaselineCapturePath.string(),
+                m_ObjectMotionStoppedCapturePath.string(), 2);
+            if (!m_ObjectMotionStoppedComparison.success)
+            {
+                FinishObjectMotionSmokeTest(
+                    false, m_ObjectMotionStoppedComparison.error);
+                return;
+            }
+
+            const bool motionAppeared =
+                m_ObjectMotionMovedComparison.differentPixelCount >= 64 &&
+                m_ObjectMotionMovedComparison.maxChannelDifference >= 8;
+            const bool motionStopped =
+                m_ObjectMotionStoppedComparison.differentPixelCount == 0;
+            if (!motionAppeared || !motionStopped)
+            {
+                FinishObjectMotionSmokeTest(
+                    false,
+                    "motion must appear on the moved frame and return to zero on the next frame");
+                return;
+            }
+
+            FinishObjectMotionSmokeTest(
+                true,
+                "object motion appeared for one frame and returned to zero");
+            return;
+        }
+        case ObjectMotionSmokeState::Disabled:
+        case ObjectMotionSmokeState::Finished:
+            return;
+    }
 }
 
 void EditorLayer::FinishTaaDisocclusionSmokeTest(
@@ -677,7 +939,8 @@ void EditorLayer::OnUpdate(Timestep ts)
         m_PendingCaptureAction == FrameCaptureAction::Regression;
     const bool allowCameraInput =
         !uiHovered && !benchmarkRunning && !captureSequenceRunning &&
-        !m_AutomationOptions.taaDisocclusionSmokeTest;
+        !m_AutomationOptions.taaDisocclusionSmokeTest &&
+        !m_AutomationOptions.objectMotionSmokeTest;
     m_EditorCamera.OnUpdate(ts, allowCameraInput, allowCameraInput);
     const uint32_t temporalFrameIndex =
         captureSequenceRunning ? m_CaptureTemporalFrameIndex++
@@ -685,6 +948,7 @@ void EditorLayer::OnUpdate(Timestep ts)
     m_EditorCamera.UpdateTAAState(temporalFrameIndex,
                                   (m_RenderFlags & RenderFlags_TAABit) != 0);
 
+    UpdateObjectMotionSmokeTest();
     if (auto scene = GetActiveSceneRaw()) scene->OnUpdate(ts.GetSeconds());
     UpdateBenchmarkSceneState();
     UpdateTaaDisocclusionSmokeTest();
@@ -724,7 +988,8 @@ void EditorLayer::OnEvent(Event& e)
 
     if (!ImGui::GetIO().WantCaptureMouse && !benchmarkRunning &&
         !captureSequenceRunning &&
-        !m_AutomationOptions.taaDisocclusionSmokeTest)
+        !m_AutomationOptions.taaDisocclusionSmokeTest &&
+        !m_AutomationOptions.objectMotionSmokeTest)
     {
         m_EditorCamera.OnEvent(e);
     }

@@ -23,6 +23,9 @@ public:
                                 const std::string& path);
     void UpdateEntityTRS(uint32_t index, const glm::vec3& pos,
                          const glm::vec3& rot, const glm::vec3& scale);
+    // Advance transform history once per rendered frame, independently of
+    // how many editor or gameplay updates changed the current transform.
+    void CommitFrameTransforms();
     void RemoveEntity(uint32_t index);
     void OnUpdate(float ts);
     void ClearScene();

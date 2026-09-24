@@ -198,11 +198,18 @@ void Scene::UpdateEntityTRS(uint32_t index, const glm::vec3& pos,
     if (index < m_Entities.size())
     {
         auto& e = m_Entities[index];
-        e.prevTransform = e.transform.GetTransform();
         e.transform.position = pos;
         e.transform.rotation = rot;
         e.transform.scale = scale;
         MarkDirty();
+    }
+}
+
+void Scene::CommitFrameTransforms()
+{
+    for (Entity& entity : m_Entities)
+    {
+        entity.prevTransform = entity.transform.GetTransform();
     }
 }
 

@@ -8,6 +8,7 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Capture/FrameWarmupCounter.h"
 #include "Renderer/Capture/CaptureReadinessTracker.h"
+#include "Renderer/Capture/ImageComparison.h"
 #include "Renderer/Capture/TemporalHistoryAnalysis.h"
 #include "Assets/AssetImporter.h"
 #include <vector>
@@ -23,6 +24,7 @@ namespace Chimera
 struct EditorAutomationOptions
 {
     bool taaDisocclusionSmokeTest = false;
+    bool objectMotionSmokeTest = false;
 };
 
 class EditorLayer : public Layer
@@ -77,6 +79,17 @@ private:
         Finished
     };
 
+    enum class ObjectMotionSmokeState
+    {
+        Disabled,
+        WaitingForScene,
+        WarmingUp,
+        WaitingForBaselineCapture,
+        WaitingForMovedCapture,
+        WaitingForStoppedCapture,
+        Finished
+    };
+
                 // UI Panels (Accept active path as parameter)
     void DrawMenuBar();
     void DrawRenderPathPanel(RenderPath* activePath);
@@ -98,6 +111,10 @@ private:
     void UpdateTaaDisocclusionSmokeTest();
     void FinishTaaDisocclusionSmokeTest(bool passed,
                                         const std::string& reason);
+    void InitializeObjectMotionSmokeTest();
+    void UpdateObjectMotionSmokeTest();
+    void FinishObjectMotionSmokeTest(bool passed,
+                                     const std::string& reason);
 
 private:
     EditorCamera m_EditorCamera;
@@ -166,6 +183,17 @@ private:
     TemporalHistoryDebugStatistics m_TaaSmokeMovedStatistics;
     uint32_t m_TaaSmokeWarmupFrameCount = 0;
     uint32_t m_TaaSmokeStateFrameCount = 0;
+
+    ObjectMotionSmokeState m_ObjectMotionSmokeState =
+        ObjectMotionSmokeState::Disabled;
+    std::filesystem::path m_ObjectMotionSmokeOutputDirectory;
+    std::filesystem::path m_ObjectMotionBaselineCapturePath;
+    std::filesystem::path m_ObjectMotionMovedCapturePath;
+    std::filesystem::path m_ObjectMotionStoppedCapturePath;
+    ImageComparisonResult m_ObjectMotionMovedComparison;
+    ImageComparisonResult m_ObjectMotionStoppedComparison;
+    uint32_t m_ObjectMotionSmokeWarmupFrameCount = 0;
+    uint32_t m_ObjectMotionSmokeStateFrameCount = 0;
 
                 // Resize debounce
     float m_ResizeTimer = 0.0f;

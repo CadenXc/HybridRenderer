@@ -388,6 +388,11 @@ void Application::UpdateGlobalUBO(uint32_t frameIndex)
             m_ResourceManager->GetActiveScene());
         m_ResourceManager->UpdateSceneDescriptorSet(
             m_ResourceManager->GetActiveScene(), frameIndex);
+        // The GPU instance snapshot now contains this frame's current and
+        // previous transforms. Advance CPU history only after that snapshot
+        // has been uploaded so a transform change produces motion for exactly
+        // one rendered frame.
+        m_ResourceManager->GetActiveScene()->CommitFrameTransforms();
     }
 
     m_ResourceManager->UpdateFrameIndex(frameIndex);

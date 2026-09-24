@@ -42,6 +42,11 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
         {
             automationOptions.taaDisocclusionSmokeTest = true;
         }
+        else if (std::string_view(argv[argumentIndex]) ==
+                 "--object-motion-smoke")
+        {
+            automationOptions.objectMotionSmokeTest = true;
+        }
     }
 
     ChimeraApp* app = new ChimeraApp(spec, automationOptions);
