@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "HybridRenderPath.h"
+#include "HybridFallback.h"
 #include <imgui.h>
 #include "Renderer/Backend/VulkanContext.h"
 #include "Renderer/Graph/RenderGraph.h"
@@ -14,7 +15,6 @@
 #include "Renderer/Passes/CompositionPass.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
-#include "Renderer/Passes/StandardPasses.h"
 #include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Renderer/Backend/Renderer.h"
 #include "Core/Application.h"
@@ -56,15 +56,7 @@ void HybridRenderPath::BuildGraph(RenderGraph& graph,
     }
     else
     {
-        VkClearColorValue fullyVisible = {{1.0f, 1.0f, 0.0f, 0.0f}};
-
-        VkClearColorValue black = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-        StandardPasses::AddClearPass(graph, RS::ShadowAO, fullyVisible);
-
-        StandardPasses::AddClearPass(graph, "ReflectionRaw", black);
-
-        StandardPasses::AddClearPass(graph, "GIRaw", black);
+        AddHybridRayTracingFallbacks(graph);
     }
 
     // 3. SVGF Denoising Passes (Conditional)

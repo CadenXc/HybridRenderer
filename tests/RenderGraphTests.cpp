@@ -2,6 +2,7 @@
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Graph/ExecutionContext.h"
+#include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Renderer/Backend/Shader.h"
 #include "Renderer/Passes/CompositionPass.h"
 #include "Renderer/Passes/RTShadowPass.h"
@@ -9,6 +10,7 @@
 #include "Renderer/Passes/SVGFPass.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Pipelines/RenderSettingsChange.h"
+#include "Renderer/Pipelines/HybridFallback.h"
 
 #include <array>
 #include <exception>
@@ -915,6 +917,57 @@ void TestSVGFPassCombinationsCompile()
     }
 }
 
+void TestNoRayTracingFallbackFeedsComposition()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    graph.AddPassRaw<EmptyPassData>(
+        "GBufferProducer",
+        [](EmptyPassData&, Chimera::RenderGraph::PassBuilder& builder)
+        {
+            builder.Write(Chimera::RS::Albedo)
+                .Format(VK_FORMAT_R8G8B8A8_UNORM);
+            builder.Write(Chimera::RS::Normal)
+                .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+            builder.Write(Chimera::RS::MaterialParams)
+                .Format(VK_FORMAT_R8G8B8A8_UNORM);
+            builder.Write(Chimera::RS::Motion)
+                .Format(VK_FORMAT_R16G16_SFLOAT);
+            builder.Write(Chimera::RS::Depth)
+                .Format(VK_FORMAT_D32_SFLOAT);
+            builder.Write(Chimera::RS::Emissive)
+                .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+        },
+        [](const EmptyPassData&, Chimera::RenderGraphRegistry&,
+           VkCommandBuffer) {});
+
+    Chimera::AddHybridRayTracingFallbacks(graph);
+
+    Chimera::CompositionPass::Config config;
+    config.shadowName = Chimera::RS::ShadowAO;
+    config.aoName = Chimera::RS::ShadowAO;
+    config.reflectionName = "ReflectionRaw";
+    config.giName = "GIRaw";
+    graph.AddPass<Chimera::CompositionPass>(config);
+
+    graph.Compile();
+
+    Require(graph.ContainsImage(Chimera::RS::ShadowAO),
+            "no-RT fallback must provide packed shadow and AO");
+    Require(graph.ContainsImage("ReflectionRaw"),
+            "no-RT fallback must provide reflection input");
+    Require(graph.ContainsImage("GIRaw"),
+            "no-RT fallback must provide GI input");
+    Require(graph.ContainsImage(Chimera::RS::FinalColor),
+            "Composition must produce final color from fallback inputs");
+
+    const auto& dependencies = graph.GetPassDependencies();
+    Require(dependencies.size() == 5,
+            "no-RT fallback graph must contain GBuffer, three clears, and Composition");
+    Require(dependencies.back().size() == 4,
+            "Composition must wait for GBuffer and all three fallback producers");
+}
+
 void TestMissingHistoryReadIsRejected()
 {
     Chimera::RenderGraph graph(1280, 720);
@@ -1258,6 +1311,9 @@ int main()
 
         TestSVGFPassCombinationsCompile();
         std::cout << "[PASS] all SVGF temporal/spatial combinations compile\n";
+
+        TestNoRayTracingFallbackFeedsComposition();
+        std::cout << "[PASS] no-RT fallback feeds Composition\n";
 
         TestMissingHistoryReadIsRejected();
         std::cout << "[PASS] missing required history is rejected\n";
