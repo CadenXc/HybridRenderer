@@ -7,6 +7,7 @@
 #include "Renderer/Passes/RTShadowPass.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/SVGFPass.h"
+#include "Renderer/Pipelines/RenderPath.h"
 
 #include <array>
 #include <exception>
@@ -28,6 +29,45 @@ public:
     using ExecutionContext::ResolveNamedImageBinding;
     using ExecutionContext::UsesNamedBindings;
 };
+
+class TestRenderPath : public Chimera::RenderPath
+{
+public:
+    TestRenderPath() : RenderPath({})
+    {
+        m_RenderGraph = std::make_unique<Chimera::RenderGraph>(1280, 720);
+        m_NeedsRebuild = false;
+    }
+
+    Chimera::RenderPathType GetType() const override
+    {
+        return Chimera::RenderPathType::Forward;
+    }
+
+    bool NeedsRebuild() const
+    {
+        return m_NeedsRebuild;
+    }
+
+protected:
+    void BuildGraph(Chimera::RenderGraph&,
+                    std::shared_ptr<Chimera::Scene>) override
+    {
+    }
+};
+
+void TestHistoryInvalidationDoesNotRequestGraphRebuild()
+{
+    TestRenderPath path;
+
+    path.InvalidateHistory();
+    Require(!path.NeedsRebuild(),
+            "history invalidation must not request a RenderGraph rebuild");
+
+    path.OnSceneUpdated();
+    Require(path.NeedsRebuild(),
+            "scene updates must still request a RenderGraph rebuild");
+}
 
 void TestEmptyGraphCompilesAndExecutesSafely()
 {
@@ -1041,6 +1081,10 @@ int main()
     {
         TestEmptyGraphCompilesAndExecutesSafely();
         std::cout << "[PASS] empty graph compiles and executes safely\n";
+
+        TestHistoryInvalidationDoesNotRequestGraphRebuild();
+        std::cout
+            << "[PASS] history invalidation is separate from graph rebuild\n";
 
         TestInvalidReadIsRejected();
         std::cout << "[PASS] invalid resource read is rejected\n";

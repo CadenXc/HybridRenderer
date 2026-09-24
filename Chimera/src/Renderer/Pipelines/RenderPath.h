@@ -34,7 +34,7 @@ public:
     virtual void OnImGui() {}
     virtual void OnSceneUpdated()
     {
-        InvalidateHistory();
+        RequestGraphRebuild();
     }
 
     Scene* GetScene() const
@@ -63,7 +63,15 @@ public:
 
     void InvalidateHistory()
     {
-       m_NeedsRebuild = true;
+        if (m_RenderGraph)
+        {
+            m_RenderGraph->InvalidateHistory();
+        }
+    }
+
+    void RequestGraphRebuild()
+    {
+        m_NeedsRebuild = true;
     }
 
     bool HasUsableHistory(const std::string& name) const

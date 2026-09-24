@@ -28,6 +28,7 @@ struct HistoryResource
 {
     GraphImage image;
     ResourceState state;
+    bool valid = false;
 };
 
 class RenderGraph
@@ -253,6 +254,7 @@ public:
 
     bool ContainsImage(const std::string& name);
     bool HasHistory(const std::string& name) const;
+    void InvalidateHistory();
     const GraphImage& GetImage(const std::string& name) const;
 
     std::vector<std::string> GetDebuggableResources() const;

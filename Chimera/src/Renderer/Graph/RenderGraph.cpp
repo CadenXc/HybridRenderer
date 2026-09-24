@@ -836,7 +836,7 @@ RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name)
 
 RGResourceHandle RenderGraph::PassBuilder::ReadHistory(const std::string& name, const std::string& bindingName)
 {
-    if (graph.m_HistoryResources.count(name))
+    if (graph.HasHistory(name))
     {
         std::string historyName = "History_" + name;
 
@@ -1288,7 +1288,16 @@ bool RenderGraph::ContainsImage(const std::string& name)
 
 bool RenderGraph::HasHistory(const std::string& name) const
 {
-    return m_HistoryResources.count(name);
+    const auto history = m_HistoryResources.find(name);
+    return history != m_HistoryResources.end() && history->second.valid;
+}
+
+void RenderGraph::InvalidateHistory()
+{
+    for (auto& entry : m_HistoryResources)
+    {
+        entry.second.valid = false;
+    }
 }
 
 std::vector<std::string> RenderGraph::GetDebuggableResources() const
@@ -1430,7 +1439,8 @@ void RenderGraph::UpdatePersistentResources(VkCommandBuffer cmd)
                 m_HistoryResources[res.historyName] = {
                     historyImg,
                     {VK_IMAGE_LAYOUT_UNDEFINED, VK_ACCESS_2_NONE,
-                     VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT}};
+                     VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT},
+                    false};
             }
 
             auto& histRecord = m_HistoryResources[res.historyName];
@@ -1519,6 +1529,7 @@ void RenderGraph::UpdatePersistentResources(VkCommandBuffer cmd)
             histRecord.state = {postDstB.newLayout, VK_ACCESS_2_SHADER_READ_BIT,
                                 VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
                                     VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT};
+            histRecord.valid = true;
         }
         else if (!res.image.is_external && !isDepth &&
                  res.currentState.layout !=
