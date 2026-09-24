@@ -13,6 +13,10 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/src" PREFIX "Source Files" FILES 
 
 add_executable(Sandbox ${SOURCES})
 
+target_include_directories(Sandbox PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
+
 # Link Engine
 target_link_libraries(Sandbox PRIVATE Chimera)
 

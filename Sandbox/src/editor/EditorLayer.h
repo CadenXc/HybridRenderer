@@ -8,8 +8,7 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Capture/FrameWarmupCounter.h"
 #include "Renderer/Capture/CaptureReadinessTracker.h"
-#include "Renderer/Capture/ImageComparison.h"
-#include "Renderer/Capture/TemporalHistoryAnalysis.h"
+#include "automation/EditorAutomationController.h"
 #include "Assets/AssetImporter.h"
 #include <vector>
 #include <string>
@@ -20,12 +19,6 @@
 
 namespace Chimera
 {
-
-struct EditorAutomationOptions
-{
-    bool taaDisocclusionSmokeTest = false;
-    bool objectMotionSmokeTest = false;
-};
 
 class EditorLayer : public Layer
 {
@@ -69,27 +62,6 @@ private:
         Regression
     };
 
-    enum class TaaDisocclusionSmokeState
-    {
-        Disabled,
-        WaitingForScene,
-        WarmingUp,
-        WaitingForStableCapture,
-        WaitingForMovedCapture,
-        Finished
-    };
-
-    enum class ObjectMotionSmokeState
-    {
-        Disabled,
-        WaitingForScene,
-        WarmingUp,
-        WaitingForBaselineCapture,
-        WaitingForMovedCapture,
-        WaitingForStoppedCapture,
-        Finished
-    };
-
                 // UI Panels (Accept active path as parameter)
     void DrawMenuBar();
     void DrawRenderPathPanel(RenderPath* activePath);
@@ -107,14 +79,6 @@ private:
     void InvalidateBenchmarkScenePreset();
     void UpdateFrameCaptureWarmup();
     void UpdateFrameCaptureReadiness();
-    void InitializeTaaDisocclusionSmokeTest();
-    void UpdateTaaDisocclusionSmokeTest();
-    void FinishTaaDisocclusionSmokeTest(bool passed,
-                                        const std::string& reason);
-    void InitializeObjectMotionSmokeTest();
-    void UpdateObjectMotionSmokeTest();
-    void FinishObjectMotionSmokeTest(bool passed,
-                                     const std::string& reason);
 
 private:
     EditorCamera m_EditorCamera;
@@ -173,27 +137,7 @@ private:
     float m_AllowedRmse = 1.0f;
     int m_DifferenceAmplification = 8;
 
-    EditorAutomationOptions m_AutomationOptions;
-    TaaDisocclusionSmokeState m_TaaSmokeState =
-        TaaDisocclusionSmokeState::Disabled;
-    std::filesystem::path m_TaaSmokeOutputDirectory;
-    std::filesystem::path m_TaaSmokeStableCapturePath;
-    std::filesystem::path m_TaaSmokeMovedCapturePath;
-    TemporalHistoryDebugStatistics m_TaaSmokeStableStatistics;
-    TemporalHistoryDebugStatistics m_TaaSmokeMovedStatistics;
-    uint32_t m_TaaSmokeWarmupFrameCount = 0;
-    uint32_t m_TaaSmokeStateFrameCount = 0;
-
-    ObjectMotionSmokeState m_ObjectMotionSmokeState =
-        ObjectMotionSmokeState::Disabled;
-    std::filesystem::path m_ObjectMotionSmokeOutputDirectory;
-    std::filesystem::path m_ObjectMotionBaselineCapturePath;
-    std::filesystem::path m_ObjectMotionMovedCapturePath;
-    std::filesystem::path m_ObjectMotionStoppedCapturePath;
-    ImageComparisonResult m_ObjectMotionMovedComparison;
-    ImageComparisonResult m_ObjectMotionStoppedComparison;
-    uint32_t m_ObjectMotionSmokeWarmupFrameCount = 0;
-    uint32_t m_ObjectMotionSmokeStateFrameCount = 0;
+    EditorAutomationController m_Automation;
 
                 // Resize debounce
     float m_ResizeTimer = 0.0f;

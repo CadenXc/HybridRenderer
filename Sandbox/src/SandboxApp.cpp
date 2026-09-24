@@ -1,5 +1,6 @@
 #include "Chimera.h"
 #include "Core/EntryPoint.h"
+#include "automation/EditorAutomationController.h"
 #include "editor/EditorLayer.h"
 
 #include <string_view>
