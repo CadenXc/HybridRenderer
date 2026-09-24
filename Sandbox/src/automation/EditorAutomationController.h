@@ -2,6 +2,7 @@
 
 #include "Renderer/Backend/ShaderCommon.h"
 #include "Renderer/Capture/ImageComparison.h"
+#include "Renderer/Capture/MotionDebugAnalysis.h"
 #include "Renderer/Capture/TemporalHistoryAnalysis.h"
 #include "Renderer/ChimeraCommon.h"
 
@@ -116,6 +117,8 @@ private:
     std::filesystem::path m_ObjectMotionStoppedCapturePath;
     ImageComparisonResult m_ObjectMotionMovedComparison;
     ImageComparisonResult m_ObjectMotionStoppedComparison;
+    MotionDebugStatistics m_ObjectMotionMovedStatistics;
+    MotionDebugStatistics m_ObjectMotionStoppedStatistics;
     uint32_t m_ObjectMotionSmokeWarmupFrameCount = 0;
     uint32_t m_ObjectMotionSmokeStateFrameCount = 0;
 

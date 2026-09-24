@@ -6,6 +6,7 @@
 #include "Renderer/Backend/Shader.h"
 #include "Renderer/Passes/CompositionPass.h"
 #include "Renderer/Passes/RTShadowPass.h"
+#include "Renderer/Passes/SkyboxPass.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/SVGFPass.h"
 #include "Renderer/Pipelines/RenderPath.h"
@@ -100,6 +101,63 @@ void TestRenderFlagChangeClassification()
                                       Chimera::RenderFlags_LightBit) ==
                 RenderSettingsChangeImpact::GraphRebuild,
             "graph rebuild must dominate mixed flag changes");
+}
+
+void TestAttachmentClearIntentIsExplicit()
+{
+    Chimera::RenderGraph graph(1280, 720);
+    Chimera::RenderGraphPass pass;
+    Chimera::RenderGraph::PassBuilder builder(graph, pass);
+
+    auto output = builder.Write(Chimera::RS::FinalColor)
+                      .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+
+    Require(pass.outputs.size() == 1,
+            "color output declaration must be preserved");
+    Require(!pass.outputs[0].clearRequested,
+            "a color write must load existing contents unless Clear is requested");
+
+    output.Clear({0.1f, 0.2f, 0.3f, 1.0f});
+    Require(pass.outputs[0].clearRequested,
+            "Clear must explicitly mark the attachment for clearing");
+}
+
+void TestSkyboxPreservesGeometryAndBindsDepth()
+{
+    Chimera::RenderGraph graph(1280, 720);
+
+    Chimera::RenderGraphPass producerPass;
+    Chimera::RenderGraph::PassBuilder producerBuilder(graph, producerPass);
+    const Chimera::RGResourceHandle finalColor =
+        producerBuilder.Write(Chimera::RS::FinalColor)
+            .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
+    const Chimera::RGResourceHandle depth =
+        producerBuilder.Write(Chimera::RS::Depth)
+            .Format(VK_FORMAT_D32_SFLOAT);
+
+    Chimera::RenderGraphPass skyboxGraphPass;
+    skyboxGraphPass.name = "SkyboxPass";
+    Chimera::RenderGraph::PassBuilder skyboxBuilder(graph, skyboxGraphPass);
+    Chimera::SkyboxPass skyboxPass;
+    Chimera::SkyboxPassData data{};
+    skyboxPass.Setup(data, skyboxBuilder);
+
+    Require(skyboxGraphPass.inputs.size() == 1,
+            "Skybox must sample the scene depth");
+    Require(data.depth == depth,
+            "Skybox must preserve the scene depth handle");
+    Require(skyboxGraphPass.inputs[0].bindingName == "gDepth",
+            "Skybox depth must bind to gDepth");
+    Require(skyboxGraphPass.inputs[0].usage ==
+                Chimera::ResourceUsage::GraphicsSampled,
+            "Skybox depth must be sampled by the fragment shader");
+
+    Require(skyboxGraphPass.outputs.size() == 1,
+            "Skybox must declare one color output");
+    Require(data.output == finalColor,
+            "Skybox must write the existing final color image");
+    Require(!skyboxGraphPass.outputs[0].clearRequested,
+            "Skybox must load Forward color instead of clearing geometry");
 }
 
 void TestEmptyGraphCompilesAndExecutesSafely()
@@ -1249,6 +1307,12 @@ int main()
 
         TestRenderFlagChangeClassification();
         std::cout << "[PASS] render setting changes use the minimum update scope\n";
+
+        TestAttachmentClearIntentIsExplicit();
+        std::cout << "[PASS] attachment clear intent is explicit\n";
+
+        TestSkyboxPreservesGeometryAndBindsDepth();
+        std::cout << "[PASS] Skybox preserves geometry and binds depth\n";
 
         TestInvalidReadIsRejected();
         std::cout << "[PASS] invalid resource read is rejected\n";

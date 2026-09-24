@@ -8,6 +8,7 @@ namespace Chimera
 {
 void SkyboxPass::Setup(SkyboxPassData& data, RenderGraph::PassBuilder& builder)
 {
+    data.depth = builder.Read(RS::Depth, "gDepth");
     data.output =
         builder.Write(RS::FinalColor).Format(VK_FORMAT_R16G16B16A16_SFLOAT);
 }
@@ -23,6 +24,7 @@ void SkyboxPass::Execute(const SkyboxPassData& data, RenderGraphRegistry& reg,
     desc.fragment_shader = "Skybox_Frag";
     desc.depth_test = false;
     desc.depth_write = false;
+    desc.cull_mode = VK_CULL_MODE_NONE;
 
     ctx.BindPipeline(desc);
 

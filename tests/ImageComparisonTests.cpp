@@ -2,6 +2,7 @@
 #include "Renderer/Capture/ImageRegression.h"
 #include "Renderer/Capture/FrameWarmupCounter.h"
 #include "Renderer/Capture/CaptureReadinessTracker.h"
+#include "Renderer/Capture/MotionDebugAnalysis.h"
 #include "Renderer/Capture/TemporalHistoryAnalysis.h"
 #include "Scene/EditorCamera.h"
 
@@ -429,6 +430,37 @@ void TestTemporalHistoryRejectsInvalidByteCount()
     Require(!result.error.empty(),
             "invalid temporal history analysis did not explain the error");
 }
+
+void TestMotionDebugColorsAreClassified()
+{
+    const std::vector<uint8_t> pixels = {
+        220, 8, 7, 255, 12, 230, 10, 255,
+        80, 80, 80, 255, 8, 10, 220, 255};
+
+    const Chimera::MotionDebugStatistics result =
+        Chimera::AnalyzeMotionDebugRgba8(pixels, 4, 1);
+
+    Require(result.success, "valid motion debug pixels were rejected");
+    Require(result.horizontalMotionPixelCount == 1,
+            "red-dominant horizontal motion pixel was not classified");
+    Require(result.verticalMotionPixelCount == 1,
+            "green-dominant vertical motion pixel was not classified");
+    Require(result.neutralPixelCount == 2,
+            "neutral and blue pixels must not be classified as motion");
+    Require(result.GetMotionPixelCount() == 2,
+            "motion pixel total is incorrect");
+}
+
+void TestMotionDebugRejectsInvalidByteCount()
+{
+    const Chimera::MotionDebugStatistics result =
+        Chimera::AnalyzeMotionDebugRgba8({255, 0, 0, 255}, 2, 1);
+
+    Require(!result.success,
+            "motion debug analysis accepted an invalid byte count");
+    Require(!result.error.empty(),
+            "invalid motion debug analysis did not explain the error");
+}
 } // namespace
 
 int main()
@@ -491,6 +523,12 @@ int main()
 
         TestTemporalHistoryRejectsInvalidByteCount();
         std::cout << "[PASS] temporal history rejects invalid byte count\n";
+
+        TestMotionDebugColorsAreClassified();
+        std::cout << "[PASS] motion debug colors are classified\n";
+
+        TestMotionDebugRejectsInvalidByteCount();
+        std::cout << "[PASS] motion debug rejects invalid byte count\n";
 
         return 0;
     }

@@ -50,7 +50,7 @@ void main()
             vec3 viewDir = normalize((camera.viewInverse * camera.projInverse * vec4(inUV * 2.0 - 1.0, 0.0, 1.0)).xyz);
             outFinalColor = vec4(texture(textureArray[nonuniformEXT(skyIdx)], SampleEquirectangular(viewDir)).rgb, 1.0);
         } else {
-            outFinalColor = vec4(0.0, 0.0, 0.0, 1.0);
+            outFinalColor = gpuClearColor;
         }
         return;
     }

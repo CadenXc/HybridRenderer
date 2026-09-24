@@ -194,6 +194,9 @@ void EditorAutomationController::FinishObjectMotionSmokeTest(
                    << '\n'
                    << "movedRmse=" << std::fixed << std::setprecision(6)
                    << m_ObjectMotionMovedComparison.rmse << '\n'
+                   << "movedMotionPixels="
+                   << m_ObjectMotionMovedStatistics.GetMotionPixelCount()
+                   << '\n'
                    << "stoppedCapture="
                    << m_ObjectMotionStoppedCapturePath.string() << '\n'
                    << "stoppedDifferentPixels="
@@ -204,7 +207,10 @@ void EditorAutomationController::FinishObjectMotionSmokeTest(
                           m_ObjectMotionStoppedComparison.maxChannelDifference)
                    << '\n'
                    << "stoppedRmse="
-                   << m_ObjectMotionStoppedComparison.rmse << '\n';
+                   << m_ObjectMotionStoppedComparison.rmse << '\n'
+                   << "stoppedMotionPixels="
+                   << m_ObjectMotionStoppedStatistics.GetMotionPixelCount()
+                   << '\n';
     }
 
     if (passed)
@@ -333,6 +339,15 @@ void EditorAutomationController::UpdateObjectMotionSmokeTest(
                 return;
             }
 
+            m_ObjectMotionMovedStatistics = AnalyzeMotionDebugPng(
+                m_ObjectMotionMovedCapturePath.string());
+            if (!m_ObjectMotionMovedStatistics.success)
+            {
+                FinishObjectMotionSmokeTest(
+                    false, m_ObjectMotionMovedStatistics.error);
+                return;
+            }
+
             if (!Renderer::Get().RequestFrameCapture(
                     m_ObjectMotionStoppedCapturePath))
             {
@@ -364,11 +379,19 @@ void EditorAutomationController::UpdateObjectMotionSmokeTest(
                 return;
             }
 
+            m_ObjectMotionStoppedStatistics = AnalyzeMotionDebugPng(
+                m_ObjectMotionStoppedCapturePath.string());
+            if (!m_ObjectMotionStoppedStatistics.success)
+            {
+                FinishObjectMotionSmokeTest(
+                    false, m_ObjectMotionStoppedStatistics.error);
+                return;
+            }
+
             const bool motionAppeared =
-                m_ObjectMotionMovedComparison.differentPixelCount >= 64 &&
-                m_ObjectMotionMovedComparison.maxChannelDifference >= 8;
+                m_ObjectMotionMovedStatistics.GetMotionPixelCount() >= 64;
             const bool motionStopped =
-                m_ObjectMotionStoppedComparison.differentPixelCount == 0;
+                m_ObjectMotionStoppedStatistics.GetMotionPixelCount() == 0;
             if (!motionAppeared || !motionStopped)
             {
                 FinishObjectMotionSmokeTest(

@@ -5,10 +5,16 @@
 layout(location = 0) in vec2 inUV;
 layout(location = 0) out vec4 outColor;
 
+layout(set = 2, binding = 0) uniform sampler2D gDepth;
+
 void main() 
 {
-    // Sample from Depth Buffer to only draw on empty pixels
-    // Reversed-Z: 0.0 is background
+    // Reversed-Z: depth 0 is the far-plane background. Preserve geometry
+    // already written by ForwardPass and fill only empty pixels.
+    if (texture(gDepth, inUV).r > 0.0001)
+    {
+        discard;
+    }
     
     int skyIdx = int(envData.x);
     if (skyIdx >= 0 && (frameData.w & RENDER_FLAG_IBL_BIT) != 0)

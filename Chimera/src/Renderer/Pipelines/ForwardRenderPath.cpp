@@ -20,6 +20,7 @@ void ForwardRenderPath::BuildGraph(RenderGraph& graph,
                                    std::shared_ptr<Scene> scene)
 {
     graph.AddPass<ForwardPass>(scene);
+    graph.AddPass<SkyboxPass>();
 
     const bool taaEnabled =
         Application::Get().GetFrameContext().RenderFlags & RenderFlags_TAABit;

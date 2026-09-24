@@ -1038,6 +1038,7 @@ ResourceHandleProxy& ResourceHandleProxy::Clear(const VkClearColorValue& c)
         if (out.handle == handle)
         {
             out.clearValue.color = c;
+            out.clearRequested = true;
         }
     }
     return *this;
@@ -1050,6 +1051,7 @@ ResourceHandleProxy& ResourceHandleProxy::ClearDepthStencil(float d, uint32_t s)
         if (out.handle == handle)
         {
             out.clearValue.depthStencil = {d, s};
+            out.clearRequested = true;
         }
     }
     return *this;
@@ -1347,15 +1349,8 @@ bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd,
         if (req.usage == ResourceUsage::ColorAttachment)
         {
             PhysicalResource& res = m_Resources[req.handle];
-            bool hasClear =
-                (req.clearValue.color.float32[0] != 0.0f ||
-                 req.clearValue.color.float32[1] != 0.0f ||
-                 req.clearValue.color.float32[2] != 0.0f ||
-                 req.clearValue.color.float32[3] != 0.0f ||
-                 res.name == RS::Motion || res.name == RS::FinalColor ||
-                 res.name == RS::Albedo);
-
-            VkAttachmentLoadOp loadOp = (res.firstPass == passIdx || hasClear)
+            VkAttachmentLoadOp loadOp =
+                (res.firstPass == passIdx || req.clearRequested)
                                             ? VK_ATTACHMENT_LOAD_OP_CLEAR
                                             : VK_ATTACHMENT_LOAD_OP_LOAD;
 
@@ -1380,7 +1375,8 @@ bool RenderGraph::BeginDynamicRendering(VkCommandBuffer cmd,
             if (req.usage == ResourceUsage::DepthStencilWrite)
             {
                 PhysicalResource& res = m_Resources[req.handle];
-                VkAttachmentLoadOp loadOp = (res.firstPass == passIdx)
+                VkAttachmentLoadOp loadOp =
+                    (res.firstPass == passIdx || req.clearRequested)
                                                 ? VK_ATTACHMENT_LOAD_OP_CLEAR
                                                 : VK_ATTACHMENT_LOAD_OP_LOAD;
                 depthAtt = {

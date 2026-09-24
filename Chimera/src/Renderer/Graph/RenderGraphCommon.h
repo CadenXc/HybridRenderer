@@ -46,6 +46,7 @@ struct ResourceRequest
     ResourceUsage usage;
     uint32_t binding = 0xFFFFFFFF;
     VkClearValue clearValue = {{0, 0, 0, 1}};
+    bool clearRequested = false;
     std::string name;
     std::string bindingName;
 };

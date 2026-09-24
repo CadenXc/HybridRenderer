@@ -8,6 +8,7 @@ namespace Chimera
 {
 struct SkyboxPassData
 {
+    RGResourceHandle depth;
     RGResourceHandle output;
 };
 
