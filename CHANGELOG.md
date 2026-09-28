@@ -5,6 +5,8 @@ semantic versioning once a release is tagged.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-28
+
 ### Added
 
 - GPU smoke coverage for TAA history across camera motion, camera cuts,

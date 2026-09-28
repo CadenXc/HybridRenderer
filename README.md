@@ -44,11 +44,10 @@ GPU, or feature combination has been exhaustively validated.
 
 For the current validation scope and the remaining release gates, see the
 [v0.1 release checklist](RELEASE_CHECKLIST.md).
-The work-in-progress Hybrid denoising milestone is tracked in the
-[v0.2 release-candidate checklist](V0.2_CHECKLIST.md).
-The local v0.2 candidate passes the listed build, shader, unit-test, and GPU
-smoke gates on one RTX 5070 Ti; it is not a tagged release or a portability
-claim. Windows CI still needs to run after the candidate is pushed.
+The v0.2.0 Hybrid denoising milestone and its evidence boundaries are recorded
+in the [v0.2 checklist](V0.2_CHECKLIST.md). The local GPU smoke gates were
+exercised on one RTX 5070 Ti; this is not a portability claim. Windows CI
+builds and runs CPU-side tests but does not execute the renderer on a cloud GPU.
 
 ## Rendering Architecture
 
