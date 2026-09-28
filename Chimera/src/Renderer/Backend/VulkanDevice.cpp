@@ -88,14 +88,16 @@ VulkanDevice::~VulkanDevice()
 void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
 {
     uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    VK_CHECK(vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr));
     if (deviceCount == 0)
     {
         throw std::runtime_error("failed to find GPUs with Vulkan support!");
     }
 
     std::vector<VkPhysicalDevice> devices(deviceCount);
-    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+    VK_CHECK(vkEnumeratePhysicalDevices(instance, &deviceCount,
+                                        devices.data()));
+    devices.resize(deviceCount);
 
     std::multimap<int, VkPhysicalDevice> candidates;
     for (const auto& device : devices)
@@ -109,13 +111,14 @@ void VulkanDevice::PickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface)
         m_PhysicalDevice = candidates.rbegin()->second;
         vkGetPhysicalDeviceProperties(m_PhysicalDevice, &m_DeviceProperties);
 
-        uint32_t extensionCount;
-        vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr,
-                                             &extensionCount, nullptr);
+        uint32_t extensionCount = 0;
+        VK_CHECK(vkEnumerateDeviceExtensionProperties(
+            m_PhysicalDevice, nullptr, &extensionCount, nullptr));
         std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-        vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr,
-                                             &extensionCount,
-                                             availableExtensions.data());
+        VK_CHECK(vkEnumerateDeviceExtensionProperties(
+            m_PhysicalDevice, nullptr, &extensionCount,
+            availableExtensions.data()));
+        availableExtensions.resize(extensionCount);
 
         std::set<std::string> optional;
         for (auto ext : optionalDeviceExtensions)
@@ -512,8 +515,8 @@ QueueFamilyIndices VulkanDevice::FindQueueFamilies(VkPhysicalDevice device,
         }
 
         VkBool32 presentSupport = false;
-        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface,
-                                             &presentSupport);
+        VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(
+            device, i, surface, &presentSupport));
         if (presentSupport)
         {
             indices.presentFamily = i;

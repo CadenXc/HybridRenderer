@@ -149,10 +149,12 @@ void VulkanInstance::SetupDebugMessenger()
 
 bool VulkanInstance::CheckValidationLayerSupport()
 {
-    uint32_t layerCount;
-    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    uint32_t layerCount = 0;
+    VK_CHECK(vkEnumerateInstanceLayerProperties(&layerCount, nullptr));
     std::vector<VkLayerProperties> availableLayers(layerCount);
-    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+    VK_CHECK(vkEnumerateInstanceLayerProperties(&layerCount,
+                                                availableLayers.data()));
+    availableLayers.resize(layerCount);
 
     for (const char* layerName : validationLayers)
     {
@@ -178,6 +180,10 @@ std::vector<const char*> VulkanInstance::GetRequiredExtensions()
     uint32_t glfwExtensionCount = 0;
     const char** glfwExtensions =
         glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    if (glfwExtensions == nullptr || glfwExtensionCount == 0)
+        throw std::runtime_error(
+            "GLFW did not provide required Vulkan instance extensions");
+
     std::vector<const char*> extensions(glfwExtensions,
                                         glfwExtensions + glfwExtensionCount);
     extensions.push_back(
