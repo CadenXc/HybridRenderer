@@ -80,6 +80,13 @@ public:
         bool spatialEnabled = true;
         bool useAlbedoDemod =
             true; // [NEW] Whether to divide by Albedo before denoising
+
+        // Only the temporal shader demodulates the signal. Spatial-only
+        // filtering receives the raw signal and must not multiply albedo.
+        bool ShouldRemodulateAlbedo() const
+        {
+            return temporalEnabled && useAlbedoDemod;
+        }
     };
 
         /**

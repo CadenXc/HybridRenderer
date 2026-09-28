@@ -1104,6 +1104,31 @@ void TestSVGFPassCombinationsCompile()
     }
 }
 
+void TestSVGFRemodulationMatchesDemodulation()
+{
+    Chimera::SVGFPass::Config config;
+    config.useAlbedoDemod = true;
+
+    config.temporalEnabled = true;
+    config.spatialEnabled = true;
+    Require(config.ShouldRemodulateAlbedo(),
+            "temporal plus spatial filtering must restore albedo");
+
+    config.spatialEnabled = false;
+    Require(config.ShouldRemodulateAlbedo(),
+            "temporal-only filtering must restore albedo");
+
+    config.temporalEnabled = false;
+    config.spatialEnabled = true;
+    Require(!config.ShouldRemodulateAlbedo(),
+            "spatial-only filtering must not multiply raw radiance by albedo");
+
+    config.temporalEnabled = true;
+    config.useAlbedoDemod = false;
+    Require(!config.ShouldRemodulateAlbedo(),
+            "signals that were not demodulated must not be remodulated");
+}
+
 void TestNoRayTracingFallbackFeedsComposition()
 {
     Chimera::RenderGraph graph(1280, 720);
@@ -1513,6 +1538,9 @@ int main()
 
         TestSVGFPassCombinationsCompile();
         std::cout << "[PASS] all SVGF temporal/spatial combinations compile\n";
+
+        TestSVGFRemodulationMatchesDemodulation();
+        std::cout << "[PASS] SVGF remodulation follows temporal demodulation\n";
 
         TestNoRayTracingFallbackFeedsComposition();
         std::cout << "[PASS] no-RT fallback feeds Composition\n";

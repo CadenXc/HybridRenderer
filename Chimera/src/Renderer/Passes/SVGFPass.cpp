@@ -176,7 +176,7 @@ void SVGFCombinePass::Setup(SVGFCombineData& data,
 void SVGFCombinePass::Execute(const SVGFCombineData& data,
                               ComputeExecutionContext& ctx)
 {
-    int remod = m_Config.useAlbedoDemod ? 1 : 0;
+    int remod = m_Config.ShouldRemodulateAlbedo() ? 1 : 0;
     ctx.BindPipeline("SVGF_Combine");
     ctx.PushConstants(VK_SHADER_STAGE_ALL, remod);
     ctx.Dispatch("SVGF_Combine", (ctx.GetGraph().GetWidth() + 15) / 16,
