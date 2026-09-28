@@ -163,7 +163,6 @@ GraphicsPipeline& PipelineManager::GetGraphicsPipeline(
 
     bool isFullscreen =
         (desc.name == "Composition" || desc.name == "FinalBlit" ||
-         desc.name == "LinearizeDepth" ||
          desc.vertex_shader.find("fullscreen") != std::string::npos ||
          desc.vertex_shader.find("Fullscreen") != std::string::npos);
 
