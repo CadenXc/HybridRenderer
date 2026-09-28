@@ -32,30 +32,6 @@ void AddLinearizeDepthPass(RenderGraph& graph)
         });
 }
 
-struct SkyboxData
-{
-    RGResourceHandle output;
-};
-void AddSkyboxPass(RenderGraph& graph)
-{
-    graph.AddPassRaw<SkyboxData>(
-        "SkyboxPass",
-        [&](SkyboxData& data, RenderGraph::PassBuilder& builder)
-        {
-            data.output = builder.Write(RS::FinalColor)
-                              .Format(VK_FORMAT_R16G16B16A16_SFLOAT);
-        },
-        [](const SkyboxData& data, RenderGraphRegistry& reg,
-           VkCommandBuffer cmd)
-        {
-            GraphicsExecutionContext ctx(reg.graph, reg.pass, cmd);
-            GraphicsPipelineDescription desc{"Skybox", "Fullscreen_Vert",
-                                             "Skybox_Frag", false, false};
-            ctx.BindPipeline(desc);
-            ctx.DrawMeshes(desc, nullptr);
-        });
-}
-
 struct ClearData
 {
     RGResourceHandle output;
