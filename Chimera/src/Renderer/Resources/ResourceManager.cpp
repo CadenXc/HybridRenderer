@@ -606,8 +606,8 @@ GraphImage ResourceManager::CreateGraphImage(uint32_t w, uint32_t h, VkFormat f,
                          nullptr,
                          VK_IMAGE_LAYOUT_UNDEFINED};
     VmaAllocationCreateInfo vA{0, VMA_MEMORY_USAGE_GPU_ONLY};
-    vmaCreateImage(m_Context->GetAllocator(), &iI, &vA, &i.handle,
-                   &i.allocation, nullptr);
+    VK_CHECK(vmaCreateImage(m_Context->GetAllocator(), &iI, &vA, &i.handle,
+                            &i.allocation, nullptr));
     if (!name.empty())
         m_Context->SetDebugName((uint64_t)i.handle, VK_OBJECT_TYPE_IMAGE,
                                 name.c_str());
@@ -623,12 +623,24 @@ GraphImage ResourceManager::CreateGraphImage(uint32_t w, uint32_t h, VkFormat f,
         {(VkImageAspectFlags)(isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT
                                       : VK_IMAGE_ASPECT_COLOR_BIT),
          0, 1, 0, 1}};
-    vkCreateImageView(m_Context->GetDevice(), &vW, nullptr, &i.view);
+    VkResult viewResult =
+        vkCreateImageView(m_Context->GetDevice(), &vW, nullptr, &i.view);
+    if (viewResult != VK_SUCCESS)
+    {
+        DestroyGraphImage(i);
+        VK_CHECK(viewResult);
+    }
     if (isDepth)
     {
         vW.components = {VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R,
                          VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE};
-        vkCreateImageView(m_Context->GetDevice(), &vW, nullptr, &i.debug_view);
+        viewResult = vkCreateImageView(m_Context->GetDevice(), &vW, nullptr,
+                                       &i.debug_view);
+        if (viewResult != VK_SUCCESS)
+        {
+            DestroyGraphImage(i);
+            VK_CHECK(viewResult);
+        }
     }
     else
         i.debug_view = i.view;
