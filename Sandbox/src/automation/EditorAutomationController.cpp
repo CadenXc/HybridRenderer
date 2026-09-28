@@ -1457,6 +1457,8 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
         }
         if (m_Options.svgfToggleSmokeTest)
         {
+            resultFile << "NoiseRegion=635,710,150,140\n"
+                       << "NoiseMetric=mean absolute red-channel residual from four adjacent pixels; Box front face only\n";
             for (size_t index = 0; index < m_SvgfSwitchModes.size(); ++index)
             {
                 resultFile << SvgfSmokeModeName(m_SvgfSwitchModes[index])
@@ -1465,6 +1467,23 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
                            << SvgfSmokeModeName(m_SvgfSwitchModes[index])
                            << "Bytes=" << m_SvgfSwitchCaptureSizes[index]
                            << '\n';
+                const auto& metric = m_SvgfSwitchNoiseMetrics[index];
+                if (metric.success)
+                {
+                    resultFile << SvgfSmokeModeName(m_SvgfSwitchModes[index])
+                               << "HighFrequencyResidual=" << std::fixed
+                               << std::setprecision(6)
+                               << metric.meanAbsoluteResidual << '\n'
+                               << SvgfSmokeModeName(m_SvgfSwitchModes[index])
+                               << "MeanRed=" << metric.meanRgb[0] << '\n'
+                               << SvgfSmokeModeName(m_SvgfSwitchModes[index])
+                               << "SampleCount=" << metric.sampleCount << '\n';
+                }
+                else if (m_SvgfSwitchCaptureSizes[index] != 0)
+                {
+                    resultFile << SvgfSmokeModeName(m_SvgfSwitchModes[index])
+                               << "NoiseMetricError=" << metric.error << '\n';
+                }
             }
         }
         if (m_RenderPathSmokeResizedWidth != 0)
@@ -1741,6 +1760,21 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
             m_SvgfSwitchCaptureSizes[m_SvgfSwitchIndex] = captureSize;
+            ImageHighFrequencyResult metric = AnalyzeHighFrequencyPng(
+                capturePath.string(), {635, 710, 150, 140});
+            if (metric.success &&
+                (metric.meanRgb[0] <= metric.meanRgb[1] + 40.0 ||
+                 metric.meanRgb[0] <= metric.meanRgb[2] + 40.0))
+            {
+                metric.success = false;
+                metric.error = "Box front-face region is not red-dominant";
+            }
+            m_SvgfSwitchNoiseMetrics[m_SvgfSwitchIndex] = metric;
+            if (!metric.success)
+                CH_CORE_WARN("Render path smoke: {} noise metric unavailable: {}",
+                             SvgfSmokeModeName(
+                                 m_SvgfSwitchModes[m_SvgfSwitchIndex]),
+                             metric.error);
             CH_CORE_INFO("Render path smoke: {} captured ({} bytes)",
                          SvgfSmokeModeName(
                              m_SvgfSwitchModes[m_SvgfSwitchIndex]),

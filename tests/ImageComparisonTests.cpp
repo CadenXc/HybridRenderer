@@ -84,6 +84,44 @@ void TestIdenticalPixelsProduceNoDifference()
                 "identical images must have zero RMSE");
 }
 
+void TestHighFrequencyMetricIsZeroForFlatRegion()
+{
+    std::vector<uint8_t> pixels(5 * 5 * 4);
+    for (size_t offset = 0; offset < pixels.size(); offset += 4)
+    {
+        pixels[offset] = 100;
+        pixels[offset + 1] = 20;
+        pixels[offset + 2] = 10;
+        pixels[offset + 3] = 255;
+    }
+
+    const Chimera::ImageRegion region{0, 0, 5, 5};
+    const auto flat =
+        Chimera::AnalyzeHighFrequencyRgba8(pixels, 5, 5, region);
+    Require(flat.success && flat.sampleCount == 9,
+            "flat-region metric must sample the nine interior pixels");
+    RequireNear(flat.meanAbsoluteResidual, 0.0,
+                "flat image must have zero high-frequency residual");
+    RequireNear(flat.meanRgb[0], 100.0,
+                "flat-region mean red is incorrect");
+
+    pixels[(2 * 5 + 2) * 4] = 200;
+    const auto impulse =
+        Chimera::AnalyzeHighFrequencyRgba8(pixels, 5, 5, region);
+    Require(impulse.success, "impulse image should be analyzed");
+    RequireNear(impulse.meanAbsoluteResidual, 200.0 / 9.0,
+                "single-pixel impulse has the wrong residual");
+}
+
+void TestHighFrequencyMetricRejectsInvalidRegion()
+{
+    const std::vector<uint8_t> pixels(5 * 5 * 4, 0);
+    const auto result = Chimera::AnalyzeHighFrequencyRgba8(
+        pixels, 5, 5, {4, 4, 3, 3});
+    Require(!result.success && !result.error.empty(),
+            "out-of-bounds high-frequency region must be rejected");
+}
+
 void TestDifferenceMetricsAreCalculated()
 {
     const std::vector<uint8_t> reference = {0, 0, 0, 0};
@@ -469,6 +507,12 @@ int main()
     {
         TestIdenticalPixelsProduceNoDifference();
         std::cout << "[PASS] identical pixels produce no difference\n";
+
+        TestHighFrequencyMetricIsZeroForFlatRegion();
+        std::cout << "[PASS] high-frequency metric detects a pixel impulse\n";
+
+        TestHighFrequencyMetricRejectsInvalidRegion();
+        std::cout << "[PASS] high-frequency metric rejects invalid regions\n";
 
         TestDifferenceMetricsAreCalculated();
         std::cout << "[PASS] image difference metrics are calculated\n";

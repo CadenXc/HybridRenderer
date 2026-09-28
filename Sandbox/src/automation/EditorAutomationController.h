@@ -188,6 +188,7 @@ private:
         SvgfSmokeMode::TemporalAndSpatial};
     std::array<std::filesystem::path, 3> m_SvgfSwitchCapturePaths;
     std::array<uintmax_t, 3> m_SvgfSwitchCaptureSizes{};
+    std::array<ImageHighFrequencyResult, 3> m_SvgfSwitchNoiseMetrics;
     size_t m_SvgfSwitchIndex = 0;
     std::filesystem::path m_RenderPathSmokeResizedCapturePath;
     uint32_t m_RenderPathSmokeOriginalWidth = 0;

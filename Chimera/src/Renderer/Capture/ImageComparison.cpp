@@ -71,6 +71,85 @@ LoadedPngPair LoadPngPair(const std::string& referencePath,
 }
 } // namespace
 
+ImageHighFrequencyResult AnalyzeHighFrequencyRgba8(
+    const std::vector<uint8_t>& pixels, uint32_t width, uint32_t height,
+    ImageRegion region, uint32_t channel)
+{
+    ImageHighFrequencyResult result;
+    const uint64_t pixelCount = static_cast<uint64_t>(width) * height;
+    if (width == 0 || height == 0 ||
+        pixelCount > std::numeric_limits<size_t>::max() / 4 ||
+        pixels.size() != static_cast<size_t>(pixelCount * 4))
+    {
+        result.error = "RGBA8 byte count does not match image dimensions";
+        return result;
+    }
+    if (channel >= 3 || region.x >= width || region.y >= height ||
+        region.width < 3 || region.height < 3 ||
+        region.width > width - region.x ||
+        region.height > height - region.y)
+    {
+        result.error = "high-frequency region or channel is invalid";
+        return result;
+    }
+
+    const auto sample = [&](uint32_t x, uint32_t y, uint32_t c)
+    {
+        return pixels[(static_cast<size_t>(y) * width + x) * 4 + c];
+    };
+    double residualSum = 0.0;
+    std::array<double, 3> channelSums{};
+    for (uint32_t y = region.y + 1;
+         y < region.y + region.height - 1; ++y)
+    {
+        for (uint32_t x = region.x + 1;
+             x < region.x + region.width - 1; ++x)
+        {
+            const double center = sample(x, y, channel);
+            const double neighbourMean =
+                (sample(x - 1, y, channel) + sample(x + 1, y, channel) +
+                 sample(x, y - 1, channel) + sample(x, y + 1, channel)) /
+                4.0;
+            residualSum += std::abs(center - neighbourMean);
+            for (uint32_t c = 0; c < 3; ++c)
+                channelSums[c] += sample(x, y, c);
+            ++result.sampleCount;
+        }
+    }
+
+    result.meanAbsoluteResidual =
+        residualSum / static_cast<double>(result.sampleCount);
+    for (uint32_t c = 0; c < 3; ++c)
+        result.meanRgb[c] =
+            channelSums[c] / static_cast<double>(result.sampleCount);
+    result.success = true;
+    return result;
+}
+
+ImageHighFrequencyResult AnalyzeHighFrequencyPng(
+    const std::string& path, ImageRegion region, uint32_t channel)
+{
+    using StbiPixels = std::unique_ptr<stbi_uc, decltype(&stbi_image_free)>;
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    StbiPixels pixels(stbi_load(path.c_str(), &width, &height, &channels,
+                                STBI_rgb_alpha), stbi_image_free);
+    if (!pixels || width <= 0 || height <= 0)
+    {
+        ImageHighFrequencyResult result;
+        result.error = "failed to load high-frequency image: " + path;
+        return result;
+    }
+
+    const size_t byteCount =
+        static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
+    const std::vector<uint8_t> rgba(pixels.get(), pixels.get() + byteCount);
+    return AnalyzeHighFrequencyRgba8(rgba, static_cast<uint32_t>(width),
+                                     static_cast<uint32_t>(height), region,
+                                     channel);
+}
+
 ImageComparisonResult CompareRgba8(
     const std::vector<uint8_t>& referencePixels,
     const std::vector<uint8_t>& actualPixels, uint32_t width,

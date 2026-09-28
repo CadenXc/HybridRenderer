@@ -208,7 +208,11 @@ execution, not the denoiser's visual quality.
 `.\Sandbox.exe --svgf-toggle-smoke` starts with both filters enabled, then
 switches Hybrid to spatial-only, temporal-only, and back to both without
 restarting the process. It captures each mode and checks that the rebuilt
-RenderGraph contains only the expected SVGF resources.
+RenderGraph contains only the expected SVGF resources. The result also reports
+the mean absolute red-channel high-frequency residual on a fixed, flat region
+of the Box front face (1600x900 default capture, pixels x=635..784,
+y=710..849). Lower values mean less local pixel variation in that region,
+but do not establish overall denoising quality or preservation of detail.
 
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
