@@ -152,7 +152,7 @@ void ResourceManager::ResetTransientDescriptorPool()
 {
     VkDescriptorPool p = m_TransientDescriptorPools[m_CurrentFrameIndex];
     if (p != VK_NULL_HANDLE)
-        vkResetDescriptorPool(m_Context->GetDevice(), p, 0);
+        VK_CHECK(vkResetDescriptorPool(m_Context->GetDevice(), p, 0));
 }
 void ResourceManager::CreateTransientDescriptorPools()
 {
@@ -171,8 +171,8 @@ void ResourceManager::CreateTransientDescriptorPools()
         (uint32_t)s.size(),
         s.data()};
     for (uint32_t j = 0; j < MAX_FRAMES_IN_FLIGHT; ++j)
-        vkCreateDescriptorPool(m_Context->GetDevice(), &i, nullptr,
-                               &m_TransientDescriptorPools[j]);
+        VK_CHECK(vkCreateDescriptorPool(m_Context->GetDevice(), &i, nullptr,
+                                        &m_TransientDescriptorPools[j]));
 }
 
 void ResourceManager::CreateTextureSampler()
@@ -197,7 +197,8 @@ void ResourceManager::CreateTextureSampler()
             10.0f,
             VK_BORDER_COLOR_INT_OPAQUE_BLACK,
             VK_FALSE};
-        vkCreateSampler(m_Context->GetDevice(), &i, nullptr, &m_TextureSampler);
+        VK_CHECK(vkCreateSampler(m_Context->GetDevice(), &i, nullptr,
+                                 &m_TextureSampler));
     }
 
     {
@@ -220,7 +221,8 @@ void ResourceManager::CreateTextureSampler()
             1.0f,
             VK_BORDER_COLOR_INT_OPAQUE_BLACK,
             VK_FALSE};
-        vkCreateSampler(m_Context->GetDevice(), &i, nullptr, &m_NearestSampler);
+        VK_CHECK(vkCreateSampler(m_Context->GetDevice(), &i, nullptr,
+                                 &m_NearestSampler));
     }
 }
 
@@ -240,8 +242,8 @@ void ResourceManager::CreateDescriptorPool()
         1000,
         (uint32_t)s.size(),
         s.data()};
-    vkCreateDescriptorPool(m_Context->GetDevice(), &i, nullptr,
-                           &m_DescriptorPool);
+    VK_CHECK(vkCreateDescriptorPool(m_Context->GetDevice(), &i, nullptr,
+                                    &m_DescriptorPool));
 }
 
 void ResourceManager::CreateSceneDescriptorSetLayout()
@@ -279,8 +281,8 @@ void ResourceManager::CreateSceneDescriptorSetLayout()
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, &lf,
         VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         (uint32_t)b.size(), b.data()};
-    vkCreateDescriptorSetLayout(m_Context->GetDevice(), &li, nullptr,
-                                &m_SceneDescriptorSetLayout);
+    VK_CHECK(vkCreateDescriptorSetLayout(m_Context->GetDevice(), &li, nullptr,
+                                         &m_SceneDescriptorSetLayout));
 }
 
 void ResourceManager::AllocatePersistentSets()
@@ -289,16 +291,16 @@ void ResourceManager::AllocatePersistentSets()
     VkDescriptorSetAllocateInfo eA{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr,
         m_DescriptorPool, 1, &eL};
-    vkAllocateDescriptorSets(m_Context->GetDevice(), &eA,
-                             &m_Context->GetEmptyDescriptorSetRef());
+    VK_CHECK(vkAllocateDescriptorSets(
+        m_Context->GetDevice(), &eA, &m_Context->GetEmptyDescriptorSetRef()));
     m_SceneDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
     std::vector<VkDescriptorSetLayout> ls(MAX_FRAMES_IN_FLIGHT,
                                           m_SceneDescriptorSetLayout);
     VkDescriptorSetAllocateInfo aI{
         VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr,
         m_DescriptorPool, MAX_FRAMES_IN_FLIGHT, ls.data()};
-    vkAllocateDescriptorSets(m_Context->GetDevice(), &aI,
-                             m_SceneDescriptorSets.data());
+    VK_CHECK(vkAllocateDescriptorSets(m_Context->GetDevice(), &aI,
+                                      m_SceneDescriptorSets.data()));
 }
 
 void ResourceManager::CreateDefaultResources()
