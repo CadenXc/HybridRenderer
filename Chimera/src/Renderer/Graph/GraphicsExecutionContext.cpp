@@ -36,8 +36,10 @@ void GraphicsExecutionContext::BindPipelineAndDescriptorSets(
     vkCmdBindDescriptorSets(m_Cmd, bindPoint, layout, 0, 2, globals, 0,
                             nullptr);
 
-    if (m_Pass.descriptorSet == VK_NULL_HANDLE)
     {
+        // Descriptor sets come from a per-frame pool that is reset when its
+        // frame slot is reused, so a cached handle cannot survive frames.
+        m_Pass.descriptorSet = VK_NULL_HANDLE;
         std::map<uint32_t, ShaderResource> reflection;
         for (auto* s : shaders)
         {
@@ -56,8 +58,9 @@ void GraphicsExecutionContext::BindPipelineAndDescriptorSets(
                 ResourceManager::Get().GetTransientDescriptorPool();
             alloc.descriptorSetCount = 1;
             alloc.pSetLayouts = &m_Pass.descriptorSetLayout;
-            vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &alloc,
-                                     &m_Pass.descriptorSet);
+            VK_CHECK(vkAllocateDescriptorSets(
+                VulkanContext::Get().GetDevice(), &alloc,
+                &m_Pass.descriptorSet));
 
             std::vector<VkWriteDescriptorSet> writes;
             std::deque<VkDescriptorImageInfo> imageInfos;

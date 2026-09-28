@@ -37,8 +37,10 @@ void ComputeExecutionContext::BindPipeline(const std::string& shaderName)
     vkCmdBindDescriptorSets(m_Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipe.layout,
                             0, 2, globals, 0, nullptr);
 
-    if (m_Pass.descriptorSet == VK_NULL_HANDLE)
     {
+        // Descriptor sets come from a per-frame pool that is reset when its
+        // frame slot is reused, so a cached handle cannot survive frames.
+        m_Pass.descriptorSet = VK_NULL_HANDLE;
         std::map<uint32_t, ShaderResource> reflection;
         for (auto* s : pipe.shaders)
         {
@@ -57,8 +59,9 @@ void ComputeExecutionContext::BindPipeline(const std::string& shaderName)
                 ResourceManager::Get().GetTransientDescriptorPool();
             alloc.descriptorSetCount = 1;
             alloc.pSetLayouts = &m_Pass.descriptorSetLayout;
-            vkAllocateDescriptorSets(VulkanContext::Get().GetDevice(), &alloc,
-                                     &m_Pass.descriptorSet);
+            VK_CHECK(vkAllocateDescriptorSets(
+                VulkanContext::Get().GetDevice(), &alloc,
+                &m_Pass.descriptorSet));
 
             std::vector<VkWriteDescriptorSet> writes;
             std::deque<VkDescriptorImageInfo> imageInfos;
