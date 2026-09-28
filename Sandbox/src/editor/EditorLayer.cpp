@@ -196,7 +196,8 @@ std::filesystem::path MakeDifferencePath(
 EditorLayer::EditorLayer(EditorAutomationOptions automationOptions)
     : Layer("EditorLayer"),
       m_EditorCamera(45.0f, 1.778f, 0.1f, 1000.0f),
-      m_Automation(automationOptions)
+      m_Automation(automationOptions),
+      m_TexturedSceneSmokeTest(automationOptions.texturedSceneSmokeTest)
 {
     m_ShowControlPanel = true;
 
@@ -222,6 +223,13 @@ EditorLayer::EditorLayer(EditorAutomationOptions automationOptions)
     auto scene = std::make_shared<Scene>(app.GetContext());
 
     ApplyBenchmarkLightingPreset(*scene);
+    if (m_TexturedSceneSmokeTest)
+    {
+        // The texture fixture faces +Z. The Box preset lights its back, so
+        // Forward and Ray Traced would legitimately appear black at ambient 0.
+        scene->GetMainLight().direction =
+            glm::vec4(glm::normalize(glm::vec3(0.2f, -0.7f, -0.7f)), 0.5f);
+    }
 
     ResourceManager::Get().SetActiveScene(scene);
 
@@ -233,7 +241,9 @@ void EditorLayer::OnAttach()
     RefreshAssetList();
 
     m_ActiveAssetPath = Application::Get().GetSpecification().AssetDir +
-                        "models/smoke_test/Box.gltf";
+                        (m_TexturedSceneSmokeTest
+                             ? "models/texture_coordinate_test/TextureCoordinateTest.glb"
+                             : "models/smoke_test/Box.gltf");
     m_BenchmarkSceneState = BenchmarkSceneState::Preparing;
     m_BenchmarkPrepareStartFrame =
         Application::Get().GetTotalFrameCount();
@@ -329,6 +339,18 @@ void EditorLayer::UpdateBenchmarkSceneState()
     Scene* scene = GetActiveSceneRaw();
     if (scene && !scene->GetEntities().empty())
     {
+        if (m_TexturedSceneSmokeTest)
+        {
+            ChimeraAABB bounds;
+            if (!scene->TryGetWorldBounds(bounds))
+                return;
+            // The fixture is an XY test card; look straight at its front.
+            m_EditorCamera.SetPitch(0.0f);
+            m_EditorCamera.SetYaw(0.0f);
+            m_EditorCamera.FrameBounds(bounds);
+            if (RenderPath* activePath = GetRenderPath())
+                activePath->InvalidateHistory();
+        }
         m_BenchmarkSceneState = BenchmarkSceneState::Ready;
         return;
     }

@@ -138,6 +138,7 @@ private:
     int m_DifferenceAmplification = 8;
 
     EditorAutomationController m_Automation;
+    bool m_TexturedSceneSmokeTest = false;
 
                 // Resize debounce
     float m_ResizeTimer = 0.0f;

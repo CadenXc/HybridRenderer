@@ -221,6 +221,14 @@ captures use a second fixed region of the enlarged Box face. Lower residuals
 mean less local pixel variation in these regions, but do not establish overall
 denoising quality, motion stability, or preservation of detail.
 
+`\.\Sandbox.exe --render-path-texture-smoke` uses the bundled
+`TextureCoordinateTest.glb` instead of the Box. It frames the front-facing
+XY test card, lights that side, captures all three paths with temporal and
+spatial SVGF enabled for Hybrid, and checks that each capture retains the
+yellow, orange, blue, and green textured quadrants. This catches a dark or
+missing-material image that a generic "visible pixels" check would accept;
+it is still a static texture test, not a reflection or GI quality reference.
+
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
 `taa-smoke-results/run-*/result.txt` checks stable history, camera-motion

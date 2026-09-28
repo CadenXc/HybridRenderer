@@ -30,6 +30,7 @@ struct EditorAutomationOptions
     bool taaDisocclusionSmokeTest = false;
     bool objectMotionSmokeTest = false;
     bool renderPathSmokeTest = false;
+    bool texturedSceneSmokeTest = false;
     bool svgfToggleSmokeTest = false;
     SvgfSmokeMode svgfSmokeMode = SvgfSmokeMode::None;
 };

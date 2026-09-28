@@ -11,6 +11,8 @@ semantic versioning once a release is tagged.
   resize, path switches, and scene replacement.
 - SVGF mode-switch captures and a fixed Box-region high-frequency diagnostic,
   including explicit history reset, camera-cut, and recovery frames.
+- A bundled textured-scene GPU smoke that verifies all three render paths
+  retain the expected quadrant colors under a front-facing light preset.
 
 ### Fixed
 

@@ -118,6 +118,46 @@ ImageHighFrequencyResult AnalyzeBoxRedFace(
     return metric;
 }
 
+bool HasTextureFixtureQuadrantColors(
+    const std::filesystem::path& capturePath, std::string& error)
+{
+    // These small interior regions avoid the labels and checkerboard edges of
+    // the fixed 1600x900, front-facing TextureCoordinateTest capture.
+    constexpr std::array<ImageRegion, 4> regions = {
+        ImageRegion{660, 320, 40, 40}, ImageRegion{940, 320, 40, 40},
+        ImageRegion{660, 620, 40, 40}, ImageRegion{940, 620, 40, 40}};
+    std::array<std::array<double, 3>, 4> colors{};
+    for (size_t index = 0; index < regions.size(); ++index)
+    {
+        const auto sample = AnalyzeHighFrequencyPng(
+            capturePath.string(), regions[index]);
+        if (!sample.success)
+        {
+            error = sample.error;
+            return false;
+        }
+        colors[index] = sample.meanRgb;
+    }
+
+    const auto& topLeft = colors[0];
+    const auto& topRight = colors[1];
+    const auto& bottomLeft = colors[2];
+    const auto& bottomRight = colors[3];
+    if (topLeft[0] < 80.0 || topLeft[1] < 80.0 ||
+        topLeft[0] < topLeft[2] + 40.0 ||
+        topRight[0] < topRight[1] + 40.0 ||
+        topRight[1] < topRight[2] + 20.0 ||
+        bottomLeft[2] < bottomLeft[0] + 40.0 ||
+        bottomLeft[2] < bottomLeft[1] + 30.0 ||
+        bottomRight[1] < bottomRight[0] + 40.0 ||
+        bottomRight[1] < bottomRight[2] + 30.0)
+    {
+        error = "textured scene is missing its yellow, orange, blue, or green quadrant";
+        return false;
+    }
+    return true;
+}
+
 RenderFlags WithSvgfSmokeMode(RenderFlags renderFlags, SvgfSmokeMode mode)
 {
     if (mode == SvgfSmokeMode::None)
@@ -1465,6 +1505,11 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
     {
         resultFile << (passed ? "PASS" : "FAIL") << '\n'
                    << "reason=" << reason << '\n'
+                   << "scene="
+                   << (m_Options.texturedSceneSmokeTest
+                           ? "TextureCoordinateTest.glb"
+                           : "Box.gltf")
+                   << '\n'
                    << "svgfSmokeMode="
                    << SvgfSmokeModeName(m_Options.svgfSmokeMode) << '\n'
                    << "svgfToggleSmoke="
@@ -1765,6 +1810,15 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 FinishRenderPathSmokeTest(
                     false, "render path capture contains no visible scene");
                 return;
+            }
+            if (m_Options.texturedSceneSmokeTest)
+            {
+                std::string colorError;
+                if (!HasTextureFixtureQuadrantColors(capturePath, colorError))
+                {
+                    FinishRenderPathSmokeTest(false, colorError);
+                    return;
+                }
             }
             m_RenderPathSmokeComparisons[m_RenderPathSmokePathIndex] =
                 comparison;
