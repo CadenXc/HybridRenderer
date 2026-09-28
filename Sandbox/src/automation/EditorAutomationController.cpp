@@ -132,6 +132,12 @@ void EditorAutomationController::ConfigureRenderSettings(
     }
     else if (m_Options.renderPathSmokeTest)
     {
+        if (m_Options.svgfSpatialOnlySmokeTest)
+        {
+            renderFlags |= RenderFlags_SVGFBit | RenderFlags_SVGFSpatialBit |
+                           RenderFlags_GIBit | RenderFlags_ReflectionBit;
+            renderFlags &= ~RenderFlags_SVGFTemporalBit;
+        }
         displayMode = DisplayMode::Final;
         showControlPanel = false;
     }
@@ -1318,7 +1324,10 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
     if (resultFile)
     {
         resultFile << (passed ? "PASS" : "FAIL") << '\n'
-                   << "reason=" << reason << '\n';
+                   << "reason=" << reason << '\n'
+                   << "svgfSpatialOnly="
+                   << (m_Options.svgfSpatialOnlySmokeTest ? "true" : "false")
+                   << '\n';
 
         for (size_t index = 0; index < m_RenderPathSmokePaths.size(); ++index)
         {
@@ -1445,6 +1454,27 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
             if (m_RenderPathSmokeWarmupFrameCount < WarmupFrameCount)
             {
                 return;
+            }
+
+            if (m_Options.svgfSpatialOnlySmokeTest &&
+                targetPath == RenderPathType::Hybrid)
+            {
+                RenderGraph& graph = activePath->GetRenderGraph();
+                const bool hasSpatialOutputs =
+                    graph.ContainsImage("ShadowAO_Filtered_Final") &&
+                    graph.ContainsImage("Refl_Filtered_Final") &&
+                    graph.ContainsImage("GI_Filtered_Final");
+                const bool hasTemporalOutput =
+                    graph.ContainsImage("ShadowAO_TemporalColor") ||
+                    graph.ContainsImage("Refl_TemporalColor") ||
+                    graph.ContainsImage("GI_TemporalColor");
+                if (!hasSpatialOutputs || hasTemporalOutput)
+                {
+                    FinishRenderPathSmokeTest(
+                        false,
+                        "Hybrid spatial-only SVGF graph has unexpected resources");
+                    return;
+                }
             }
 
             if (!Renderer::Get().RequestFrameCapture(
@@ -1615,7 +1645,9 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
 
             FinishRenderPathSmokeTest(
                 true,
-                "Forward, Hybrid, RayTracing, and resized RayTracing rendered valid captures");
+                m_Options.svgfSpatialOnlySmokeTest
+                    ? "spatial-only SVGF graph and all render-path captures passed"
+                    : "Forward, Hybrid, RayTracing, and resized RayTracing rendered valid captures");
             return;
         }
         case RenderPathSmokeState::Disabled:

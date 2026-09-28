@@ -53,6 +53,12 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
         {
             automationOptions.renderPathSmokeTest = true;
         }
+        else if (std::string_view(argv[argumentIndex]) ==
+                 "--svgf-spatial-only-smoke")
+        {
+            automationOptions.renderPathSmokeTest = true;
+            automationOptions.svgfSpatialOnlySmokeTest = true;
+        }
     }
 
     ChimeraApp* app = new ChimeraApp(spec, automationOptions);

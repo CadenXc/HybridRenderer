@@ -197,6 +197,12 @@ resizes the window and verifies that the new capture matches the swapchain
 extent. It exercises the installed GPU and driver, but the small Box scene
 does not establish lighting quality or portability to other GPUs.
 
+To exercise Hybrid's SVGF spatial-only path on the same GPU, run
+`.\Sandbox.exe --svgf-spatial-only-smoke` from that directory. It reuses the
+render-path capture sequence and also checks that Hybrid produces the three
+filtered outputs without adding SVGF temporal passes. This verifies graph
+construction and GPU execution, not the denoiser's visual quality.
+
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
 `taa-smoke-results/run-*/result.txt` checks stable history, camera-motion

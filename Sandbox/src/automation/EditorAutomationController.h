@@ -22,6 +22,7 @@ struct EditorAutomationOptions
     bool taaDisocclusionSmokeTest = false;
     bool objectMotionSmokeTest = false;
     bool renderPathSmokeTest = false;
+    bool svgfSpatialOnlySmokeTest = false;
 };
 
 class EditorAutomationController
