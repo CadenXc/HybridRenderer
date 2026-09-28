@@ -66,6 +66,9 @@ private:
         WaitingForSceneCapture,
         WarmingUpAfterSceneReset,
         WaitingForSceneRecoveredCapture,
+        WaitingForCameraCutCapture,
+        WarmingUpAfterCameraCut,
+        WaitingForCameraRecoveredCapture,
         Finished
     };
 
@@ -125,6 +128,8 @@ private:
     std::filesystem::path m_TaaSmokePathRecoveredCapturePath;
     std::filesystem::path m_TaaSmokeSceneFirstCapturePath;
     std::filesystem::path m_TaaSmokeSceneRecoveredCapturePath;
+    std::filesystem::path m_TaaSmokeCameraCutCapturePath;
+    std::filesystem::path m_TaaSmokeCameraRecoveredCapturePath;
     TemporalHistoryDebugStatistics m_TaaSmokeStableStatistics;
     TemporalHistoryDebugStatistics m_TaaSmokeMovedStatistics;
     TemporalHistoryDebugStatistics m_TaaSmokeResizedStatistics;
@@ -133,6 +138,9 @@ private:
     TemporalHistoryDebugStatistics m_TaaSmokePathRecoveredStatistics;
     TemporalHistoryDebugStatistics m_TaaSmokeSceneFirstStatistics;
     TemporalHistoryDebugStatistics m_TaaSmokeSceneRecoveredStatistics;
+    TemporalHistoryDebugStatistics m_TaaSmokeCameraCutStatistics;
+    TemporalHistoryDebugStatistics m_TaaSmokeCameraRecoveredStatistics;
+    float m_TaaSmokeCameraCutDistance = 0.0f;
     uint32_t m_TaaSmokeOriginalWidth = 0;
     uint32_t m_TaaSmokeOriginalHeight = 0;
     uint32_t m_TaaSmokeWarmupFrameCount = 0;

@@ -188,6 +188,10 @@ void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
         m_TaaSmokeOutputDirectory / "scene-first-frame.png";
     m_TaaSmokeSceneRecoveredCapturePath =
         m_TaaSmokeOutputDirectory / "scene-recovered.png";
+    m_TaaSmokeCameraCutCapturePath =
+        m_TaaSmokeOutputDirectory / "camera-cut-first-frame.png";
+    m_TaaSmokeCameraRecoveredCapturePath =
+        m_TaaSmokeOutputDirectory / "camera-cut-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(m_TaaSmokeOutputDirectory,
@@ -593,6 +597,30 @@ void EditorAutomationController::FinishTaaDisocclusionSmokeTest(
                        << '\n'
                        << "sceneRecoveredRejected="
                        << m_TaaSmokeSceneRecoveredStatistics.rejectedPixelCount
+                       << '\n';
+        }
+        if (m_TaaSmokeCameraCutStatistics.success)
+        {
+            resultFile << "cameraCutCapture="
+                       << m_TaaSmokeCameraCutCapturePath.string() << '\n'
+                       << "cameraCutDistance="
+                       << m_TaaSmokeCameraCutDistance << '\n'
+                       << "cameraCutAccepted="
+                       << m_TaaSmokeCameraCutStatistics.acceptedPixelCount
+                       << '\n'
+                       << "cameraCutRejected="
+                       << m_TaaSmokeCameraCutStatistics.rejectedPixelCount
+                       << '\n';
+        }
+        if (m_TaaSmokeCameraRecoveredStatistics.success)
+        {
+            resultFile << "cameraRecoveredCapture="
+                       << m_TaaSmokeCameraRecoveredCapturePath.string() << '\n'
+                       << "cameraRecoveredAccepted="
+                       << m_TaaSmokeCameraRecoveredStatistics.acceptedPixelCount
+                       << '\n'
+                       << "cameraRecoveredRejected="
+                       << m_TaaSmokeCameraRecoveredStatistics.rejectedPixelCount
                        << '\n';
         }
     }
@@ -1117,9 +1145,120 @@ void EditorAutomationController::UpdateTaaDisocclusionSmokeTest(
                     false, "TAA history did not recover after scene replacement");
                 return;
             }
+            ChimeraAABB sceneBounds;
+            if (!scene || !activePath ||
+                activePath->GetType() != RenderPathType::Forward ||
+                !scene->TryGetWorldBounds(sceneBounds))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "scene bounds unavailable for camera cut");
+                return;
+            }
+
+            const glm::vec3 oldCameraPosition = camera.GetPosition();
+            camera.FrameBounds(sceneBounds);
+            m_TaaSmokeCameraCutDistance =
+                glm::distance(oldCameraPosition, camera.GetPosition());
+            if (m_TaaSmokeCameraCutDistance < 1.0f)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "Frame Scene did not move the camera enough to test a cut");
+                return;
+            }
+            activePath->InvalidateHistory();
+            if (activePath->HasUsableHistory("TAAOutput"))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "TAA history remained usable after camera cut");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokeCameraCutCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "camera-cut capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForCameraCutCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: Frame Scene camera cut moved {:.2f} units",
+                         m_TaaSmokeCameraCutDistance);
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForCameraCutCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokeCameraCutCapturePath))
+                return;
+
+            m_TaaSmokeCameraCutStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokeCameraCutCapturePath.string());
+            if (!m_TaaSmokeCameraCutStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokeCameraCutStatistics.error);
+                return;
+            }
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (!RejectsPriorHistory(m_TaaSmokeCameraCutStatistics,
+                                     extent.width, extent.height))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "first camera-cut frame did not reject prior history");
+                return;
+            }
+            m_TaaSmokeWarmupFrameCount = 0;
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WarmingUpAfterCameraCut;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: camera cut rejected history; warming up");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WarmingUpAfterCameraCut:
+        {
+            if (!IsReadyForCapture(scene, activePath, sceneReady, true) ||
+                activePath->GetType() != RenderPathType::Forward)
+                return;
+
+            if (++m_TaaSmokeWarmupFrameCount < 32)
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokeCameraRecoveredCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "camera-recovery capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForCameraRecoveredCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForCameraRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokeCameraRecoveredCapturePath))
+                return;
+
+            m_TaaSmokeCameraRecoveredStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokeCameraRecoveredCapturePath.string());
+            if (!m_TaaSmokeCameraRecoveredStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokeCameraRecoveredStatistics.error);
+                return;
+            }
+            if (!HasRecoveredHistory(m_TaaSmokeCameraRecoveredStatistics,
+                                     m_TaaSmokeCameraCutStatistics.width,
+                                     m_TaaSmokeCameraCutStatistics.height))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "TAA history did not recover after camera cut");
+                return;
+            }
             FinishTaaDisocclusionSmokeTest(
                 true,
-                "stable history, camera disocclusion, resize, path switch, and scene replacement verified");
+                "stable history, disocclusion, resize, path switch, scene replacement, and camera cut verified");
             return;
         }
         case TaaDisocclusionSmokeState::Disabled:
