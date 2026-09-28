@@ -17,12 +17,20 @@ class EditorCamera;
 class RenderPath;
 class Scene;
 
+enum class SvgfSmokeMode
+{
+    None,
+    SpatialOnly,
+    TemporalOnly,
+    TemporalAndSpatial
+};
+
 struct EditorAutomationOptions
 {
     bool taaDisocclusionSmokeTest = false;
     bool objectMotionSmokeTest = false;
     bool renderPathSmokeTest = false;
-    bool svgfSpatialOnlySmokeTest = false;
+    SvgfSmokeMode svgfSmokeMode = SvgfSmokeMode::None;
 };
 
 class EditorAutomationController

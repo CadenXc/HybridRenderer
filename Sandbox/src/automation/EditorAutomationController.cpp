@@ -77,6 +77,18 @@ bool HasVisibleScenePixels(const std::filesystem::path& capturePath)
     return visiblePixelCount >= 64;
 }
 
+const char* SvgfSmokeModeName(SvgfSmokeMode mode)
+{
+    switch (mode)
+    {
+        case SvgfSmokeMode::SpatialOnly: return "spatial-only";
+        case SvgfSmokeMode::TemporalOnly: return "temporal-only";
+        case SvgfSmokeMode::TemporalAndSpatial: return "temporal-and-spatial";
+        case SvgfSmokeMode::None: return "none";
+    }
+    return "unknown";
+}
+
 bool RejectsPriorHistory(const TemporalHistoryDebugStatistics& stats,
                          uint32_t width, uint32_t height)
 {
@@ -132,11 +144,18 @@ void EditorAutomationController::ConfigureRenderSettings(
     }
     else if (m_Options.renderPathSmokeTest)
     {
-        if (m_Options.svgfSpatialOnlySmokeTest)
+        if (m_Options.svgfSmokeMode != SvgfSmokeMode::None)
         {
-            renderFlags |= RenderFlags_SVGFBit | RenderFlags_SVGFSpatialBit |
-                           RenderFlags_GIBit | RenderFlags_ReflectionBit;
-            renderFlags &= ~RenderFlags_SVGFTemporalBit;
+            renderFlags |= RenderFlags_SVGFBit | RenderFlags_GIBit |
+                           RenderFlags_ReflectionBit;
+            renderFlags &= ~(RenderFlags_SVGFTemporalBit |
+                             RenderFlags_SVGFSpatialBit);
+            if (m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalOnly ||
+                m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial)
+                renderFlags |= RenderFlags_SVGFTemporalBit;
+            if (m_Options.svgfSmokeMode == SvgfSmokeMode::SpatialOnly ||
+                m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial)
+                renderFlags |= RenderFlags_SVGFSpatialBit;
         }
         displayMode = DisplayMode::Final;
         showControlPanel = false;
@@ -1325,9 +1344,8 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
     {
         resultFile << (passed ? "PASS" : "FAIL") << '\n'
                    << "reason=" << reason << '\n'
-                   << "svgfSpatialOnly="
-                   << (m_Options.svgfSpatialOnlySmokeTest ? "true" : "false")
-                   << '\n';
+                   << "svgfSmokeMode="
+                   << SvgfSmokeModeName(m_Options.svgfSmokeMode) << '\n';
 
         for (size_t index = 0; index < m_RenderPathSmokePaths.size(); ++index)
         {
@@ -1456,23 +1474,37 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
 
-            if (m_Options.svgfSpatialOnlySmokeTest &&
+            if (m_Options.svgfSmokeMode != SvgfSmokeMode::None &&
                 targetPath == RenderPathType::Hybrid)
             {
                 RenderGraph& graph = activePath->GetRenderGraph();
-                const bool hasSpatialOutputs =
-                    graph.ContainsImage("ShadowAO_Filtered_Final") &&
-                    graph.ContainsImage("Refl_Filtered_Final") &&
-                    graph.ContainsImage("GI_Filtered_Final");
-                const bool hasTemporalOutput =
-                    graph.ContainsImage("ShadowAO_TemporalColor") ||
-                    graph.ContainsImage("Refl_TemporalColor") ||
-                    graph.ContainsImage("GI_TemporalColor");
-                if (!hasSpatialOutputs || hasTemporalOutput)
+                const auto matchesPresence = [&](const char* suffix,
+                                                 bool expected)
+                {
+                    bool all = true;
+                    bool any = false;
+                    for (const char* prefix : {"ShadowAO", "Refl", "GI"})
+                    {
+                        const bool present = graph.ContainsImage(
+                            std::string(prefix) + suffix);
+                        all &= present;
+                        any |= present;
+                    }
+                    return expected ? all : !any;
+                };
+                const bool expectTemporal =
+                    m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalOnly ||
+                    m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial;
+                const bool expectSpatial =
+                    m_Options.svgfSmokeMode == SvgfSmokeMode::SpatialOnly ||
+                    m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial;
+                if (!matchesPresence("_Filtered_Final", true) ||
+                    !matchesPresence("_TemporalColor", expectTemporal) ||
+                    !matchesPresence("_Filtered_0", expectSpatial))
                 {
                     FinishRenderPathSmokeTest(
                         false,
-                        "Hybrid spatial-only SVGF graph has unexpected resources");
+                        "Hybrid SVGF graph has unexpected resources");
                     return;
                 }
             }
@@ -1645,8 +1677,8 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
 
             FinishRenderPathSmokeTest(
                 true,
-                m_Options.svgfSpatialOnlySmokeTest
-                    ? "spatial-only SVGF graph and all render-path captures passed"
+                m_Options.svgfSmokeMode != SvgfSmokeMode::None
+                    ? "SVGF graph and all render-path captures passed"
                     : "Forward, Hybrid, RayTracing, and resized RayTracing rendered valid captures");
             return;
         }
