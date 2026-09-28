@@ -578,22 +578,24 @@ void RenderGraph::InitQueryPool()
     if (m_TimestampQueryPool == VK_NULL_HANDLE ||
         m_PreviousPassCount < passCount)
     {
-        if (m_TimestampQueryPool != VK_NULL_HANDLE)
-            vkDestroyQueryPool(m_Context->GetDevice(), m_TimestampQueryPool,
-                               nullptr);
-
         VkQueryPoolCreateInfo poolInfo{
             VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         poolInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
         poolInfo.queryCount = std::max(64u, passCount * 2);
-        vkCreateQueryPool(m_Context->GetDevice(), &poolInfo, nullptr,
-                          &m_TimestampQueryPool);
 
-        // [FIX] Perform an immediate Host Reset upon creation.
-        // This ensures the pool is in a valid state even before the first GPU
-        // command buffer executes.
-        vkResetQueryPool(m_Context->GetDevice(), m_TimestampQueryPool, 0,
+        VkQueryPool newQueryPool = VK_NULL_HANDLE;
+        VK_CHECK(vkCreateQueryPool(m_Context->GetDevice(), &poolInfo, nullptr,
+                                   &newQueryPool));
+
+        // Reset the replacement before publishing it so a failed creation
+        // cannot invalidate the query pool that is still in use.
+        vkResetQueryPool(m_Context->GetDevice(), newQueryPool, 0,
                          poolInfo.queryCount);
+
+        if (m_TimestampQueryPool != VK_NULL_HANDLE)
+            vkDestroyQueryPool(m_Context->GetDevice(), m_TimestampQueryPool,
+                               nullptr);
+        m_TimestampQueryPool = newQueryPool;
 
         m_PreviousPassCount = passCount;
         m_StatsReady = false;
