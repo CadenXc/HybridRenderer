@@ -9,6 +9,80 @@
 
 namespace Chimera
 {
+namespace
+{
+class AccelerationStructureGuard
+{
+public:
+    AccelerationStructureGuard(VkDevice device,
+                               VkAccelerationStructureKHR handle)
+        : m_Device(device), m_Handle(handle)
+    {
+    }
+
+    ~AccelerationStructureGuard()
+    {
+        if (m_Handle != VK_NULL_HANDLE)
+        {
+            vkDestroyAccelerationStructureKHR(m_Device, m_Handle, nullptr);
+        }
+    }
+
+    AccelerationStructureGuard(const AccelerationStructureGuard&) = delete;
+    AccelerationStructureGuard& operator=(const AccelerationStructureGuard&) =
+        delete;
+
+    VkAccelerationStructureKHR Release()
+    {
+        VkAccelerationStructureKHR handle = m_Handle;
+        m_Handle = VK_NULL_HANDLE;
+        return handle;
+    }
+
+private:
+    VkDevice m_Device = VK_NULL_HANDLE;
+    VkAccelerationStructureKHR m_Handle = VK_NULL_HANDLE;
+};
+
+class AccelerationStructureBatchGuard
+{
+public:
+    AccelerationStructureBatchGuard(
+        VkDevice device, std::vector<VkAccelerationStructureKHR>& handles)
+        : m_Device(device), m_Handles(handles)
+    {
+    }
+
+    ~AccelerationStructureBatchGuard()
+    {
+        if (!m_Armed) return;
+
+        for (VkAccelerationStructureKHR handle : m_Handles)
+        {
+            if (handle != VK_NULL_HANDLE)
+            {
+                vkDestroyAccelerationStructureKHR(m_Device, handle, nullptr);
+            }
+        }
+    }
+
+    AccelerationStructureBatchGuard(const AccelerationStructureBatchGuard&) =
+        delete;
+    AccelerationStructureBatchGuard& operator=(
+        const AccelerationStructureBatchGuard&) = delete;
+
+    void Release()
+    {
+        m_Armed = false;
+    }
+
+private:
+    VkDevice m_Device = VK_NULL_HANDLE;
+    std::vector<VkAccelerationStructureKHR>& m_Handles;
+    bool m_Armed = true;
+};
+} // namespace
+
 Model::Model(std::shared_ptr<VulkanContext> context,
              const ImportedScene& importedScene)
     : m_Context(context), m_Status(LoadingStatus::Loading)
@@ -138,8 +212,10 @@ void Model::DestroyBLAS()
 void Model::BuildBLAS()
 {
     VkDevice device = m_Context->GetDevice();
-    m_BLASBuffers.resize(m_Meshes.size());
-    m_BLASHandles.resize(m_Meshes.size(), VK_NULL_HANDLE);
+    std::vector<std::unique_ptr<Buffer>> newBLASBuffers(m_Meshes.size());
+    std::vector<VkAccelerationStructureKHR> newBLASHandles(
+        m_Meshes.size(), VK_NULL_HANDLE);
+    AccelerationStructureBatchGuard batchGuard(device, newBLASHandles);
 
     for (uint32_t i = 0; i < m_Meshes.size(); ++i)
     {
@@ -190,8 +266,10 @@ void Model::BuildBLAS()
         createInfo.size = sizeInfo.accelerationStructureSize;
         createInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
 
-        VkAccelerationStructureKHR handle;
-        vkCreateAccelerationStructureKHR(device, &createInfo, nullptr, &handle);
+        VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
+        VK_CHECK(vkCreateAccelerationStructureKHR(device, &createInfo, nullptr,
+                                                  &handle));
+        AccelerationStructureGuard handleGuard(device, handle);
 
         const VkDeviceSize scratchAlignment =
             m_Context->GetAccelerationStructureProperties()
@@ -211,9 +289,13 @@ void Model::BuildBLAS()
             ScopedCommandBuffer cmd;
             vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
         }
-        m_BLASBuffers[i] = std::move(blasBuffer);
-        m_BLASHandles[i] = handle;
+        newBLASBuffers[i] = std::move(blasBuffer);
+        newBLASHandles[i] = handleGuard.Release();
     }
+
+    batchGuard.Release();
+    m_BLASBuffers = std::move(newBLASBuffers);
+    m_BLASHandles = std::move(newBLASHandles);
 }
 
 Model::~Model()
