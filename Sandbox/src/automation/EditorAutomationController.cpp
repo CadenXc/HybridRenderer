@@ -99,6 +99,7 @@ uint32_t SvgfSmokeWarmupFrames(SvgfSmokeMode mode)
 
 constexpr ImageRegion BoxRedFaceRegion{635, 710, 150, 140};
 constexpr ImageRegion FramedBoxRedFaceRegion{650, 300, 300, 300};
+constexpr ImageRegion ResizedFramedBoxRedFaceRegion{520, 240, 240, 240};
 constexpr std::array<const char*, 6> SvgfHistoryNames = {
     "ShadowAOAccum", "ShadowAOMoments", "ReflAccum", "ReflMoments",
     "GIAccum", "GIMoments"};
@@ -1441,6 +1442,10 @@ void EditorAutomationController::InitializeRenderPathSmokeTest()
         m_RenderPathSmokeOutputDirectory / "hybrid-camera-cut-first.png";
     m_SvgfCameraRecoveredCapturePath =
         m_RenderPathSmokeOutputDirectory / "hybrid-camera-cut-recovered.png";
+    m_SvgfResizedCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-resized-first.png";
+    m_SvgfResizedRecoveredCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-resized-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(
@@ -1620,6 +1625,36 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
                            << '\n'
                            << "CameraRecoveryRmse="
                            << m_SvgfCameraRecoveryComparison.rmse << '\n';
+            if (m_SvgfResizedWidth != 0)
+            {
+                resultFile << "SvgfResizedFirstCapture="
+                           << m_SvgfResizedCapturePath.string() << '\n'
+                           << "SvgfResizedRecoveredCapture="
+                           << m_SvgfResizedRecoveredCapturePath.string() << '\n'
+                           << "SvgfResizedWidth=" << m_SvgfResizedWidth << '\n'
+                           << "SvgfResizedHeight=" << m_SvgfResizedHeight << '\n'
+                           << "SvgfResizedNoiseRegion=520,240,240,240\n";
+                if (m_SvgfResizedNoiseMetric.success)
+                    resultFile << "SvgfResizedFirstHighFrequencyResidual="
+                               << m_SvgfResizedNoiseMetric.meanAbsoluteResidual
+                               << '\n';
+                else if (!m_SvgfResizedNoiseMetric.error.empty())
+                    resultFile << "SvgfResizedFirstNoiseMetricError="
+                               << m_SvgfResizedNoiseMetric.error << '\n';
+                if (m_SvgfResizedRecoveredNoiseMetric.success)
+                    resultFile << "SvgfResizedRecoveredHighFrequencyResidual="
+                               << m_SvgfResizedRecoveredNoiseMetric.meanAbsoluteResidual
+                               << '\n';
+                else if (!m_SvgfResizedRecoveredNoiseMetric.error.empty())
+                    resultFile << "SvgfResizedRecoveredNoiseMetricError="
+                               << m_SvgfResizedRecoveredNoiseMetric.error << '\n';
+                if (m_SvgfResizeRecoveryComparison.success)
+                    resultFile << "SvgfResizeRecoveryDifferentPixels="
+                               << m_SvgfResizeRecoveryComparison.differentPixelCount
+                               << '\n'
+                               << "SvgfResizeRecoveryRmse="
+                               << m_SvgfResizeRecoveryComparison.rmse << '\n';
+            }
         }
         if (m_RenderPathSmokeResizedWidth != 0)
         {
@@ -2112,6 +2147,150 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                     false, m_SvgfCameraRecoveryComparison.error);
                 return;
             }
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            m_SvgfOriginalWidth = extent.width;
+            m_SvgfOriginalHeight = extent.height;
+            glfwSetWindowSize(
+                Application::Get().GetWindow().GetNativeWindow(), 1280, 720);
+            m_RenderPathSmokeState = RenderPathSmokeState::WaitingForSvgfResize;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: requested Hybrid SVGF resize");
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfResize:
+        {
+            int framebufferWidth = 0;
+            int framebufferHeight = 0;
+            glfwGetFramebufferSize(
+                Application::Get().GetWindow().GetNativeWindow(),
+                &framebufferWidth, &framebufferHeight);
+            if (framebufferWidth <= 0 || framebufferHeight <= 0)
+                return;
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (extent.width == m_SvgfOriginalWidth &&
+                extent.height == m_SvgfOriginalHeight)
+                return;
+            if (extent.width != static_cast<uint32_t>(framebufferWidth) ||
+                extent.height != static_cast<uint32_t>(framebufferHeight))
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                HasAnySvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "old SVGF history remained usable after resize");
+                return;
+            }
+            m_SvgfResizedWidth = extent.width;
+            m_SvgfResizedHeight = extent.height;
+            if (!Renderer::Get().RequestFrameCapture(m_SvgfResizedCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF resized first-frame capture was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfResizedCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: capturing first Hybrid SVGF {}x{} frame",
+                         extent.width, extent.height);
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfResizedCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfResizedCapturePath))
+                return;
+            int pngWidth = 0;
+            int pngHeight = 0;
+            int channels = 0;
+            if (!stbi_info(m_SvgfResizedCapturePath.string().c_str(),
+                           &pngWidth, &pngHeight, &channels) ||
+                pngWidth != static_cast<int>(m_SvgfResizedWidth) ||
+                pngHeight != static_cast<int>(m_SvgfResizedHeight) ||
+                !activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                !HasVisibleScenePixels(m_SvgfResizedCapturePath) ||
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF resized first frame or new history is invalid");
+                return;
+            }
+            m_SvgfResizedNoiseMetric = AnalyzeBoxRedFace(
+                m_SvgfResizedCapturePath, ResizedFramedBoxRedFaceRegion);
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WarmingUpSvgfResizeRecovery;
+            m_RenderPathSmokeWarmupFrameCount = 0;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WarmingUpSvgfResizeRecovery:
+        {
+            if (!ready || !activePath ||
+                activePath->GetType() != RenderPathType::Hybrid)
+                return;
+            if (++m_RenderPathSmokeWarmupFrameCount <
+                SvgfSmokeWarmupFrames(SvgfSmokeMode::TemporalAndSpatial))
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_SvgfResizedRecoveredCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF resized recovery capture was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfResizedRecoveredCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfResizedRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfResizedRecoveredCapturePath))
+                return;
+            int pngWidth = 0;
+            int pngHeight = 0;
+            int channels = 0;
+            if (!stbi_info(m_SvgfResizedRecoveredCapturePath.string().c_str(),
+                           &pngWidth, &pngHeight, &channels) ||
+                pngWidth != static_cast<int>(m_SvgfResizedWidth) ||
+                pngHeight != static_cast<int>(m_SvgfResizedHeight) ||
+                !activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                !HasVisibleScenePixels(m_SvgfResizedRecoveredCapturePath) ||
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF resized recovered frame or history is invalid");
+                return;
+            }
+            m_SvgfResizedRecoveredNoiseMetric = AnalyzeBoxRedFace(
+                m_SvgfResizedRecoveredCapturePath,
+                ResizedFramedBoxRedFaceRegion);
+            m_SvgfResizeRecoveryComparison = ComparePngFiles(
+                m_SvgfResizedCapturePath.string(),
+                m_SvgfResizedRecoveredCapturePath.string());
+            if (!m_SvgfResizeRecoveryComparison.success)
+            {
+                FinishRenderPathSmokeTest(
+                    false, m_SvgfResizeRecoveryComparison.error);
+                return;
+            }
+            glfwSetWindowSize(
+                Application::Get().GetWindow().GetNativeWindow(),
+                static_cast<int>(m_SvgfOriginalWidth),
+                static_cast<int>(m_SvgfOriginalHeight));
+            m_RenderPathSmokeState = RenderPathSmokeState::WaitingForSvgfRestore;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: restoring original window extent");
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfRestore:
+        {
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (extent.width != m_SvgfOriginalWidth ||
+                extent.height != m_SvgfOriginalHeight || !ready)
+                return;
             ++m_RenderPathSmokePathIndex;
             RequestCurrentRenderPath();
             return;

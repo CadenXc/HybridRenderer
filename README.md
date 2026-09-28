@@ -217,7 +217,12 @@ y=710..849). Temporal modes warm up for 32 frames before measurement. The
 smoke then invalidates SVGF history and captures its first frame and a
 recovered frame after another 32 frames. Finally, it uses `Frame Scene` to
 make a camera cut and captures that first frame and its recovery. The camera
-captures use a second fixed region of the enlarged Box face. Lower residuals
+captures use a second fixed region of the enlarged Box face. It then resizes
+the Hybrid swapchain to 1280x720, captures the first frame with old history
+unavailable and a frame after 32 warm-up frames, and restores the original
+size before the Ray Traced resize check. Inspect `hybrid-resized-first.png`
+and `hybrid-resized-recovered.png` alongside their residuals in `result.txt`.
+Lower residuals
 mean less local pixel variation in these regions, but do not establish overall
 denoising quality, motion stability, or preservation of detail.
 
