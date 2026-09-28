@@ -22,15 +22,12 @@ public:
         ShaderManager::RegisterAlias("Raygen_Gen", "raytracing/raygen.rgen");
         ShaderManager::RegisterAlias("RT_Shadow_Gen",
                                      "raytracing/rt_shadow.rgen");
-        ShaderManager::RegisterAlias("RT_AO_Gen", "raytracing/rt_ao.rgen");
         ShaderManager::RegisterAlias("Raytrace_Hit",
                                      "raytracing/closesthit.rchit");
         ShaderManager::RegisterAlias("Raytrace_Miss", "raytracing/miss.rmiss");
         ShaderManager::RegisterAlias("Shadow_AnyHit",
                                      "raytracing/shadow.rahit");
         ShaderManager::RegisterAlias("Shadow_Miss", "raytracing/shadow.rmiss");
-        ShaderManager::RegisterAlias("RayQuery_Frag",
-                                     "raytracing/rayquery.frag");
         ShaderManager::RegisterAlias("DiffuseGI_Gen",
                                      "raytracing/diffuse_gi.rgen");
         ShaderManager::RegisterAlias("Reflection_Gen",

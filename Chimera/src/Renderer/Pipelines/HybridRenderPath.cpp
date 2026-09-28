@@ -8,7 +8,6 @@
 #include "Renderer/Passes/GBufferPass.h"
 #include "Renderer/Passes/DepthPrepass.h"
 #include "Renderer/Passes/RTShadowPass.h"
-#include "Renderer/Passes/RTAOPass.h"
 #include "Renderer/Passes/RTReflectionPass.h"
 #include "Renderer/Passes/RTDiffuseGIPass.h"
 #include "Renderer/Passes/SVGFPass.h"
