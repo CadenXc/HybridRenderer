@@ -24,15 +24,10 @@ void ShaderManager::RegisterAlias(const std::string& alias,
 
 std::shared_ptr<Shader> ShaderManager::GetShader(const std::string& name)
 {
-    if (s_ShaderCache.count(name))
-    {
-        return s_ShaderCache[name];
-    }
-
     std::string actualPath = name;
-    if (s_AliasMap.count(name))
+    if (const auto alias = s_AliasMap.find(name); alias != s_AliasMap.end())
     {
-        actualPath = s_AliasMap[name];
+        actualPath = alias->second;
     }
 
         // --- ULTRA ROBUST PATH RESOLUTION ---
@@ -51,14 +46,23 @@ std::shared_ptr<Shader> ShaderManager::GetShader(const std::string& name)
 
         // 1. Convert to absolute path to rule out working directory issues
         // 2. Normalize separators (\ vs /) for Windows stability
-    fullPath = std::filesystem::absolute(fullPath).make_preferred();
+    fullPath = std::filesystem::absolute(fullPath)
+                   .lexically_normal()
+                   .make_preferred();
+
+    const std::string cacheKey = fullPath.string();
+    if (const auto cached = s_ShaderCache.find(cacheKey);
+        cached != s_ShaderCache.end())
+    {
+        return cached->second;
+    }
 
     CH_CORE_INFO("ShaderManager: Loading shader '{0}' from [ {1} ]", name,
                  fullPath.string());
 
         // Pass the fully normalized absolute path
     auto shader = std::make_shared<Shader>(fullPath);
-    s_ShaderCache[name] = shader;
+    s_ShaderCache.emplace(cacheKey, shader);
     return shader;
 }
 
