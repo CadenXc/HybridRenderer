@@ -35,17 +35,27 @@ VulkanContext::VulkanContext()
     s_Instance = this;
     CH_CORE_INFO("VulkanContext: Creating core Vulkan link...");
 
-    m_Instance = std::make_unique<VulkanInstance>("Chimera Engine");
-    CreateSurface();
-    m_Device =
-        std::make_unique<VulkanDevice>(m_Instance->GetHandle(), m_Surface);
+    try
+    {
+        m_Instance = std::make_unique<VulkanInstance>("Chimera Engine");
+        CreateSurface();
+        m_Device =
+            std::make_unique<VulkanDevice>(m_Instance->GetHandle(), m_Surface);
 
-    CreateCommandPool();
-    m_DeletionQueue.Init(3);
-    m_Swapchain = std::make_shared<Swapchain>(GetDevice(), GetPhysicalDevice(),
-                                              m_Surface, m_Window);
+        CreateCommandPool();
+        m_DeletionQueue.Init(3);
+        m_Swapchain =
+            std::make_shared<Swapchain>(GetDevice(), GetPhysicalDevice(),
+                                        m_Surface, m_Window);
 
-    CreateEmptyLayout();
+        CreateEmptyLayout();
+    }
+    catch (...)
+    {
+        Cleanup();
+        s_Instance = nullptr;
+        throw;
+    }
 
     CH_CORE_INFO("VulkanContext Initialized.");
 }
@@ -54,36 +64,39 @@ VulkanContext::~VulkanContext()
 {
     CH_CORE_INFO("VulkanContext: Destructor CALLED.");
     s_Instance = nullptr;
+    Cleanup();
+    CH_CORE_INFO("VulkanContext: Device and Instance destroyed.");
+}
 
+void VulkanContext::Cleanup() noexcept
+{
     if (m_Device)
     {
         vkDeviceWaitIdle(GetDevice());
     }
 
-        // 1. First flush everything pending in the queue
-    m_DeletionQueue.FlushAll();
+    // Flush callbacks only while their Vulkan device is still alive.
+    if (m_Device) m_DeletionQueue.FlushAll();
 
-        // 2. Kill the swapchain while device is still idle
     if (m_Swapchain)
     {
         m_Swapchain.reset();
     }
 
-        // 3. Destroy system-level objects
-    if (m_EmptyDescriptorSetLayout != VK_NULL_HANDLE)
+    if (m_Device && m_EmptyDescriptorSetLayout != VK_NULL_HANDLE)
     {
         vkDestroyDescriptorSetLayout(GetDevice(), m_EmptyDescriptorSetLayout,
                                      nullptr);
         m_EmptyDescriptorSetLayout = VK_NULL_HANDLE;
     }
 
-    if (m_CommandPool != VK_NULL_HANDLE)
+    if (m_Device && m_CommandPool != VK_NULL_HANDLE)
     {
         vkDestroyCommandPool(GetDevice(), m_CommandPool, nullptr);
         m_CommandPool = VK_NULL_HANDLE;
     }
 
-        // [NEW] Cleanup all thread-local pools
+    if (m_Device)
     {
         std::lock_guard<std::mutex> lock(m_PoolMutex);
         for (auto& [id, pool] : m_ThreadCommandPools)
@@ -94,23 +107,17 @@ VulkanContext::~VulkanContext()
     }
 
     if (m_Device)
-    {
-        vkDeviceWaitIdle(GetDevice());
-    }
-
-        // 4. Reset the logical device (triggers ~VulkanDevice and
-        // vmaDestroyAllocator)
-    CH_CORE_INFO(
-        "VulkanContext: Resetting Device (Triggering VMA destruction)...");
+        CH_CORE_INFO(
+            "VulkanContext: Resetting Device (Triggering VMA destruction)...");
     m_Device.reset();
 
-    if (m_Surface != VK_NULL_HANDLE)
+    if (m_Instance && m_Surface != VK_NULL_HANDLE)
     {
         vkDestroySurfaceKHR(m_Instance->GetHandle(), m_Surface, nullptr);
+        m_Surface = VK_NULL_HANDLE;
     }
 
     m_Instance.reset();
-    CH_CORE_INFO("VulkanContext: Device and Instance destroyed.");
 }
 
 void VulkanContext::CreateSurface()

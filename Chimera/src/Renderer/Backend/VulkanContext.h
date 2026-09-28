@@ -154,6 +154,7 @@ private:
     void CreateSurface();
     void CreateCommandPool();
     void CreateEmptyLayout();
+    void Cleanup() noexcept;
 
 private:
     static VulkanContext* s_Instance;
