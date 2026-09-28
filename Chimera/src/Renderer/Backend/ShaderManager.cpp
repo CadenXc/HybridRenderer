@@ -2,18 +2,10 @@
 #include "ShaderManager.h"
 #include "Core/Log.h"
 #include "Core/Application.h"
-#include <fstream>
 #include <filesystem>
 
 namespace Chimera
 {
-void ShaderManager::Init(const std::string& shaderDir,
-                         const std::string& sourceDir)
-{
-    s_ShaderDir = shaderDir;
-    s_SourceDir = sourceDir;
-}
-
 void ShaderManager::RegisterAlias(const std::string& alias,
                                   const std::string& path)
 {
@@ -64,15 +56,5 @@ std::shared_ptr<Shader> ShaderManager::GetShader(const std::string& name)
     auto shader = std::make_shared<Shader>(fullPath);
     s_ShaderCache.emplace(cacheKey, shader);
     return shader;
-}
-
-bool ShaderManager::CheckForUpdates()
-{
-    return false;
-}
-
-void ShaderManager::RecompileAll()
-{
-    CH_CORE_INFO("ShaderManager: Recompiling all shaders...");
 }
 } // namespace Chimera
