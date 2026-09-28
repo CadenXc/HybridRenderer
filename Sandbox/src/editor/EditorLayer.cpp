@@ -394,7 +394,8 @@ void EditorLayer::OnUpdate(Timestep ts)
     m_Automation.UpdateAfterScene(
         m_EditorCamera, scene, activePath,
         m_BenchmarkSceneState == BenchmarkSceneState::Ready,
-        m_BenchmarkSceneState == BenchmarkSceneState::Failed);
+        m_BenchmarkSceneState == BenchmarkSceneState::Failed,
+        m_RenderFlags);
 
     AppFrameContext context;
     context.View = m_EditorCamera.GetViewMatrix();

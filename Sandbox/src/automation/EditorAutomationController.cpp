@@ -4,6 +4,7 @@
 #include "Core/Application.h"
 #include "Renderer/Backend/Renderer.h"
 #include "Renderer/Pipelines/RenderPath.h"
+#include "Renderer/Pipelines/RenderSettingsChange.h"
 #include "Renderer/Resources/ResourceManager.h"
 #include "Scene/EditorCamera.h"
 #include "Scene/Scene.h"
@@ -89,6 +90,53 @@ const char* SvgfSmokeModeName(SvgfSmokeMode mode)
     return "unknown";
 }
 
+RenderFlags WithSvgfSmokeMode(RenderFlags renderFlags, SvgfSmokeMode mode)
+{
+    if (mode == SvgfSmokeMode::None)
+        return renderFlags;
+
+    renderFlags |= RenderFlags_SVGFBit | RenderFlags_GIBit |
+                   RenderFlags_ReflectionBit;
+    renderFlags &= ~(RenderFlags_SVGFTemporalBit |
+                     RenderFlags_SVGFSpatialBit);
+    if (mode == SvgfSmokeMode::TemporalOnly ||
+        mode == SvgfSmokeMode::TemporalAndSpatial)
+        renderFlags |= RenderFlags_SVGFTemporalBit;
+    if (mode == SvgfSmokeMode::SpatialOnly ||
+        mode == SvgfSmokeMode::TemporalAndSpatial)
+        renderFlags |= RenderFlags_SVGFSpatialBit;
+    return renderFlags;
+}
+
+bool GraphMatchesSvgfSmokeMode(RenderGraph& graph, SvgfSmokeMode mode)
+{
+    if (mode == SvgfSmokeMode::None)
+        return true;
+
+    const auto matchesPresence = [&](const char* suffix, bool expected)
+    {
+        bool all = true;
+        bool any = false;
+        for (const char* prefix : {"ShadowAO", "Refl", "GI"})
+        {
+            const bool present =
+                graph.ContainsImage(std::string(prefix) + suffix);
+            all &= present;
+            any |= present;
+        }
+        return expected ? all : !any;
+    };
+    const bool expectTemporal =
+        mode == SvgfSmokeMode::TemporalOnly ||
+        mode == SvgfSmokeMode::TemporalAndSpatial;
+    const bool expectSpatial =
+        mode == SvgfSmokeMode::SpatialOnly ||
+        mode == SvgfSmokeMode::TemporalAndSpatial;
+    return matchesPresence("_Filtered_Final", true) &&
+           matchesPresence("_TemporalColor", expectTemporal) &&
+           matchesPresence("_Filtered_0", expectSpatial);
+}
+
 bool RejectsPriorHistory(const TemporalHistoryDebugStatistics& stats,
                          uint32_t width, uint32_t height)
 {
@@ -145,18 +193,8 @@ void EditorAutomationController::ConfigureRenderSettings(
     else if (m_Options.renderPathSmokeTest)
     {
         if (m_Options.svgfSmokeMode != SvgfSmokeMode::None)
-        {
-            renderFlags |= RenderFlags_SVGFBit | RenderFlags_GIBit |
-                           RenderFlags_ReflectionBit;
-            renderFlags &= ~(RenderFlags_SVGFTemporalBit |
-                             RenderFlags_SVGFSpatialBit);
-            if (m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalOnly ||
-                m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial)
-                renderFlags |= RenderFlags_SVGFTemporalBit;
-            if (m_Options.svgfSmokeMode == SvgfSmokeMode::SpatialOnly ||
-                m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial)
-                renderFlags |= RenderFlags_SVGFSpatialBit;
-        }
+            renderFlags = WithSvgfSmokeMode(renderFlags,
+                                            m_Options.svgfSmokeMode);
         displayMode = DisplayMode::Final;
         showControlPanel = false;
     }
@@ -186,11 +224,12 @@ void EditorAutomationController::UpdateBeforeScene(
 
 void EditorAutomationController::UpdateAfterScene(
     EditorCamera& camera, Scene* scene, RenderPath* activePath,
-    bool sceneReady, bool sceneFailed)
+    bool sceneReady, bool sceneFailed, RenderFlags& renderFlags)
 {
     UpdateTaaDisocclusionSmokeTest(camera, scene, activePath, sceneReady,
                                    sceneFailed);
-    UpdateRenderPathSmokeTest(scene, activePath, sceneReady, sceneFailed);
+    UpdateRenderPathSmokeTest(scene, activePath, sceneReady, sceneFailed,
+                              renderFlags);
 }
 
 void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
@@ -1302,6 +1341,10 @@ void EditorAutomationController::InitializeRenderPathSmokeTest()
         m_RenderPathSmokeOutputDirectory / "ray-tracing.png"};
     m_RenderPathSmokeResizedCapturePath =
         m_RenderPathSmokeOutputDirectory / "ray-tracing-resized.png";
+    m_SvgfSwitchCapturePaths = {
+        m_RenderPathSmokeOutputDirectory / "hybrid-spatial-only.png",
+        m_RenderPathSmokeOutputDirectory / "hybrid-temporal-only.png",
+        m_RenderPathSmokeOutputDirectory / "hybrid-temporal-spatial.png"};
 
     std::error_code directoryError;
     std::filesystem::create_directories(
@@ -1334,6 +1377,28 @@ void EditorAutomationController::RequestCurrentRenderPath()
                  RenderPathTypeToString(targetPath));
 }
 
+void EditorAutomationController::RequestSvgfSmokeSwitch(
+    RenderPath* activePath, RenderFlags& renderFlags)
+{
+    const SvgfSmokeMode mode = m_SvgfSwitchModes[m_SvgfSwitchIndex];
+    const RenderFlags previousFlags = renderFlags;
+    renderFlags = WithSvgfSmokeMode(renderFlags, mode);
+    if (ClassifyRenderFlagChanges(previousFlags ^ renderFlags) !=
+        RenderSettingsChangeImpact::GraphRebuild)
+    {
+        FinishRenderPathSmokeTest(false,
+                                  "SVGF mode switch did not require graph rebuild");
+        return;
+    }
+
+    activePath->RequestGraphRebuild();
+    m_RenderPathSmokeState = RenderPathSmokeState::WarmingUpSvgfSwitch;
+    m_RenderPathSmokeWarmupFrameCount = 0;
+    m_RenderPathSmokeStateFrameCount = 0;
+    CH_CORE_INFO("Render path smoke: switched Hybrid SVGF to {}",
+                 SvgfSmokeModeName(mode));
+}
+
 void EditorAutomationController::FinishRenderPathSmokeTest(
     bool passed, const std::string& reason)
 {
@@ -1345,7 +1410,10 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
         resultFile << (passed ? "PASS" : "FAIL") << '\n'
                    << "reason=" << reason << '\n'
                    << "svgfSmokeMode="
-                   << SvgfSmokeModeName(m_Options.svgfSmokeMode) << '\n';
+                   << SvgfSmokeModeName(m_Options.svgfSmokeMode) << '\n'
+                   << "svgfToggleSmoke="
+                   << (m_Options.svgfToggleSmokeTest ? "true" : "false")
+                   << '\n';
 
         for (size_t index = 0; index < m_RenderPathSmokePaths.size(); ++index)
         {
@@ -1375,6 +1443,18 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
                            << '\n';
             }
         }
+        if (m_Options.svgfToggleSmokeTest)
+        {
+            for (size_t index = 0; index < m_SvgfSwitchModes.size(); ++index)
+            {
+                resultFile << SvgfSmokeModeName(m_SvgfSwitchModes[index])
+                           << "Capture="
+                           << m_SvgfSwitchCapturePaths[index].string() << '\n'
+                           << SvgfSmokeModeName(m_SvgfSwitchModes[index])
+                           << "Bytes=" << m_SvgfSwitchCaptureSizes[index]
+                           << '\n';
+            }
+        }
         if (m_RenderPathSmokeResizedWidth != 0)
         {
             resultFile << "ResizedCapture="
@@ -1401,7 +1481,8 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
 }
 
 void EditorAutomationController::UpdateRenderPathSmokeTest(
-    Scene* scene, RenderPath* activePath, bool sceneReady, bool sceneFailed)
+    Scene* scene, RenderPath* activePath, bool sceneReady, bool sceneFailed,
+    RenderFlags& renderFlags)
 {
     if (m_RenderPathSmokeState == RenderPathSmokeState::Disabled ||
         m_RenderPathSmokeState == RenderPathSmokeState::Finished)
@@ -1477,30 +1558,8 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
             if (m_Options.svgfSmokeMode != SvgfSmokeMode::None &&
                 targetPath == RenderPathType::Hybrid)
             {
-                RenderGraph& graph = activePath->GetRenderGraph();
-                const auto matchesPresence = [&](const char* suffix,
-                                                 bool expected)
-                {
-                    bool all = true;
-                    bool any = false;
-                    for (const char* prefix : {"ShadowAO", "Refl", "GI"})
-                    {
-                        const bool present = graph.ContainsImage(
-                            std::string(prefix) + suffix);
-                        all &= present;
-                        any |= present;
-                    }
-                    return expected ? all : !any;
-                };
-                const bool expectTemporal =
-                    m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalOnly ||
-                    m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial;
-                const bool expectSpatial =
-                    m_Options.svgfSmokeMode == SvgfSmokeMode::SpatialOnly ||
-                    m_Options.svgfSmokeMode == SvgfSmokeMode::TemporalAndSpatial;
-                if (!matchesPresence("_Filtered_Final", true) ||
-                    !matchesPresence("_TemporalColor", expectTemporal) ||
-                    !matchesPresence("_Filtered_0", expectSpatial))
+                if (!GraphMatchesSvgfSmokeMode(activePath->GetRenderGraph(),
+                                               m_Options.svgfSmokeMode))
                 {
                     FinishRenderPathSmokeTest(
                         false,
@@ -1582,6 +1641,14 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 "Render path smoke: {} captured ({} bytes)",
                 RenderPathTypeToString(targetPath), captureSize);
 
+            if (m_Options.svgfToggleSmokeTest &&
+                targetPath == RenderPathType::Hybrid)
+            {
+                m_SvgfSwitchIndex = 0;
+                RequestSvgfSmokeSwitch(activePath, renderFlags);
+                return;
+            }
+
             if (m_RenderPathSmokePathIndex + 1 ==
                 m_RenderPathSmokePaths.size())
             {
@@ -1598,6 +1665,66 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
 
+            ++m_RenderPathSmokePathIndex;
+            RequestCurrentRenderPath();
+            return;
+        }
+        case RenderPathSmokeState::WarmingUpSvgfSwitch:
+        {
+            if (!ready || !activePath ||
+                activePath->GetType() != RenderPathType::Hybrid)
+                return;
+
+            if (++m_RenderPathSmokeWarmupFrameCount < 8)
+                return;
+
+            const SvgfSmokeMode mode = m_SvgfSwitchModes[m_SvgfSwitchIndex];
+            if (!GraphMatchesSvgfSmokeMode(activePath->GetRenderGraph(), mode))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "Hybrid SVGF graph did not match switched mode");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_SvgfSwitchCapturePaths[m_SvgfSwitchIndex]))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF switch capture request was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfSwitchCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfSwitchCapture:
+        {
+            const std::filesystem::path& capturePath =
+                m_SvgfSwitchCapturePaths[m_SvgfSwitchIndex];
+            if (!std::filesystem::exists(capturePath))
+                return;
+
+            std::error_code fileError;
+            const uintmax_t captureSize =
+                std::filesystem::file_size(capturePath, fileError);
+            if (fileError || captureSize == 0 ||
+                !HasVisibleScenePixels(capturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "switched SVGF capture has no visible scene");
+                return;
+            }
+            m_SvgfSwitchCaptureSizes[m_SvgfSwitchIndex] = captureSize;
+            CH_CORE_INFO("Render path smoke: {} captured ({} bytes)",
+                         SvgfSmokeModeName(
+                             m_SvgfSwitchModes[m_SvgfSwitchIndex]),
+                         captureSize);
+
+            if (++m_SvgfSwitchIndex < m_SvgfSwitchModes.size())
+            {
+                RequestSvgfSmokeSwitch(activePath, renderFlags);
+                return;
+            }
             ++m_RenderPathSmokePathIndex;
             RequestCurrentRenderPath();
             return;

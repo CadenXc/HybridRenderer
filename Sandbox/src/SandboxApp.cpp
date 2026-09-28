@@ -71,7 +71,17 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
             automationOptions.renderPathSmokeTest = true;
             automationOptions.svgfSmokeMode = SvgfSmokeMode::TemporalAndSpatial;
         }
+        else if (std::string_view(argv[argumentIndex]) ==
+                 "--svgf-toggle-smoke")
+        {
+            automationOptions.renderPathSmokeTest = true;
+            automationOptions.svgfToggleSmokeTest = true;
+            automationOptions.svgfSmokeMode = SvgfSmokeMode::TemporalAndSpatial;
+        }
     }
+
+    if (automationOptions.svgfToggleSmokeTest)
+        automationOptions.svgfSmokeMode = SvgfSmokeMode::TemporalAndSpatial;
 
     ChimeraApp* app = new ChimeraApp(spec, automationOptions);
 

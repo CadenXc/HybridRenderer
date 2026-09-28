@@ -205,6 +205,11 @@ the render-path capture sequence and checks that Hybrid builds the expected
 spatial and temporal outputs. This verifies graph construction and GPU
 execution, not the denoiser's visual quality.
 
+`.\Sandbox.exe --svgf-toggle-smoke` starts with both filters enabled, then
+switches Hybrid to spatial-only, temporal-only, and back to both without
+restarting the process. It captures each mode and checks that the rebuilt
+RenderGraph contains only the expected SVGF resources.
+
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
 `taa-smoke-results/run-*/result.txt` checks stable history, camera-motion

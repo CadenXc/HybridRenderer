@@ -30,6 +30,7 @@ struct EditorAutomationOptions
     bool taaDisocclusionSmokeTest = false;
     bool objectMotionSmokeTest = false;
     bool renderPathSmokeTest = false;
+    bool svgfToggleSmokeTest = false;
     SvgfSmokeMode svgfSmokeMode = SvgfSmokeMode::None;
 };
 
@@ -53,7 +54,7 @@ public:
     // previous matrices used to calculate this frame's motion vectors.
     void UpdateAfterScene(EditorCamera& camera, Scene* scene,
                           RenderPath* activePath, bool sceneReady,
-                          bool sceneFailed);
+                          bool sceneFailed, RenderFlags& renderFlags);
 
 private:
     enum class TaaDisocclusionSmokeState
@@ -99,6 +100,8 @@ private:
         WaitingForPath,
         WarmingUp,
         WaitingForCapture,
+        WarmingUpSvgfSwitch,
+        WaitingForSvgfSwitchCapture,
         WaitingForResize,
         WarmingUpResized,
         WaitingForResizedCapture,
@@ -118,8 +121,11 @@ private:
                                      const std::string& reason);
     void InitializeRenderPathSmokeTest();
     void UpdateRenderPathSmokeTest(Scene* scene, RenderPath* activePath,
-                                   bool sceneReady, bool sceneFailed);
+                                   bool sceneReady, bool sceneFailed,
+                                   RenderFlags& renderFlags);
     void RequestCurrentRenderPath();
+    void RequestSvgfSmokeSwitch(RenderPath* activePath,
+                                RenderFlags& renderFlags);
     void FinishRenderPathSmokeTest(bool passed,
                                    const std::string& reason);
 
@@ -177,6 +183,12 @@ private:
     std::array<std::filesystem::path, 3> m_RenderPathSmokeCapturePaths;
     std::array<uintmax_t, 3> m_RenderPathSmokeCaptureSizes{};
     std::array<ImageComparisonResult, 3> m_RenderPathSmokeComparisons;
+    std::array<SvgfSmokeMode, 3> m_SvgfSwitchModes = {
+        SvgfSmokeMode::SpatialOnly, SvgfSmokeMode::TemporalOnly,
+        SvgfSmokeMode::TemporalAndSpatial};
+    std::array<std::filesystem::path, 3> m_SvgfSwitchCapturePaths;
+    std::array<uintmax_t, 3> m_SvgfSwitchCaptureSizes{};
+    size_t m_SvgfSwitchIndex = 0;
     std::filesystem::path m_RenderPathSmokeResizedCapturePath;
     uint32_t m_RenderPathSmokeOriginalWidth = 0;
     uint32_t m_RenderPathSmokeOriginalHeight = 0;
