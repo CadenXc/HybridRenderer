@@ -1,12 +1,11 @@
 #include "pch.h"
 #include "HybridRenderPath.h"
 #include "HybridFallback.h"
-#include <imgui.h>
 #include "Renderer/Backend/VulkanContext.h"
+#include "Renderer/Graph/GraphicsExecutionContext.h"
 #include "Renderer/Graph/RenderGraph.h"
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Passes/GBufferPass.h"
-#include "Renderer/Passes/DepthPrepass.h"
 #include "Renderer/Passes/RTShadowPass.h"
 #include "Renderer/Passes/RTReflectionPass.h"
 #include "Renderer/Passes/RTDiffuseGIPass.h"
@@ -14,10 +13,7 @@
 #include "Renderer/Passes/CompositionPass.h"
 #include "Renderer/Passes/TAAPass.h"
 #include "Renderer/Passes/PostProcessPass.h"
-#include "Renderer/Graph/GraphicsExecutionContext.h"
-#include "Renderer/Backend/Renderer.h"
 #include "Core/Application.h"
-#include "Utils/VulkanBarrier.h"
 
 namespace Chimera
 {
