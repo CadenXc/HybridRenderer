@@ -28,7 +28,16 @@ struct FrameResource
 Renderer::Renderer()
 {
     s_Instance = this;
-    CreateFrameResources();
+    try
+    {
+        CreateFrameResources();
+    }
+    catch (...)
+    {
+        FreeFrameResources();
+        s_Instance = nullptr;
+        throw;
+    }
 }
 
 Renderer::~Renderer()
@@ -87,22 +96,26 @@ void Renderer::FreeFrameResources()
         if (frameResource.inFlightFence != VK_NULL_HANDLE)
         {
             vkDestroyFence(device, frameResource.inFlightFence, nullptr);
+            frameResource.inFlightFence = VK_NULL_HANDLE;
         }
         if (frameResource.renderFinishedSemaphore != VK_NULL_HANDLE)
         {
             vkDestroySemaphore(device, frameResource.renderFinishedSemaphore,
                                nullptr);
+            frameResource.renderFinishedSemaphore = VK_NULL_HANDLE;
         }
         if (frameResource.imageAvailableSemaphore != VK_NULL_HANDLE)
         {
             vkDestroySemaphore(device, frameResource.imageAvailableSemaphore,
                                nullptr);
+            frameResource.imageAvailableSemaphore = VK_NULL_HANDLE;
         }
     }
 
     if (m_CommandPool != VK_NULL_HANDLE)
     {
         vkDestroyCommandPool(device, m_CommandPool, nullptr);
+        m_CommandPool = VK_NULL_HANDLE;
     }
 
     m_FrameResources.clear();
@@ -367,11 +380,11 @@ void Renderer::WaitForAllFrames()
     {
         if (resource.inFlightFence != VK_NULL_HANDLE)
         {
-            vkWaitForFences(device, 1, &resource.inFlightFence, VK_TRUE,
-                            UINT64_MAX);
+            VK_CHECK(vkWaitForFences(device, 1, &resource.inFlightFence,
+                                     VK_TRUE, UINT64_MAX));
         }
     }
-    vkDeviceWaitIdle(device);
+    VK_CHECK(vkDeviceWaitIdle(device));
 }
 
 VkCommandBuffer Renderer::BeginFrame()
