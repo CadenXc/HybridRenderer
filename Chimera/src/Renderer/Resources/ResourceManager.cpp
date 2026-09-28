@@ -329,6 +329,7 @@ void ResourceManager::CreateDefaultResources()
             c, (VkImage)f->GetImage(), VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        c.SubmitAndWait();
     }
     AddTexture(std::move(f), "Default");
     CreateMaterial("Default");
@@ -532,6 +533,7 @@ void ResourceManager::SyncInstancesToGPU(Scene* scene)
         VkBufferCopy copy{0, 0, dataSize};
         vkCmdCopyBuffer(cmd, (VkBuffer)staging.GetBuffer(),
                         (VkBuffer)m_InstanceBuffer->GetBuffer(), 1, &copy);
+        cmd.SubmitAndWait();
     }
     m_LightManager.Build(scene);
 }
@@ -572,6 +574,7 @@ void ResourceManager::SyncMaterialsToGPU()
         VkBufferCopy copy{0, 0, sizeof(GpuMaterial) * materialData.size()};
         vkCmdCopyBuffer(cmd, (VkBuffer)staging.GetBuffer(),
                         (VkBuffer)m_MaterialBuffer->GetBuffer(), 1, &copy);
+        cmd.SubmitAndWait();
     }
 }
 
@@ -736,6 +739,7 @@ TextureHandle ResourceManager::LoadTextureFromPixels(
             c, (VkImage)im->GetImage(), format,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        c.SubmitAndWait();
     }
     return AddTexture(std::move(im), cacheKey);
 }
@@ -775,6 +779,7 @@ TextureHandle ResourceManager::LoadHDRTexture(const std::string& p)
             c, (VkImage)im->GetImage(), VK_FORMAT_R32G32B32A32_SFLOAT,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        c.SubmitAndWait();
     }
     return AddTexture(std::move(im), p);
 }
@@ -1021,6 +1026,7 @@ TextureHandle ResourceManager::GenerateBlueNoise(uint32_t width,
             c, (VkImage)im->GetImage(), VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+        c.SubmitAndWait();
     }
 
     return AddTexture(std::move(im), "BlueNoise");

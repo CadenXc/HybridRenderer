@@ -17,34 +17,82 @@ ScopedCommandBuffer::ScopedCommandBuffer()
     allocInfo.commandPool = m_Pool;
     allocInfo.commandBufferCount = 1;
 
-    vkAllocateCommandBuffers(m_Device, &allocInfo, &m_CommandBuffer);
+    VK_CHECK(vkAllocateCommandBuffers(m_Device, &allocInfo, &m_CommandBuffer));
 
     VkCommandBufferBeginInfo beginInfo{
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr,
         VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr};
-    vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+    VkResult beginResult = vkBeginCommandBuffer(m_CommandBuffer, &beginInfo);
+    if (beginResult != VK_SUCCESS)
+    {
+        FreeCommandBuffer();
+        VK_CHECK(beginResult);
+    }
 }
 
-ScopedCommandBuffer::~ScopedCommandBuffer()
+ScopedCommandBuffer::~ScopedCommandBuffer() noexcept
+{
+    if (m_CommandBuffer != VK_NULL_HANDLE)
+    {
+        CH_CORE_WARN(
+            "ScopedCommandBuffer: Discarding a command buffer that was not submitted");
+        FreeCommandBuffer();
+    }
+}
+
+void ScopedCommandBuffer::SubmitAndWait()
 {
     if (m_CommandBuffer == VK_NULL_HANDLE)
     {
-        return;
+        throw std::logic_error(
+            "ScopedCommandBuffer::SubmitAndWait called without an active command buffer");
     }
 
-    vkEndCommandBuffer(m_CommandBuffer);
+    VkResult endResult = vkEndCommandBuffer(m_CommandBuffer);
+    if (endResult != VK_SUCCESS)
+    {
+        FreeCommandBuffer();
+        VK_CHECK(endResult);
+    }
 
     VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &m_CommandBuffer;
 
+    VkResult submitResult = VK_SUCCESS;
+    VkResult waitResult = VK_SUCCESS;
     {
-        // [FIX] Use static global mutex to ensure sync across ALL threads and
-        // contexts
         std::lock_guard<std::mutex> lock(VulkanContext::GetGlobalQueueMutex());
-        vkQueueSubmit(m_Queue, 1, &submitInfo, VK_NULL_HANDLE);
-        vkQueueWaitIdle(m_Queue);
-        vkFreeCommandBuffers(m_Device, m_Pool, 1, &m_CommandBuffer);
+        submitResult =
+            vkQueueSubmit(m_Queue, 1, &submitInfo, VK_NULL_HANDLE);
+        if (submitResult == VK_SUCCESS)
+        {
+            waitResult = vkQueueWaitIdle(m_Queue);
+        }
     }
+
+    if (submitResult != VK_SUCCESS)
+    {
+        FreeCommandBuffer();
+        VK_CHECK(submitResult);
+    }
+
+    if (waitResult != VK_SUCCESS)
+    {
+        // Queue completion is unknown after a failed wait. The command pool
+        // will release this buffer when the Vulkan context is destroyed.
+        m_CommandBuffer = VK_NULL_HANDLE;
+        VK_CHECK(waitResult);
+    }
+
+    FreeCommandBuffer();
+}
+
+void ScopedCommandBuffer::FreeCommandBuffer() noexcept
+{
+    if (m_CommandBuffer == VK_NULL_HANDLE) return;
+
+    vkFreeCommandBuffers(m_Device, m_Pool, 1, &m_CommandBuffer);
+    m_CommandBuffer = VK_NULL_HANDLE;
 }
 } // namespace Chimera

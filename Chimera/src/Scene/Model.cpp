@@ -180,6 +180,7 @@ void Model::UploadToGPU(const ImportedScene& importedScene)
             vkCmdCopyBuffer(cmd, (VkBuffer)stagingTBO->GetBuffer(),
                             (VkBuffer)m_TriangleBuffer->GetBuffer(), 1, &tCopy);
         }
+        cmd.SubmitAndWait();
     }
 
     m_Meshes = importedScene.Meshes;
@@ -288,6 +289,7 @@ void Model::BuildBLAS()
         {
             ScopedCommandBuffer cmd;
             vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
+            cmd.SubmitAndWait();
         }
         newBLASBuffers[i] = std::move(blasBuffer);
         newBLASHandles[i] = handleGuard.Release();

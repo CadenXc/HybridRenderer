@@ -451,6 +451,7 @@ void Scene::UpdateTLAS()
         VkBufferCopy copy{0, 0, instSize};
         vkCmdCopyBuffer(cmd, (VkBuffer)instStaging.GetBuffer(),
                         (VkBuffer)newInstanceBuffer->GetBuffer(), 1, &copy);
+        cmd.SubmitAndWait();
     }
 
     VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
@@ -506,6 +507,7 @@ void Scene::UpdateTLAS()
     {
         ScopedCommandBuffer cmd;
         vkCmdBuildAccelerationStructuresKHR(cmd, 1, &buildInfo, &pRange);
+        cmd.SubmitAndWait();
     }
 
     DestroyTLAS();

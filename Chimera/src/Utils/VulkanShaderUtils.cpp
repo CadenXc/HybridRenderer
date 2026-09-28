@@ -31,6 +31,7 @@ void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
     VkBufferCopy copyRegion{};
     copyRegion.size = size;
     vkCmdCopyBuffer(cmd, srcBuffer, dstBuffer, 1, &copyRegion);
+    cmd.SubmitAndWait();
 }
 
 void SetDebugUtilsObjectName(VkDevice device, VkObjectType type,

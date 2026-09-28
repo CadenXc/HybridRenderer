@@ -11,7 +11,9 @@ namespace Chimera
 struct ScopedCommandBuffer
 {
     ScopedCommandBuffer();
-    ~ScopedCommandBuffer();
+    ~ScopedCommandBuffer() noexcept;
+
+    void SubmitAndWait();
 
     operator VkCommandBuffer() const
     {
@@ -19,6 +21,8 @@ struct ScopedCommandBuffer
     }
 
 private:
+    void FreeCommandBuffer() noexcept;
+
     VkDevice m_Device = VK_NULL_HANDLE;
     VkQueue m_Queue = VK_NULL_HANDLE;
     VkCommandPool m_Pool = VK_NULL_HANDLE;

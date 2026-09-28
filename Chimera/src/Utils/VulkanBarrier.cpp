@@ -154,6 +154,7 @@ void TransitionImageLayout(VkImage img, VkFormat fmt, VkImageLayout oldL,
 {
     ScopedCommandBuffer cmd;
     TransitionImageLayout(cmd, img, fmt, oldL, newL, mip);
+    cmd.SubmitAndWait();
 }
 
 bool IsDepthFormat(VkFormat format)
