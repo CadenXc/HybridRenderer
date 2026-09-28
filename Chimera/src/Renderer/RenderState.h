@@ -31,6 +31,7 @@ private:
     void CreateDescriptorSetLayout();
     void CreateResources();
     void CreateDescriptorSets();
+    void Cleanup(bool waitForDevice) noexcept;
 
 private:
     VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;

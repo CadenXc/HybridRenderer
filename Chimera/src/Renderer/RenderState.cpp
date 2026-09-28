@@ -8,17 +8,37 @@ namespace Chimera
 {
 RenderState::RenderState()
 {
-    CreateDescriptorSetLayout();
-    CreateResources();
-    CreateDescriptorSets();
+    try
+    {
+        CreateDescriptorSetLayout();
+        CreateResources();
+        CreateDescriptorSets();
+    }
+    catch (...)
+    {
+        Cleanup(false);
+        throw;
+    }
 }
 
 RenderState::~RenderState()
 {
-    VkDevice device = VulkanContext::Get().GetDevice();
-    vkDeviceWaitIdle(device);
-
     CH_CORE_INFO("RenderState: Destructor CALLED. Clearing UBOs...");
+    Cleanup(true);
+    CH_CORE_INFO("RenderState: Destructor FINISHED.");
+}
+
+void RenderState::Cleanup(bool waitForDevice) noexcept
+{
+    VkDevice device = VulkanContext::Get().GetDevice();
+    if (waitForDevice) vkDeviceWaitIdle(device);
+
+    if (m_DescriptorPool != VK_NULL_HANDLE)
+    {
+        vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
+        m_DescriptorPool = VK_NULL_HANDLE;
+    }
+    m_DescriptorSets.clear();
     m_Frames.clear();
 
     if (m_DescriptorSetLayout != VK_NULL_HANDLE)
@@ -26,13 +46,6 @@ RenderState::~RenderState()
         vkDestroyDescriptorSetLayout(device, m_DescriptorSetLayout, nullptr);
         m_DescriptorSetLayout = VK_NULL_HANDLE;
     }
-
-    if (m_DescriptorPool != VK_NULL_HANDLE)
-    {
-        vkDestroyDescriptorPool(device, m_DescriptorPool, nullptr);
-        m_DescriptorPool = VK_NULL_HANDLE;
-    }
-    CH_CORE_INFO("RenderState: Destructor FINISHED.");
 }
 
 void RenderState::Update(uint32_t frameIndex, const UniformBufferObject& data)
