@@ -153,6 +153,10 @@ void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
         m_TaaSmokeOutputDirectory / "stable-history.png";
     m_TaaSmokeMovedCapturePath =
         m_TaaSmokeOutputDirectory / "moved-history.png";
+    m_TaaSmokeResizedCapturePath =
+        m_TaaSmokeOutputDirectory / "resized-first-frame.png";
+    m_TaaSmokeRecoveredCapturePath =
+        m_TaaSmokeOutputDirectory / "resized-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(m_TaaSmokeOutputDirectory,
@@ -491,6 +495,31 @@ void EditorAutomationController::FinishTaaDisocclusionSmokeTest(
                    << "movedUnclassified="
                    << m_TaaSmokeMovedStatistics.unclassifiedPixelCount << '\n'
                    << "movedRejectedRatio=" << movedRejectedRatio << '\n';
+        if (m_TaaSmokeResizedStatistics.success)
+        {
+            resultFile << "resizedCapture="
+                       << m_TaaSmokeResizedCapturePath.string() << '\n'
+                       << "resizedWidth=" << m_TaaSmokeResizedStatistics.width
+                       << '\n'
+                       << "resizedHeight=" << m_TaaSmokeResizedStatistics.height
+                       << '\n'
+                       << "resizedAccepted="
+                       << m_TaaSmokeResizedStatistics.acceptedPixelCount
+                       << '\n'
+                       << "resizedRejected="
+                       << m_TaaSmokeResizedStatistics.rejectedPixelCount << '\n';
+        }
+        if (m_TaaSmokeRecoveredStatistics.success)
+        {
+            resultFile << "recoveredCapture="
+                       << m_TaaSmokeRecoveredCapturePath.string() << '\n'
+                       << "recoveredAccepted="
+                       << m_TaaSmokeRecoveredStatistics.acceptedPixelCount
+                       << '\n'
+                       << "recoveredRejected="
+                       << m_TaaSmokeRecoveredStatistics.rejectedPixelCount
+                       << '\n';
+        }
     }
 
     if (passed)
@@ -676,9 +705,148 @@ void EditorAutomationController::UpdateTaaDisocclusionSmokeTest(
                 return;
             }
 
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            m_TaaSmokeOriginalWidth = extent.width;
+            m_TaaSmokeOriginalHeight = extent.height;
+            glfwSetWindowSize(
+                Application::Get().GetWindow().GetNativeWindow(), 1280, 720);
+            m_TaaSmokeState = TaaDisocclusionSmokeState::WaitingForResize;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: requested window resize");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForResize:
+        {
+            int framebufferWidth = 0;
+            int framebufferHeight = 0;
+            glfwGetFramebufferSize(
+                Application::Get().GetWindow().GetNativeWindow(),
+                &framebufferWidth, &framebufferHeight);
+            if (framebufferWidth <= 0 || framebufferHeight <= 0)
+                return;
+
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (extent.width == m_TaaSmokeOriginalWidth &&
+                extent.height == m_TaaSmokeOriginalHeight)
+                return;
+            if (extent.width != static_cast<uint32_t>(framebufferWidth) ||
+                extent.height != static_cast<uint32_t>(framebufferHeight))
+                return;
+            if (!activePath)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "render path disappeared during resize");
+                return;
+            }
+            if (activePath->HasUsableHistory("TAAOutput"))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "old TAA history remained usable after resize");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokeResizedCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "resized first-frame capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForResizedCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: capturing first {}x{} frame after resize",
+                         extent.width, extent.height);
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForResizedCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokeResizedCapturePath))
+                return;
+
+            m_TaaSmokeResizedStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokeResizedCapturePath.string());
+            if (!m_TaaSmokeResizedStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokeResizedStatistics.error);
+                return;
+            }
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            const auto& stats = m_TaaSmokeResizedStatistics;
+            const uint64_t totalPixels =
+                static_cast<uint64_t>(stats.width) * stats.height;
+            if (stats.width != extent.width || stats.height != extent.height ||
+                totalPixels == 0 ||
+                stats.rejectedPixelCount < totalPixels * 99 / 100 ||
+                stats.acceptedPixelCount != 0)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false,
+                    "first resized frame did not reject nearly all history pixels");
+                return;
+            }
+
+            m_TaaSmokeWarmupFrameCount = 0;
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WarmingUpAfterResize;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: resized frame rejected history; warming up");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WarmingUpAfterResize:
+        {
+            if (!ready)
+                return;
+
+            if (++m_TaaSmokeWarmupFrameCount < 32)
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokeRecoveredCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "recovered-frame capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForRecoveredCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokeRecoveredCapturePath))
+                return;
+
+            m_TaaSmokeRecoveredStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokeRecoveredCapturePath.string());
+            if (!m_TaaSmokeRecoveredStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokeRecoveredStatistics.error);
+                return;
+            }
+            const auto& stats = m_TaaSmokeRecoveredStatistics;
+            const uint64_t classified = stats.GetClassifiedPixelCount();
+            const double acceptedRatio =
+                classified > 0
+                    ? static_cast<double>(stats.acceptedPixelCount) /
+                          static_cast<double>(classified)
+                    : 0.0;
+            if (stats.width != m_TaaSmokeResizedStatistics.width ||
+                stats.height != m_TaaSmokeResizedStatistics.height ||
+                classified == 0 || acceptedRatio < 0.98)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false,
+                    "TAA history did not recover after resize warm-up");
+                return;
+            }
             FinishTaaDisocclusionSmokeTest(
                 true,
-                "stable history was accepted and camera motion exposed rejected disocclusions");
+                "stable history, camera disocclusion, resize rejection, and recovery verified");
             return;
         }
         case TaaDisocclusionSmokeState::Disabled:

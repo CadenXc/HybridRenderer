@@ -197,6 +197,11 @@ resizes the window and verifies that the new capture matches the swapchain
 extent. It exercises the installed GPU and driver, but the small Box scene
 does not establish lighting quality or portability to other GPUs.
 
+For temporal-history behavior on the same GPU, run
+`.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
+`taa-smoke-results/run-*/result.txt` checks stable history, camera-motion
+disocclusion, rejection on the first resized frame, and history recovery.
+
 ## Run and Explore
 
 `Sandbox` starts with the embedded Box glTF smoke-test asset and selects the

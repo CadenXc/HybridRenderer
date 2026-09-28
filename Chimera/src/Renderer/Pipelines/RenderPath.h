@@ -58,7 +58,7 @@ public:
 
     bool IsReadyForCapture() const
     {
-        return m_RenderGraph && !m_NeedsRebuild && !m_NeedsResize;
+        return MatchesSwapchainExtent() && !m_NeedsRebuild && !m_NeedsResize;
     }
 
     void InvalidateHistory()
@@ -76,7 +76,7 @@ public:
 
     bool HasUsableHistory(const std::string& name) const
     {
-        return m_RenderGraph && !m_NeedsRebuild && !m_NeedsResize &&
+        return MatchesSwapchainExtent() && !m_NeedsRebuild && !m_NeedsResize &&
                m_RenderGraph->HasHistory(name);
     }
 
@@ -103,6 +103,8 @@ protected:
     bool m_NeedsResize = false;
 
 private:
+    bool MatchesSwapchainExtent() const;
+
     BenchmarkRecorder m_BenchmarkRecorder;
     uint64_t m_LastConsumedTimingSampleId = 0;
 };

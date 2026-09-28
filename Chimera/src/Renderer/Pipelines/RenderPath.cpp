@@ -28,6 +28,16 @@ void RenderPath::Init()
         std::make_unique<RenderGraph>(*m_Context, m_Width, m_Height);
 }
 
+bool RenderPath::MatchesSwapchainExtent() const
+{
+    if (!m_Context || !m_RenderGraph)
+        return false;
+
+    const VkExtent2D extent = m_Context->GetSwapChainExtent();
+    return m_RenderGraph->GetWidth() == extent.width &&
+           m_RenderGraph->GetHeight() == extent.height;
+}
+
 VkSemaphore RenderPath::Render(const RenderFrameInfo& frameInfo)
 {
 	if (!m_Context)
