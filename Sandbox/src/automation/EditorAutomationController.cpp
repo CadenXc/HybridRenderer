@@ -1446,6 +1446,10 @@ void EditorAutomationController::InitializeRenderPathSmokeTest()
         m_RenderPathSmokeOutputDirectory / "hybrid-resized-first.png";
     m_SvgfResizedRecoveredCapturePath =
         m_RenderPathSmokeOutputDirectory / "hybrid-resized-recovered.png";
+    m_SvgfSceneFirstCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-scene-first.png";
+    m_SvgfSceneRecoveredCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-scene-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(
@@ -1655,6 +1659,30 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
                                << "SvgfResizeRecoveryRmse="
                                << m_SvgfResizeRecoveryComparison.rmse << '\n';
             }
+            resultFile << "SvgfSceneFirstCapture="
+                       << m_SvgfSceneFirstCapturePath.string() << '\n'
+                       << "SvgfSceneRecoveredCapture="
+                       << m_SvgfSceneRecoveredCapturePath.string() << '\n';
+            if (m_SvgfSceneFirstNoiseMetric.success)
+                resultFile << "SvgfSceneFirstHighFrequencyResidual="
+                           << m_SvgfSceneFirstNoiseMetric.meanAbsoluteResidual
+                           << '\n';
+            else if (!m_SvgfSceneFirstNoiseMetric.error.empty())
+                resultFile << "SvgfSceneFirstNoiseMetricError="
+                           << m_SvgfSceneFirstNoiseMetric.error << '\n';
+            if (m_SvgfSceneRecoveredNoiseMetric.success)
+                resultFile << "SvgfSceneRecoveredHighFrequencyResidual="
+                           << m_SvgfSceneRecoveredNoiseMetric.meanAbsoluteResidual
+                           << '\n';
+            else if (!m_SvgfSceneRecoveredNoiseMetric.error.empty())
+                resultFile << "SvgfSceneRecoveredNoiseMetricError="
+                           << m_SvgfSceneRecoveredNoiseMetric.error << '\n';
+            if (m_SvgfSceneRecoveryComparison.success)
+                resultFile << "SvgfSceneRecoveryDifferentPixels="
+                           << m_SvgfSceneRecoveryComparison.differentPixelCount
+                           << '\n'
+                           << "SvgfSceneRecoveryRmse="
+                           << m_SvgfSceneRecoveryComparison.rmse << '\n';
         }
         if (m_RenderPathSmokeResizedWidth != 0)
         {
@@ -2291,6 +2319,127 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
             if (extent.width != m_SvgfOriginalWidth ||
                 extent.height != m_SvgfOriginalHeight || !ready)
                 return;
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WarmingUpSvgfBeforeSceneReplacement;
+            m_RenderPathSmokeWarmupFrameCount = 0;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WarmingUpSvgfBeforeSceneReplacement:
+        {
+            if (!ready || !activePath ||
+                activePath->GetType() != RenderPathType::Hybrid)
+                return;
+            if (++m_RenderPathSmokeWarmupFrameCount <
+                SvgfSmokeWarmupFrames(SvgfSmokeMode::TemporalAndSpatial))
+                return;
+            if (!HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF history did not recover before scene replacement");
+                return;
+            }
+            ResourceManager::Get().ClearScene();
+            ResourceManager::Get().LoadScene(
+                Application::Get().GetSpecification().AssetDir +
+                "models/smoke_test/Box.gltf");
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfReplacementScene;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: requested Hybrid scene replacement and Box reload");
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfReplacementScene:
+        {
+            // Model integration calls OnSceneUpdated before this update, so
+            // capture the first non-empty frame while the graph is still dirty.
+            if (!scene || scene->GetEntities().empty() ||
+                ResourceManager::Get().HasPendingModelLoads())
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                activePath->IsReadyForCapture() ||
+                HasAnySvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "replacement scene did not request a fresh SVGF graph");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_SvgfSceneFirstCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF replacement-scene first capture was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfSceneFirstCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: capturing first non-empty Hybrid replacement-scene frame");
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfSceneFirstCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfSceneFirstCapturePath))
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                !HasVisibleScenePixels(m_SvgfSceneFirstCapturePath) ||
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF replacement-scene first frame or history is invalid");
+                return;
+            }
+            m_SvgfSceneFirstNoiseMetric = AnalyzeBoxRedFace(
+                m_SvgfSceneFirstCapturePath, FramedBoxRedFaceRegion);
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WarmingUpSvgfSceneRecovery;
+            m_RenderPathSmokeWarmupFrameCount = 0;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WarmingUpSvgfSceneRecovery:
+        {
+            if (!ready || !activePath ||
+                activePath->GetType() != RenderPathType::Hybrid)
+                return;
+            if (++m_RenderPathSmokeWarmupFrameCount <
+                SvgfSmokeWarmupFrames(SvgfSmokeMode::TemporalAndSpatial))
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_SvgfSceneRecoveredCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF replacement-scene recovery capture was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfSceneRecoveredCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfSceneRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfSceneRecoveredCapturePath))
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                !HasVisibleScenePixels(m_SvgfSceneRecoveredCapturePath) ||
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF replacement-scene recovered frame or history is invalid");
+                return;
+            }
+            m_SvgfSceneRecoveredNoiseMetric = AnalyzeBoxRedFace(
+                m_SvgfSceneRecoveredCapturePath, FramedBoxRedFaceRegion);
+            m_SvgfSceneRecoveryComparison = ComparePngFiles(
+                m_SvgfSceneFirstCapturePath.string(),
+                m_SvgfSceneRecoveredCapturePath.string());
+            if (!m_SvgfSceneRecoveryComparison.success)
+            {
+                FinishRenderPathSmokeTest(
+                    false, m_SvgfSceneRecoveryComparison.error);
+                return;
+            }
             ++m_RenderPathSmokePathIndex;
             RequestCurrentRenderPath();
             return;

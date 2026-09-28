@@ -220,8 +220,11 @@ make a camera cut and captures that first frame and its recovery. The camera
 captures use a second fixed region of the enlarged Box face. It then resizes
 the Hybrid swapchain to 1280x720, captures the first frame with old history
 unavailable and a frame after 32 warm-up frames, and restores the original
-size before the Ray Traced resize check. Inspect `hybrid-resized-first.png`
-and `hybrid-resized-recovered.png` alongside their residuals in `result.txt`.
+size. After history warms up again, it replaces the scene and reloads the Box,
+capturing the first non-empty frame and its recovery, before switching to Ray
+Traced for the separate resize check. Inspect `hybrid-resized-first.png`,
+`hybrid-resized-recovered.png`, `hybrid-scene-first.png`, and
+`hybrid-scene-recovered.png` alongside their residuals in `result.txt`.
 Lower residuals
 mean less local pixel variation in these regions, but do not establish overall
 denoising quality, motion stability, or preservation of detail.

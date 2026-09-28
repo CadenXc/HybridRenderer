@@ -114,6 +114,11 @@ private:
         WarmingUpSvgfResizeRecovery,
         WaitingForSvgfResizedRecoveredCapture,
         WaitingForSvgfRestore,
+        WarmingUpSvgfBeforeSceneReplacement,
+        WaitingForSvgfReplacementScene,
+        WaitingForSvgfSceneFirstCapture,
+        WarmingUpSvgfSceneRecovery,
+        WaitingForSvgfSceneRecoveredCapture,
         WaitingForResize,
         WarmingUpResized,
         WaitingForResizedCapture,
@@ -209,14 +214,19 @@ private:
     std::filesystem::path m_SvgfCameraRecoveredCapturePath;
     std::filesystem::path m_SvgfResizedCapturePath;
     std::filesystem::path m_SvgfResizedRecoveredCapturePath;
+    std::filesystem::path m_SvgfSceneFirstCapturePath;
+    std::filesystem::path m_SvgfSceneRecoveredCapturePath;
     ImageHighFrequencyResult m_SvgfResetNoiseMetric;
     ImageHighFrequencyResult m_SvgfRecoveredNoiseMetric;
     ImageHighFrequencyResult m_SvgfCameraCutNoiseMetric;
     ImageHighFrequencyResult m_SvgfCameraRecoveredNoiseMetric;
     ImageHighFrequencyResult m_SvgfResizedNoiseMetric;
     ImageHighFrequencyResult m_SvgfResizedRecoveredNoiseMetric;
+    ImageHighFrequencyResult m_SvgfSceneFirstNoiseMetric;
+    ImageHighFrequencyResult m_SvgfSceneRecoveredNoiseMetric;
     ImageComparisonResult m_SvgfCameraRecoveryComparison;
     ImageComparisonResult m_SvgfResizeRecoveryComparison;
+    ImageComparisonResult m_SvgfSceneRecoveryComparison;
     float m_SvgfCameraCutDistance = 0.0f;
     uint32_t m_SvgfOriginalWidth = 0;
     uint32_t m_SvgfOriginalHeight = 0;
