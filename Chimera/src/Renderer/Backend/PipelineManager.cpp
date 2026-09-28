@@ -34,6 +34,62 @@ void AppendSpecializationConstants(std::string& key,
         AppendUnsigned(key, value);
     }
 }
+
+void RequireVkSuccess(VkResult result, const char* operation)
+{
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error(std::string(operation) +
+                                 " failed with VkResult: " +
+                                 std::to_string(result));
+    }
+}
+
+class ShaderModuleCollection
+{
+public:
+    explicit ShaderModuleCollection(VkDevice device) : m_Device(device) {}
+
+    ~ShaderModuleCollection()
+    {
+        for (VkShaderModule module : m_Modules)
+        {
+            vkDestroyShaderModule(m_Device, module, nullptr);
+        }
+    }
+
+    ShaderModuleCollection(const ShaderModuleCollection&) = delete;
+    ShaderModuleCollection& operator=(const ShaderModuleCollection&) = delete;
+
+    VkShaderModule Create(const std::vector<uint32_t>& code)
+    {
+        VkShaderModuleCreateInfo info{
+            VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        info.codeSize = code.size() * sizeof(uint32_t);
+        info.pCode = code.data();
+
+        VkShaderModule module = VK_NULL_HANDLE;
+        RequireVkSuccess(
+            vkCreateShaderModule(m_Device, &info, nullptr, &module),
+            "vkCreateShaderModule");
+
+        try
+        {
+            m_Modules.push_back(module);
+        }
+        catch (...)
+        {
+            vkDestroyShaderModule(m_Device, module, nullptr);
+            throw;
+        }
+
+        return module;
+    }
+
+private:
+    VkDevice m_Device = VK_NULL_HANDLE;
+    std::vector<VkShaderModule> m_Modules;
+};
 } // namespace
 
 std::string PipelineCacheKey::BuildGraphics(
@@ -195,13 +251,13 @@ GraphicsPipeline& PipelineManager::GetGraphicsPipeline(
 
     p->layout = GetReflectionLayout(p->shaders);
 
-    VkShaderModule vMod = CreateShaderModule(VulkanContext::Get().GetDevice(),
-                                             vSh->GetBytecode());
+    VkDevice device = VulkanContext::Get().GetDevice();
+    ShaderModuleCollection shaderModules(device);
+    VkShaderModule vMod = shaderModules.Create(vSh->GetBytecode());
     VkShaderModule fMod = VK_NULL_HANDLE;
     if (hasFragmentShader)
     {
-        fMod = CreateShaderModule(VulkanContext::Get().GetDevice(),
-                                  fSh->GetBytecode());
+        fMod = shaderModules.Create(fSh->GetBytecode());
     }
 
     std::vector<VkSpecializationMapEntry> specEntries;
@@ -339,12 +395,14 @@ GraphicsPipeline& PipelineManager::GetGraphicsPipeline(
         &dY,
         p->layout};
 
-    vkCreateGraphicsPipelines(VulkanContext::Get().GetDevice(), VK_NULL_HANDLE,
-                              1, &info, nullptr, &p->handle);
-
-    vkDestroyShaderModule(VulkanContext::Get().GetDevice(), vMod, nullptr);
-    if (fMod != VK_NULL_HANDLE)
-        vkDestroyShaderModule(VulkanContext::Get().GetDevice(), fMod, nullptr);
+    VkResult result = vkCreateGraphicsPipelines(
+        device, VK_NULL_HANDLE, 1, &info, nullptr, &p->handle);
+    if (result != VK_SUCCESS && p->handle != VK_NULL_HANDLE)
+    {
+        vkDestroyPipeline(device, p->handle, nullptr);
+        p->handle = VK_NULL_HANDLE;
+    }
+    RequireVkSuccess(result, "vkCreateGraphicsPipelines");
 
     m_GraphicsCache[cacheKey] = std::move(p);
     return *m_GraphicsCache[cacheKey];
@@ -397,13 +455,14 @@ RaytracingPipeline& PipelineManager::GetRaytracingPipeline(
         specInfo.pData = desc.specializationConstants.data();
     }
 
+    VkDevice device = VulkanContext::Get().GetDevice();
+    ShaderModuleCollection shaderModules(device);
     std::vector<VkPipelineShaderStageCreateInfo> stages;
     std::vector<VkRayTracingShaderGroupCreateInfoKHR> groups;
 
     auto addStage = [&](const Shader* sh, VkShaderStageFlagBits stageBit)
     {
-        VkShaderModule mod = CreateShaderModule(
-            VulkanContext::Get().GetDevice(), sh->GetBytecode());
+        VkShaderModule mod = shaderModules.Create(sh->GetBytecode());
         VkPipelineShaderStageCreateInfo s{};
         s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         s.stage = stageBit;
@@ -477,19 +536,28 @@ RaytracingPipeline& PipelineManager::GetRaytracingPipeline(
     pipeInfo.maxPipelineRayRecursionDepth = 2;
     pipeInfo.layout = p->layout;
 
-    vkCreateRayTracingPipelinesKHR(VulkanContext::Get().GetDevice(),
-                                   VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &pipeInfo,
-                                   nullptr, &p->handle);
-
-    p->sbt_buffer =
-        VulkanUtils::CreateSBT(p->handle, 1, (uint32_t)desc.miss_shaders.size(),
-                               (uint32_t)desc.hit_shaders.size(), p->sbt.raygen,
-                               p->sbt.miss, p->sbt.hit);
-
-    for (auto& s : stages)
+    VkResult result = vkCreateRayTracingPipelinesKHR(
+        device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &pipeInfo, nullptr,
+        &p->handle);
+    if (result != VK_SUCCESS && p->handle != VK_NULL_HANDLE)
     {
-        vkDestroyShaderModule(VulkanContext::Get().GetDevice(), s.module,
-                              nullptr);
+        vkDestroyPipeline(device, p->handle, nullptr);
+        p->handle = VK_NULL_HANDLE;
+    }
+    RequireVkSuccess(result, "vkCreateRayTracingPipelinesKHR");
+
+    try
+    {
+        p->sbt_buffer = VulkanUtils::CreateSBT(
+            p->handle, 1, (uint32_t)desc.miss_shaders.size(),
+            (uint32_t)desc.hit_shaders.size(), p->sbt.raygen, p->sbt.miss,
+            p->sbt.hit);
+    }
+    catch (...)
+    {
+        vkDestroyPipeline(device, p->handle, nullptr);
+        p->handle = VK_NULL_HANDLE;
+        throw;
     }
 
     m_RaytracingCache[cacheKey] = std::move(p);
@@ -511,8 +579,9 @@ ComputePipeline& PipelineManager::GetComputePipeline(
     p->shaders = {sh.get()};
     p->layout = GetReflectionLayout(p->shaders);
 
-    VkShaderModule mod =
-        CreateShaderModule(VulkanContext::Get().GetDevice(), sh->GetBytecode());
+    VkDevice device = VulkanContext::Get().GetDevice();
+    ShaderModuleCollection shaderModules(device);
+    VkShaderModule mod = shaderModules.Create(sh->GetBytecode());
 
     std::vector<VkSpecializationMapEntry> specEntries;
     for (uint32_t i = 0; i < (uint32_t)kernel.specializationConstants.size();
@@ -546,9 +615,14 @@ ComputePipeline& PipelineManager::GetComputePipeline(
     }
     info.layout = p->layout;
 
-    vkCreateComputePipelines(VulkanContext::Get().GetDevice(), VK_NULL_HANDLE,
-                             1, &info, nullptr, &p->handle);
-    vkDestroyShaderModule(VulkanContext::Get().GetDevice(), mod, nullptr);
+    VkResult result = vkCreateComputePipelines(
+        device, VK_NULL_HANDLE, 1, &info, nullptr, &p->handle);
+    if (result != VK_SUCCESS && p->handle != VK_NULL_HANDLE)
+    {
+        vkDestroyPipeline(device, p->handle, nullptr);
+        p->handle = VK_NULL_HANDLE;
+    }
+    RequireVkSuccess(result, "vkCreateComputePipelines");
 
     m_ComputeCache[cacheKey] = std::move(p);
     return *m_ComputeCache[cacheKey];
@@ -713,21 +787,12 @@ VkDescriptorSetLayout PipelineManager::GetSet2Layout(
     info.bindingCount = (uint32_t)vkBindings.size();
     info.pBindings = vkBindings.data();
 
-    VkDescriptorSetLayout layout;
-    vkCreateDescriptorSetLayout(VulkanContext::Get().GetDevice(), &info,
-                                nullptr, &layout);
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    RequireVkSuccess(vkCreateDescriptorSetLayout(
+                         VulkanContext::Get().GetDevice(), &info, nullptr,
+                         &layout),
+                     "vkCreateDescriptorSetLayout");
     m_Set2LayoutCache[hash] = layout;
     return layout;
-}
-
-VkShaderModule PipelineManager::CreateShaderModule(
-    VkDevice device, const std::vector<uint32_t>& code)
-{
-    VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-    info.codeSize = code.size() * sizeof(uint32_t);
-    info.pCode = code.data();
-    VkShaderModule mod;
-    vkCreateShaderModule(device, &info, nullptr, &mod);
-    return mod;
 }
 } // namespace Chimera
