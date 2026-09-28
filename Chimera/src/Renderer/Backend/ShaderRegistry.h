@@ -19,7 +19,6 @@ public:
             // --- 3. Ray Tracing Passes ---
         ShaderManager::RegisterAlias("Raytrace_Gen",
                                      "raytracing/raytrace.rgen");
-        ShaderManager::RegisterAlias("Raygen_Gen", "raytracing/raygen.rgen");
         ShaderManager::RegisterAlias("RT_Shadow_Gen",
                                      "raytracing/rt_shadow.rgen");
         ShaderManager::RegisterAlias("Raytrace_Hit",

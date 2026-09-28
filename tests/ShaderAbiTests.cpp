@@ -86,8 +86,8 @@ void TestStochasticShadersUseTemporalSampleIndex()
 {
     const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
     const std::vector<std::filesystem::path> stochasticShaders = {
-        "raytracing/raygen.rgen", "raytracing/rt_shadow.rgen",
-        "raytracing/diffuse_gi.rgen", "raytracing/closesthit.rchit"};
+        "raytracing/rt_shadow.rgen", "raytracing/diffuse_gi.rgen",
+        "raytracing/closesthit.rchit"};
 
     for (const std::filesystem::path& relativePath : stochasticShaders)
     {
@@ -309,7 +309,6 @@ void TestDirectLightShadersHonorLightAndShadowFlags()
     const std::vector<std::filesystem::path> directLightShaders = {
         "forward/forward.frag",
         "raytracing/closesthit.rchit",
-        "raytracing/raygen.rgen",
         "raytracing/rt_shadow.rgen"};
 
     for (const std::filesystem::path& relativePath : directLightShaders)
@@ -353,7 +352,6 @@ void TestGBufferWorldReconstructionRemovesCameraJitter()
     const std::vector<std::filesystem::path> reconstructionShaders = {
         "postprocess/composition.frag",
         "raytracing/diffuse_gi.rgen",
-        "raytracing/raygen.rgen",
         "raytracing/reflection.rgen",
         "raytracing/rt_shadow.rgen"};
 
