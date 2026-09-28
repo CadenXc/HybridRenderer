@@ -18,6 +18,8 @@ semantic versioning once a release is tagged.
   final color, shadow, AO, reflection, and GI debug views.
 - A fixed-scene, paired Hybrid GPU benchmark exporting per-pass timings for
   full and minimal render flags.
+- A paired SVGF on/off quality smoke with noise, reflection-color, and image
+  difference diagnostics on the bundled two-object fixture.
 
 ### Fixed
 
@@ -25,6 +27,9 @@ semantic versioning once a release is tagged.
 - Avoid albedo remodulation in spatial-only SVGF filtering.
 - Invalidate TAA history when the scene, camera, render path, or swapchain
   changes in ways that make the previous image incompatible.
+- Keep receiver albedo out of SVGF processing for incoming Reflection and GI
+  radiance; the old demodulate/remodulate path tinted reflections with the
+  receiver's texture.
 
 ## [0.1.0] - 2026-08-18
 

@@ -1107,6 +1107,8 @@ void TestSVGFPassCombinationsCompile()
 void TestSVGFRemodulationMatchesDemodulation()
 {
     Chimera::SVGFPass::Config config;
+    Require(!config.useAlbedoDemod && !config.ShouldRemodulateAlbedo(),
+            "radiance signals must not be receiver-albedo-modulated by default");
     config.useAlbedoDemod = true;
 
     config.temporalEnabled = true;

@@ -75,7 +75,10 @@ void HybridRenderPath::BuildGraph(RenderGraph& graph,
         reflConfig.inputName = "ReflectionRaw";
         reflConfig.prefix = "Refl";
         reflConfig.historyBaseName = "ReflAccum";
-        reflConfig.useAlbedoDemod = true;
+        // ReflectionRaw is radiance from the ray hit, not receiver-albedo-
+        // modulated illumination. Dividing by the receiver's texture and
+        // multiplying it back after filtering tints the reflection.
+        reflConfig.useAlbedoDemod = false;
         graph.AddPass<SVGFPass>(scene, reflConfig);
 
         // --- GI SVGF ---
@@ -83,7 +86,9 @@ void HybridRenderPath::BuildGraph(RenderGraph& graph,
         giConfig.inputName = "GIRaw";
         giConfig.prefix = "GI";
         giConfig.historyBaseName = "GIAccum";
-        giConfig.useAlbedoDemod = true;
+        // GIRaw is incoming radiance. Composition applies the receiver's
+        // albedo once, after denoising, so SVGF must not remodulate it.
+        giConfig.useAlbedoDemod = false;
         graph.AddPass<SVGFPass>(scene, giConfig);
     }
 

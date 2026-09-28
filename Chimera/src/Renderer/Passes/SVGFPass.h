@@ -78,8 +78,9 @@ public:
         int atrousIterations = 3;
         bool temporalEnabled = true;
         bool spatialEnabled = true;
-        bool useAlbedoDemod =
-            true; // [NEW] Whether to divide by Albedo before denoising
+        // Enable only when the input signal already contains the receiver's
+        // albedo. Incoming GI/reflection radiance does not, so false is safe.
+        bool useAlbedoDemod = false;
 
         // Only the temporal shader demodulates the signal. Spatial-only
         // filtering receives the raw signal and must not multiply albedo.

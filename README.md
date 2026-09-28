@@ -247,6 +247,14 @@ Inspect the images: a `PASS` checks capture dimensions, visible final color,
 and changed final pixels, not physical lighting accuracy or absence of
 ghosting.
 
+`.\Sandbox.exe --hybrid-quality-smoke` uses the same two-object fixture but
+adds matched still captures with SVGF on and off. It records Box flat-face
+high-frequency residuals, checks that denoising reduces that residual, checks
+that the reflection's broad floor color is not tinted by the receiver's
+texture, and saves amplified difference images. The moving captures allow a
+visual check of edge detail and trails. A passing metric is not proof of
+perceptual quality at other camera speeds, lighting, or materials.
+
 `.\Sandbox.exe --hybrid-benchmark-smoke` benchmarks the bundled Box scene
 twice at the same camera and 1600x900 resolution: first with RT shadow/AO,
 reflection, GI, and temporal-plus-spatial SVGF, then with only direct light
@@ -296,6 +304,14 @@ The control panel exposes:
 
 Feature toggles are useful for investigation, but not every combination is a
 validated rendering configuration yet.
+
+The current Hybrid quality baseline uses one RTX 5070 Ti and a small bundled
+two-object fixture. In that setup, SVGF reduces noise on a flat Box face and
+preserves the textured card's broad colors. Reflection edges remain visibly
+soft after filtering; moving-frame captures do not rule out subtle ghosting.
+The Hybrid graph also retains RT producer dispatches when their effect flags
+are disabled, as measured by the paired benchmark. Other GPUs, larger scenes,
+and difficult disocclusions remain unverified.
 
 ## Assets
 

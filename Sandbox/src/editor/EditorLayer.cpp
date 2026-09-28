@@ -199,7 +199,8 @@ EditorLayer::EditorLayer(EditorAutomationOptions automationOptions)
       m_Automation(automationOptions),
       m_TexturedSceneSmokeTest(automationOptions.texturedSceneSmokeTest),
       m_HybridMultiObjectSmokeTest(
-          automationOptions.hybridMultiObjectSmokeTest)
+          automationOptions.hybridMultiObjectSmokeTest ||
+          automationOptions.hybridQualitySmokeTest)
 {
     m_ShowControlPanel = true;
 

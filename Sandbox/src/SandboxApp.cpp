@@ -96,6 +96,11 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
         {
             automationOptions.hybridBenchmarkSmokeTest = true;
         }
+        else if (std::string_view(argv[argumentIndex]) ==
+                 "--hybrid-quality-smoke")
+        {
+            automationOptions.hybridQualitySmokeTest = true;
+        }
     }
 
     if (automationOptions.svgfToggleSmokeTest)

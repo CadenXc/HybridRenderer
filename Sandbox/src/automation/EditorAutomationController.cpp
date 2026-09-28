@@ -278,7 +278,8 @@ bool EditorAutomationController::IsActive() const
            m_Options.objectMotionSmokeTest ||
            m_Options.renderPathSmokeTest ||
            m_Options.hybridMultiObjectSmokeTest ||
-           m_Options.hybridBenchmarkSmokeTest;
+           m_Options.hybridBenchmarkSmokeTest ||
+           m_Options.hybridQualitySmokeTest;
 }
 
 void EditorAutomationController::ConfigureRenderSettings(
@@ -305,7 +306,8 @@ void EditorAutomationController::ConfigureRenderSettings(
         displayMode = DisplayMode::Final;
         showControlPanel = false;
     }
-    else if (m_Options.hybridMultiObjectSmokeTest)
+    else if (m_Options.hybridMultiObjectSmokeTest ||
+             m_Options.hybridQualitySmokeTest)
     {
         renderFlags = WithSvgfSmokeMode(
             renderFlags, SvgfSmokeMode::TemporalAndSpatial);
@@ -339,7 +341,8 @@ void EditorAutomationController::Initialize()
     {
         InitializeRenderPathSmokeTest();
     }
-    else if (m_Options.hybridMultiObjectSmokeTest)
+    else if (m_Options.hybridMultiObjectSmokeTest ||
+             m_Options.hybridQualitySmokeTest)
     {
         InitializeHybridMultiObjectSmokeTest();
     }
@@ -378,7 +381,7 @@ void EditorAutomationController::UpdateAfterScene(
     UpdateRenderPathSmokeTest(camera, scene, activePath, sceneReady,
                               sceneFailed, renderFlags);
     UpdateHybridMultiObjectSmokeTest(camera, scene, activePath, sceneReady,
-                                     sceneFailed, displayMode);
+                                     sceneFailed, renderFlags, displayMode);
     UpdateHybridBenchmarkSmokeTest(scene, activePath, sceneReady, sceneFailed,
                                    renderFlags);
 }
@@ -2595,7 +2598,9 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
 void EditorAutomationController::InitializeHybridMultiObjectSmokeTest()
 {
     m_HybridMultiObjectOutputDirectory =
-        MakeSmokeOutputDirectory("hybrid-multi-object-results");
+        MakeSmokeOutputDirectory(m_Options.hybridQualitySmokeTest
+                                     ? "hybrid-quality-results"
+                                     : "hybrid-multi-object-results");
     for (size_t index = 0; index < m_HybridMultiObjectModes.size(); ++index)
     {
         const std::string mode =
@@ -2605,6 +2610,9 @@ void EditorAutomationController::InitializeHybridMultiObjectSmokeTest()
         m_HybridMultiObjectMovingPaths[index] =
             m_HybridMultiObjectOutputDirectory / ("moving-" + mode + ".png");
     }
+    m_HybridQualityNoSvgfPaths = {
+        m_HybridMultiObjectOutputDirectory / "still-final-no-svgf.png",
+        m_HybridMultiObjectOutputDirectory / "still-reflection-no-svgf.png"};
 
     std::error_code directoryError;
     std::filesystem::create_directories(
@@ -2700,6 +2708,47 @@ void EditorAutomationController::FinishHybridMultiObjectSmokeTest(
                        << "moving." << mode << '='
                        << m_HybridMultiObjectMovingPaths[index].string() << '\n';
         }
+        if (m_Options.hybridQualitySmokeTest)
+        {
+            resultFile << "quality.noSvgfFinal="
+                       << m_HybridQualityNoSvgfPaths[0].string() << '\n'
+                       << "quality.noSvgfReflection="
+                       << m_HybridQualityNoSvgfPaths[1].string() << '\n'
+                       << "quality.finalDifference="
+                       << (m_HybridMultiObjectOutputDirectory /
+                           "svgf-final-difference.png").string() << '\n'
+                       << "quality.reflectionDifference="
+                       << (m_HybridMultiObjectOutputDirectory /
+                           "svgf-reflection-difference.png").string() << '\n'
+                       << "quality.boxRedFaceRegion=730,415,65,55\n"
+                       << "quality.reflectionFloorRegion=600,430,60,35\n";
+            if (m_HybridQualityFilteredNoise.success &&
+                m_HybridQualityRawNoise.success)
+                resultFile << "quality.filteredRedFaceResidual="
+                           << m_HybridQualityFilteredNoise.meanAbsoluteResidual
+                           << '\n'
+                           << "quality.rawRedFaceResidual="
+                           << m_HybridQualityRawNoise.meanAbsoluteResidual
+                           << '\n';
+            if (m_HybridQualityFinalDifference.success)
+                resultFile << "quality.finalOnOffRmse="
+                           << m_HybridQualityFinalDifference.rmse << '\n';
+            if (m_HybridQualityReflectionDifference.success)
+                resultFile << "quality.reflectionOnOffRmse="
+                           << m_HybridQualityReflectionDifference.rmse << '\n';
+            if (m_HybridQualityFilteredReflectionFloor.success &&
+                m_HybridQualityRawReflectionFloor.success)
+            {
+                resultFile << "quality.filteredReflectionFloorMeanRgb=";
+                for (double channel : m_HybridQualityFilteredReflectionFloor.meanRgb)
+                    resultFile << channel << ',';
+                resultFile << '\n' << "quality.rawReflectionFloorMeanRgb=";
+                for (double channel : m_HybridQualityRawReflectionFloor.meanRgb)
+                    resultFile << channel << ',';
+                resultFile << '\n';
+            }
+            resultFile << "quality.scope=flat-region noise and paired images; inspect checkerboard, shadow edge, and moving trails manually\n";
+        }
         if (m_HybridMultiObjectFinalComparison.success)
             resultFile << "finalDifferentPixels="
                        << m_HybridMultiObjectFinalComparison.differentPixelCount
@@ -2720,7 +2769,8 @@ void EditorAutomationController::FinishHybridMultiObjectSmokeTest(
 
 void EditorAutomationController::UpdateHybridMultiObjectSmokeTest(
     EditorCamera& camera, Scene* scene, RenderPath* activePath,
-    bool sceneReady, bool sceneFailed, DisplayMode& displayMode)
+    bool sceneReady, bool sceneFailed, RenderFlags& renderFlags,
+    DisplayMode& displayMode)
 {
     if (m_HybridMultiObjectState == HybridMultiObjectState::Disabled ||
         m_HybridMultiObjectState == HybridMultiObjectState::Finished)
@@ -2840,6 +2890,150 @@ void EditorAutomationController::UpdateHybridMultiObjectSmokeTest(
             m_HybridMultiObjectStateFrames = 0;
             return;
         }
+        case HybridMultiObjectState::WarmingUpNoSvgf:
+        {
+            if (!ready ||
+                activePath->GetRenderGraph().ContainsImage("Refl_Filtered_Final"))
+                return;
+            if (++m_HybridMultiObjectWarmupFrames < 8)
+                return;
+            m_HybridQualityNoSvgfIndex = 0;
+            displayMode = DisplayMode::Final;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_HybridQualityNoSvgfPaths[0]))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "unfiltered final capture request was rejected",
+                    &camera, scene);
+                return;
+            }
+            m_HybridMultiObjectState =
+                HybridMultiObjectState::WaitingForNoSvgfCapture;
+            m_HybridMultiObjectStateFrames = 0;
+            return;
+        }
+        case HybridMultiObjectState::WaitingForNoSvgfCapture:
+        {
+            const std::filesystem::path& capturePath =
+                m_HybridQualityNoSvgfPaths[m_HybridQualityNoSvgfIndex];
+            if (!std::filesystem::exists(capturePath)) return;
+            int width = 0;
+            int height = 0;
+            int channels = 0;
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (!stbi_info(capturePath.string().c_str(), &width, &height,
+                           &channels) ||
+                width != static_cast<int>(extent.width) ||
+                height != static_cast<int>(extent.height))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "unfiltered capture is missing or wrong-sized",
+                    &camera, scene);
+                return;
+            }
+            if (++m_HybridQualityNoSvgfIndex <
+                m_HybridQualityNoSvgfPaths.size())
+            {
+                displayMode = DisplayMode::Reflection;
+                if (!Renderer::Get().RequestFrameCapture(
+                        m_HybridQualityNoSvgfPaths[1]))
+                {
+                    FinishHybridMultiObjectSmokeTest(
+                        false, "unfiltered reflection capture request was rejected",
+                        &camera, scene);
+                }
+                m_HybridMultiObjectStateFrames = 0;
+                return;
+            }
+
+            constexpr ImageRegion boxFace{730, 415, 65, 55};
+            m_HybridQualityFilteredNoise = AnalyzeBoxRedFace(
+                m_HybridMultiObjectStillPaths[0], boxFace);
+            m_HybridQualityRawNoise = AnalyzeBoxRedFace(
+                m_HybridQualityNoSvgfPaths[0], boxFace);
+            constexpr ImageRegion reflectionFloor{600, 430, 60, 35};
+            m_HybridQualityFilteredReflectionFloor = AnalyzeHighFrequencyPng(
+                m_HybridMultiObjectStillPaths[3].string(), reflectionFloor);
+            m_HybridQualityRawReflectionFloor = AnalyzeHighFrequencyPng(
+                m_HybridQualityNoSvgfPaths[1].string(), reflectionFloor);
+            m_HybridQualityFinalDifference =
+                ComparePngFilesAndWriteDifference(
+                    m_HybridQualityNoSvgfPaths[0].string(),
+                    m_HybridMultiObjectStillPaths[0].string(),
+                    (m_HybridMultiObjectOutputDirectory /
+                     "svgf-final-difference.png").string(), 2, 8);
+            m_HybridQualityReflectionDifference =
+                ComparePngFilesAndWriteDifference(
+                    m_HybridQualityNoSvgfPaths[1].string(),
+                    m_HybridMultiObjectStillPaths[3].string(),
+                    (m_HybridMultiObjectOutputDirectory /
+                     "svgf-reflection-difference.png").string(), 2, 8);
+            if (!m_HybridQualityFilteredNoise.success ||
+                !m_HybridQualityRawNoise.success ||
+                !m_HybridQualityFilteredReflectionFloor.success ||
+                !m_HybridQualityRawReflectionFloor.success ||
+                !m_HybridQualityFinalDifference.success ||
+                !m_HybridQualityReflectionDifference.success)
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "paired SVGF quality metrics could not be measured",
+                    &camera, scene);
+                return;
+            }
+            if (m_HybridQualityRawNoise.meanAbsoluteResidual <= 1.0 ||
+                m_HybridQualityFilteredNoise.meanAbsoluteResidual >=
+                    m_HybridQualityRawNoise.meanAbsoluteResidual * 0.5)
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "SVGF did not reduce Box flat-face noise",
+                    &camera, scene);
+                return;
+            }
+            for (size_t channel = 0; channel < 3; ++channel)
+            {
+                if (std::abs(
+                        m_HybridQualityFilteredReflectionFloor.meanRgb[channel] -
+                        m_HybridQualityRawReflectionFloor.meanRgb[channel]) >
+                    20.0)
+                {
+                    FinishHybridMultiObjectSmokeTest(
+                        false, "SVGF changed the reflection floor's mean color",
+                        &camera, scene);
+                    return;
+                }
+            }
+            renderFlags |= RenderFlags_SVGFBit |
+                           RenderFlags_SVGFTemporalBit |
+                           RenderFlags_SVGFSpatialBit;
+            activePath->RequestGraphRebuild();
+            displayMode = DisplayMode::Final;
+            m_HybridMultiObjectWarmupFrames = 0;
+            m_HybridMultiObjectState =
+                HybridMultiObjectState::WarmingUpRestored;
+            m_HybridMultiObjectStateFrames = 0;
+            return;
+        }
+        case HybridMultiObjectState::WarmingUpRestored:
+        {
+            if (!ready ||
+                !activePath->GetRenderGraph().ContainsImage("Refl_Filtered_Final"))
+                return;
+            if (++m_HybridMultiObjectWarmupFrames < 32)
+                return;
+            if (!HasCompleteSvgfHistory(*activePath))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "restored SVGF history did not warm up", &camera,
+                    scene);
+                return;
+            }
+            m_HybridMultiObjectMoving = true;
+            m_HybridMultiObjectMotionFrames = 0;
+            m_HybridMultiObjectState = HybridMultiObjectState::WarmingUpMotion;
+            m_HybridMultiObjectStateFrames = 0;
+            return;
+        }
         case HybridMultiObjectState::WarmingUpMotion:
         {
             if (!ready)
@@ -2906,9 +3100,23 @@ void EditorAutomationController::UpdateHybridMultiObjectSmokeTest(
                     m_HybridMultiObjectStateFrames = 0;
                     return;
                 }
-                m_HybridMultiObjectMoving = true;
-                m_HybridMultiObjectMotionFrames = 0;
-                m_HybridMultiObjectState = HybridMultiObjectState::WarmingUpMotion;
+                if (m_Options.hybridQualitySmokeTest)
+                {
+                    renderFlags &= ~(RenderFlags_SVGFBit |
+                                     RenderFlags_SVGFTemporalBit |
+                                     RenderFlags_SVGFSpatialBit);
+                    activePath->RequestGraphRebuild();
+                    m_HybridMultiObjectWarmupFrames = 0;
+                    m_HybridMultiObjectState =
+                        HybridMultiObjectState::WarmingUpNoSvgf;
+                }
+                else
+                {
+                    m_HybridMultiObjectMoving = true;
+                    m_HybridMultiObjectMotionFrames = 0;
+                    m_HybridMultiObjectState =
+                        HybridMultiObjectState::WarmingUpMotion;
+                }
                 m_HybridMultiObjectStateFrames = 0;
                 return;
             }

@@ -34,6 +34,7 @@ struct EditorAutomationOptions
     bool svgfToggleSmokeTest = false;
     bool hybridMultiObjectSmokeTest = false;
     bool hybridBenchmarkSmokeTest = false;
+    bool hybridQualitySmokeTest = false;
     SvgfSmokeMode svgfSmokeMode = SvgfSmokeMode::None;
 };
 
@@ -133,6 +134,9 @@ private:
         Disabled,
         WaitingForScene,
         WarmingUp,
+        WarmingUpNoSvgf,
+        WaitingForNoSvgfCapture,
+        WarmingUpRestored,
         WarmingUpMotion,
         WaitingForCapture,
         Finished
@@ -173,6 +177,7 @@ private:
     void UpdateHybridMultiObjectSmokeTest(EditorCamera& camera, Scene* scene,
                                           RenderPath* activePath,
                                           bool sceneReady, bool sceneFailed,
+                                          RenderFlags& renderFlags,
                                           DisplayMode& displayMode);
     void FinishHybridMultiObjectSmokeTest(bool passed,
                                           const std::string& reason,
@@ -287,6 +292,14 @@ private:
         DisplayMode::Reflection, DisplayMode::GI};
     std::array<std::filesystem::path, 5> m_HybridMultiObjectStillPaths;
     std::array<std::filesystem::path, 5> m_HybridMultiObjectMovingPaths;
+    std::array<std::filesystem::path, 2> m_HybridQualityNoSvgfPaths;
+    size_t m_HybridQualityNoSvgfIndex = 0;
+    ImageHighFrequencyResult m_HybridQualityFilteredNoise;
+    ImageHighFrequencyResult m_HybridQualityRawNoise;
+    ImageHighFrequencyResult m_HybridQualityFilteredReflectionFloor;
+    ImageHighFrequencyResult m_HybridQualityRawReflectionFloor;
+    ImageComparisonResult m_HybridQualityFinalDifference;
+    ImageComparisonResult m_HybridQualityReflectionDifference;
     ImageComparisonResult m_HybridMultiObjectFinalComparison;
     size_t m_HybridMultiObjectBoxIndex = 0;
     size_t m_HybridMultiObjectCardIndex = 0;
