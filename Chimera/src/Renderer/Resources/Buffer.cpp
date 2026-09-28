@@ -31,8 +31,8 @@ namespace Chimera
         m_PersistentlyMapped = true;
     }
 
-    VmaAllocationInfo allocationResultInfo;
-    VkResult result;
+    VmaAllocationInfo allocationResultInfo{};
+    VkResult result = VK_SUCCESS;
     m_Allocator = VulkanContext::Get().GetAllocator();
 
     if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
@@ -91,6 +91,11 @@ namespace Chimera
 
 Buffer::~Buffer()
 {
+    Release();
+}
+
+void Buffer::Release()
+{
     if (m_Buffer != VK_NULL_HANDLE && m_Allocator != nullptr)
     {
         CH_CORE_TRACE("Buffer: DESTROYING. Handle: [0x{:x}], Size: {}",
@@ -100,9 +105,23 @@ Buffer::~Buffer()
             CH_CORE_TRACE("Buffer: Releasing Device Address [0x{:x}]",
                           m_DeviceAddress);
         }
+
+        if (m_MappedData != nullptr && !m_PersistentlyMapped)
+        {
+            vmaUnmapMemory(m_Allocator, m_Allocation);
+        }
+
         vmaDestroyBuffer(m_Allocator, m_Buffer, m_Allocation);
-        m_Buffer = VK_NULL_HANDLE;
     }
+
+    m_Buffer = VK_NULL_HANDLE;
+    m_Allocation = VK_NULL_HANDLE;
+    m_MappedData = nullptr;
+    m_DeviceAddress = 0;
+    m_Size = 0;
+    m_PersistentlyMapped = false;
+    m_IsCoherent = false;
+    m_Allocator = nullptr;
 }
 
 Buffer::Buffer(Buffer&& other) noexcept
@@ -127,10 +146,7 @@ Buffer& Buffer::operator=(Buffer&& other) noexcept
 {
     if (this != &other)
     {
-        if (m_Buffer != VK_NULL_HANDLE && m_Allocator != nullptr)
-        {
-            vmaDestroyBuffer(m_Allocator, m_Buffer, m_Allocation);
-        }
+        Release();
 
         m_Allocator = other.m_Allocator;
         m_Buffer = other.m_Buffer;
@@ -157,13 +173,20 @@ void* Buffer::Map()
     {
         return m_MappedData;
     }
-    vmaMapMemory(m_Allocator, m_Allocation, &m_MappedData);
+    VkResult result =
+        vmaMapMemory(m_Allocator, m_Allocation, &m_MappedData);
+    if (result != VK_SUCCESS)
+    {
+        m_MappedData = nullptr;
+        CH_CORE_ERROR("Buffer: vmaMapMemory failed with VkResult: {}",
+                      static_cast<int>(result));
+    }
     return m_MappedData;
 }
 
 void Buffer::Unmap()
 {
-    if (m_PersistentlyMapped)
+    if (m_PersistentlyMapped || m_MappedData == nullptr)
     {
         return;
     }
@@ -173,7 +196,22 @@ void Buffer::Unmap()
 
 void Buffer::Update(const void* data, VkDeviceSize size, VkDeviceSize offset)
 {
+    ValidateRange(size, offset, "Buffer::Update");
+    if (size == 0)
+    {
+        return;
+    }
+    if (data == nullptr)
+    {
+        throw std::invalid_argument(
+            "Buffer::Update requires non-null data for a non-empty write");
+    }
+
     void* mapped = Map();
+    if (mapped == nullptr)
+    {
+        throw std::runtime_error("Buffer::Update failed to map the buffer");
+    }
     memcpy((uint8_t*)mapped + offset, data, size);
 
     if (!m_IsCoherent)
@@ -184,20 +222,36 @@ void Buffer::Update(const void* data, VkDeviceSize size, VkDeviceSize offset)
 
 void Buffer::Flush(VkDeviceSize size, VkDeviceSize offset)
 {
+    ValidateRange(size, offset, "Buffer::Flush");
     if (m_IsCoherent)
     {
         return;
     }
-    vmaFlushAllocation(m_Allocator, m_Allocation, offset, size);
+    VK_CHECK(vmaFlushAllocation(m_Allocator, m_Allocation, offset, size));
 }
 
 void Buffer::Invalidate(VkDeviceSize size, VkDeviceSize offset)
 {
+    ValidateRange(size, offset, "Buffer::Invalidate");
     if (m_IsCoherent)
     {
         return;
     }
 
-    vmaInvalidateAllocation(m_Allocator, m_Allocation, offset, size);
+    VK_CHECK(vmaInvalidateAllocation(m_Allocator, m_Allocation, offset, size));
+}
+
+void Buffer::ValidateRange(VkDeviceSize size, VkDeviceSize offset,
+                           const char* operation) const
+{
+    const bool offsetOutOfRange = offset > m_Size;
+    const bool sizeOutOfRange =
+        size != VK_WHOLE_SIZE &&
+        (offsetOutOfRange || size > m_Size - offset);
+    if (offsetOutOfRange || sizeOutOfRange)
+    {
+        throw std::out_of_range(std::string(operation) +
+                                " range exceeds buffer size");
+    }
 }
 } // namespace Chimera

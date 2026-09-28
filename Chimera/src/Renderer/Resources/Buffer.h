@@ -54,8 +54,13 @@ public:
 
     void Flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
 
-    void Invalidate(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0); 
+    void Invalidate(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
+
 private:
+    void Release();
+    void ValidateRange(VkDeviceSize size, VkDeviceSize offset,
+                       const char* operation) const;
+
     VmaAllocator m_Allocator = nullptr;
     VkBuffer m_Buffer = VK_NULL_HANDLE;
     VmaAllocation m_Allocation = VK_NULL_HANDLE;
