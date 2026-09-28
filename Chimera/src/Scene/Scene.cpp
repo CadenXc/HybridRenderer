@@ -12,6 +12,42 @@
 
 namespace Chimera
 {
+namespace
+{
+class TemporaryAccelerationStructure
+{
+public:
+    TemporaryAccelerationStructure(VkDevice device,
+                                   VkAccelerationStructureKHR handle)
+        : m_Device(device), m_Handle(handle)
+    {
+    }
+
+    ~TemporaryAccelerationStructure()
+    {
+        if (m_Handle != VK_NULL_HANDLE)
+        {
+            vkDestroyAccelerationStructureKHR(m_Device, m_Handle, nullptr);
+        }
+    }
+
+    TemporaryAccelerationStructure(const TemporaryAccelerationStructure&) =
+        delete;
+    TemporaryAccelerationStructure& operator=(
+        const TemporaryAccelerationStructure&) = delete;
+
+    VkAccelerationStructureKHR Release()
+    {
+        VkAccelerationStructureKHR handle = m_Handle;
+        m_Handle = VK_NULL_HANDLE;
+        return handle;
+    }
+
+private:
+    VkDevice m_Device = VK_NULL_HANDLE;
+    VkAccelerationStructureKHR m_Handle = VK_NULL_HANDLE;
+};
+} // namespace
 
 Scene::Scene(std::shared_ptr<VulkanContext> context) : m_Context(context.get())
 {
@@ -453,6 +489,7 @@ void Scene::UpdateTLAS()
     createInfo.size = sizeInfo.accelerationStructureSize;
     VK_CHECK(vkCreateAccelerationStructureKHR(device, &createInfo, nullptr,
                                               &newTLAS));
+    TemporaryAccelerationStructure newTLASOwner(device, newTLAS);
 
     const VkDeviceSize scratchAlignment =
         m_Context->GetAccelerationStructureProperties()
@@ -474,6 +511,6 @@ void Scene::UpdateTLAS()
     DestroyTLAS();
     m_ASInstanceBuffer = std::move(newInstanceBuffer);
     m_TLASBuffer = std::move(newTLASBuffer);
-    m_TopLevelAS = newTLAS;
+    m_TopLevelAS = newTLASOwner.Release();
 }
 } // namespace Chimera
