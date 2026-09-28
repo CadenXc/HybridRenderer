@@ -58,6 +58,10 @@ private:
         WaitingForResizedCapture,
         WarmingUpAfterResize,
         WaitingForRecoveredCapture,
+        WaitingForPathSwitch,
+        WaitingForPathCapture,
+        WarmingUpAfterPathSwitch,
+        WaitingForPathRecoveredCapture,
         Finished
     };
 
@@ -113,10 +117,14 @@ private:
     std::filesystem::path m_TaaSmokeMovedCapturePath;
     std::filesystem::path m_TaaSmokeResizedCapturePath;
     std::filesystem::path m_TaaSmokeRecoveredCapturePath;
+    std::filesystem::path m_TaaSmokePathFirstCapturePath;
+    std::filesystem::path m_TaaSmokePathRecoveredCapturePath;
     TemporalHistoryDebugStatistics m_TaaSmokeStableStatistics;
     TemporalHistoryDebugStatistics m_TaaSmokeMovedStatistics;
     TemporalHistoryDebugStatistics m_TaaSmokeResizedStatistics;
     TemporalHistoryDebugStatistics m_TaaSmokeRecoveredStatistics;
+    TemporalHistoryDebugStatistics m_TaaSmokePathFirstStatistics;
+    TemporalHistoryDebugStatistics m_TaaSmokePathRecoveredStatistics;
     uint32_t m_TaaSmokeOriginalWidth = 0;
     uint32_t m_TaaSmokeOriginalHeight = 0;
     uint32_t m_TaaSmokeWarmupFrameCount = 0;

@@ -76,6 +76,29 @@ bool HasVisibleScenePixels(const std::filesystem::path& capturePath)
     stbi_image_free(pixels);
     return visiblePixelCount >= 64;
 }
+
+bool RejectsPriorHistory(const TemporalHistoryDebugStatistics& stats,
+                         uint32_t width, uint32_t height)
+{
+    const uint64_t totalPixels =
+        static_cast<uint64_t>(stats.width) * stats.height;
+    return stats.success && stats.width == width && stats.height == height &&
+           totalPixels > 0 &&
+           stats.rejectedPixelCount >= totalPixels * 99 / 100 &&
+           stats.acceptedPixelCount == 0;
+}
+
+bool HasRecoveredHistory(const TemporalHistoryDebugStatistics& stats,
+                         uint32_t width, uint32_t height)
+{
+    const uint64_t classified = stats.GetClassifiedPixelCount();
+    const uint64_t totalPixels =
+        static_cast<uint64_t>(stats.width) * stats.height;
+    return stats.success && stats.width == width && stats.height == height &&
+           totalPixels > 0 && classified >= totalPixels * 99 / 100 &&
+           static_cast<double>(stats.acceptedPixelCount) /
+                   static_cast<double>(classified) >= 0.98;
+}
 } // namespace
 
 EditorAutomationController::EditorAutomationController(
@@ -157,6 +180,10 @@ void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
         m_TaaSmokeOutputDirectory / "resized-first-frame.png";
     m_TaaSmokeRecoveredCapturePath =
         m_TaaSmokeOutputDirectory / "resized-recovered.png";
+    m_TaaSmokePathFirstCapturePath =
+        m_TaaSmokeOutputDirectory / "forward-first-frame.png";
+    m_TaaSmokePathRecoveredCapturePath =
+        m_TaaSmokeOutputDirectory / "forward-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(m_TaaSmokeOutputDirectory,
@@ -520,6 +547,28 @@ void EditorAutomationController::FinishTaaDisocclusionSmokeTest(
                        << m_TaaSmokeRecoveredStatistics.rejectedPixelCount
                        << '\n';
         }
+        if (m_TaaSmokePathFirstStatistics.success)
+        {
+            resultFile << "pathFirstCapture="
+                       << m_TaaSmokePathFirstCapturePath.string() << '\n'
+                       << "pathFirstAccepted="
+                       << m_TaaSmokePathFirstStatistics.acceptedPixelCount
+                       << '\n'
+                       << "pathFirstRejected="
+                       << m_TaaSmokePathFirstStatistics.rejectedPixelCount
+                       << '\n';
+        }
+        if (m_TaaSmokePathRecoveredStatistics.success)
+        {
+            resultFile << "pathRecoveredCapture="
+                       << m_TaaSmokePathRecoveredCapturePath.string() << '\n'
+                       << "pathRecoveredAccepted="
+                       << m_TaaSmokePathRecoveredStatistics.acceptedPixelCount
+                       << '\n'
+                       << "pathRecoveredRejected="
+                       << m_TaaSmokePathRecoveredStatistics.rejectedPixelCount
+                       << '\n';
+        }
     }
 
     if (passed)
@@ -775,13 +824,8 @@ void EditorAutomationController::UpdateTaaDisocclusionSmokeTest(
             }
             const VkExtent2D extent =
                 Application::Get().GetContext()->GetSwapChainExtent();
-            const auto& stats = m_TaaSmokeResizedStatistics;
-            const uint64_t totalPixels =
-                static_cast<uint64_t>(stats.width) * stats.height;
-            if (stats.width != extent.width || stats.height != extent.height ||
-                totalPixels == 0 ||
-                stats.rejectedPixelCount < totalPixels * 99 / 100 ||
-                stats.acceptedPixelCount != 0)
+            if (!RejectsPriorHistory(m_TaaSmokeResizedStatistics,
+                                     extent.width, extent.height))
             {
                 FinishTaaDisocclusionSmokeTest(
                     false,
@@ -828,25 +872,124 @@ void EditorAutomationController::UpdateTaaDisocclusionSmokeTest(
                     false, m_TaaSmokeRecoveredStatistics.error);
                 return;
             }
-            const auto& stats = m_TaaSmokeRecoveredStatistics;
-            const uint64_t classified = stats.GetClassifiedPixelCount();
-            const double acceptedRatio =
-                classified > 0
-                    ? static_cast<double>(stats.acceptedPixelCount) /
-                          static_cast<double>(classified)
-                    : 0.0;
-            if (stats.width != m_TaaSmokeResizedStatistics.width ||
-                stats.height != m_TaaSmokeResizedStatistics.height ||
-                classified == 0 || acceptedRatio < 0.98)
+            if (!HasRecoveredHistory(m_TaaSmokeRecoveredStatistics,
+                                     m_TaaSmokeResizedStatistics.width,
+                                     m_TaaSmokeResizedStatistics.height))
             {
                 FinishTaaDisocclusionSmokeTest(
                     false,
                     "TAA history did not recover after resize warm-up");
                 return;
             }
+            Application::Get().SwitchRenderPath(RenderPathType::Forward);
+            m_TaaSmokeState = TaaDisocclusionSmokeState::WaitingForPathSwitch;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: requested Hybrid-to-Forward path switch");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForPathSwitch:
+        {
+            if (!activePath || activePath->GetType() != RenderPathType::Forward)
+                return;
+            if (activePath->HasRenderGraph())
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "missed the new render path's first frame");
+                return;
+            }
+            if (activePath->HasUsableHistory("TAAOutput"))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "new render path inherited TAA history");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokePathFirstCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "first Forward frame capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForPathCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: capturing first Forward frame");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForPathCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokePathFirstCapturePath))
+                return;
+
+            m_TaaSmokePathFirstStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokePathFirstCapturePath.string());
+            if (!m_TaaSmokePathFirstStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokePathFirstStatistics.error);
+                return;
+            }
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (!RejectsPriorHistory(m_TaaSmokePathFirstStatistics,
+                                     extent.width, extent.height))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "first Forward frame did not reject prior history");
+                return;
+            }
+
+            m_TaaSmokeWarmupFrameCount = 0;
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WarmingUpAfterPathSwitch;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: Forward rejected old history; warming up");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WarmingUpAfterPathSwitch:
+        {
+            if (!ready || !activePath ||
+                activePath->GetType() != RenderPathType::Forward)
+                return;
+
+            if (++m_TaaSmokeWarmupFrameCount < 32)
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokePathRecoveredCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "Forward recovery capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForPathRecoveredCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForPathRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokePathRecoveredCapturePath))
+                return;
+
+            m_TaaSmokePathRecoveredStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokePathRecoveredCapturePath.string());
+            if (!m_TaaSmokePathRecoveredStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokePathRecoveredStatistics.error);
+                return;
+            }
+            if (!HasRecoveredHistory(m_TaaSmokePathRecoveredStatistics,
+                                     m_TaaSmokePathFirstStatistics.width,
+                                     m_TaaSmokePathFirstStatistics.height))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "Forward TAA history did not recover after path switch");
+                return;
+            }
             FinishTaaDisocclusionSmokeTest(
                 true,
-                "stable history, camera disocclusion, resize rejection, and recovery verified");
+                "stable history, camera disocclusion, resize, and path-switch resets verified");
             return;
         }
         case TaaDisocclusionSmokeState::Disabled:

@@ -200,7 +200,9 @@ does not establish lighting quality or portability to other GPUs.
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
 `taa-smoke-results/run-*/result.txt` checks stable history, camera-motion
-disocclusion, rejection on the first resized frame, and history recovery.
+disocclusion, rejection on the first resized frame, and history recovery. It
+then switches from Hybrid to Forward and checks that the new path rejects the
+old history before accumulating its own.
 
 ## Run and Explore
 
