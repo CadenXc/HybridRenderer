@@ -470,8 +470,10 @@ void Application::SwitchRenderPath(RenderPathType type)
         });
 }
 
-void Application::Close()
+void Application::Close(int exitCode)
 {
+    if (exitCode != 0)
+        m_ExitCode = exitCode;
     m_Running = false;
 }
 

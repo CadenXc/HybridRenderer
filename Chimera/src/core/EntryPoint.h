@@ -29,10 +29,12 @@ int main(int argc, char** argv)
         }
     }
 
+    int exitCode = 0;
     try
     {
         auto app = Chimera::CreateApplication(argc, argv);
         app->Run();
+        exitCode = app->GetExitCode();
         delete app;
     }
     catch (const std::exception& e)
@@ -45,5 +47,5 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    return 0;
+    return exitCode;
 }

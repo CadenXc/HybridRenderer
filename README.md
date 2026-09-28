@@ -190,7 +190,8 @@ Pop-Location
 ```
 
 Inspect the new `render-path-smoke-results/run-*/result.txt` for `PASS` and
-the console for validation messages. This check switches through Forward,
+the console for validation messages; the process exits nonzero on smoke-test
+failure. This check switches through Forward,
 Hybrid, and Ray Tracing, verifies visible scene pixels in each capture, then
 resizes the window and verifies that the new capture matches the swapchain
 extent. It exercises the installed GPU and driver, but the small Box scene

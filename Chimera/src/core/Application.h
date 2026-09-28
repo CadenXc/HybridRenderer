@@ -82,7 +82,8 @@ public:
         return nullptr;
     }
 
-    void Close();
+    void Close(int exitCode = 0);
+    int GetExitCode() const { return m_ExitCode; }
     void SwitchRenderPath(RenderPathType type);
 
     ApplicationSpecification& GetSpecification()
@@ -209,6 +210,7 @@ private:
     std::mutex m_EventQueueMutex;
 
     bool m_Running = true;
+    int m_ExitCode = 0;
     bool m_Minimized = false;
     float m_LastFrameTime = 0.0f;
     uint32_t m_TotalFrameCount = 0;

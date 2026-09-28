@@ -163,7 +163,7 @@ void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
                       m_TaaSmokeOutputDirectory.string(),
                       directoryError.message());
         m_TaaSmokeState = TaaDisocclusionSmokeState::Finished;
-        Application::Get().Close();
+        Application::Get().Close(1);
         return;
     }
 
@@ -193,7 +193,7 @@ void EditorAutomationController::InitializeObjectMotionSmokeTest()
                       m_ObjectMotionSmokeOutputDirectory.string(),
                       directoryError.message());
         m_ObjectMotionSmokeState = ObjectMotionSmokeState::Finished;
-        Application::Get().Close();
+        Application::Get().Close(1);
         return;
     }
 
@@ -256,7 +256,7 @@ void EditorAutomationController::FinishObjectMotionSmokeTest(
     CH_CORE_INFO("Object motion smoke test result: {}", resultPath.string());
 
     m_ObjectMotionSmokeState = ObjectMotionSmokeState::Finished;
-    Application::Get().Close();
+    Application::Get().Close(passed ? 0 : 1);
 }
 
 void EditorAutomationController::UpdateObjectMotionSmokeTest(
@@ -505,7 +505,7 @@ void EditorAutomationController::FinishTaaDisocclusionSmokeTest(
                  resultPath.string());
 
     m_TaaSmokeState = TaaDisocclusionSmokeState::Finished;
-    Application::Get().Close();
+    Application::Get().Close(passed ? 0 : 1);
 }
 
 void EditorAutomationController::UpdateTaaDisocclusionSmokeTest(
@@ -707,7 +707,7 @@ void EditorAutomationController::InitializeRenderPathSmokeTest()
                       m_RenderPathSmokeOutputDirectory.string(),
                       directoryError.message());
         m_RenderPathSmokeState = RenderPathSmokeState::Finished;
-        Application::Get().Close();
+        Application::Get().Close(1);
         return;
     }
 
@@ -790,7 +790,7 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
     CH_CORE_INFO("Render path smoke test result: {}", resultPath.string());
 
     m_RenderPathSmokeState = RenderPathSmokeState::Finished;
-    Application::Get().Close();
+    Application::Get().Close(passed ? 0 : 1);
 }
 
 void EditorAutomationController::UpdateRenderPathSmokeTest(
