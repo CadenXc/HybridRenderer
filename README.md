@@ -179,6 +179,23 @@ The eight test executables exercise CPU-side contracts and shader compilation
 inputs. They do not replace launching `Sandbox` with Vulkan validation enabled
 or comparing deterministic captures on a real GPU.
 
+For a GPU smoke check on Visual Studio 2026 Debug, run from the executable
+directory so assets and shaders resolve correctly:
+
+```powershell
+Push-Location build/vs2026/Sandbox/Debug
+$env:VK_VALIDATION_VALIDATE_SYNC = "true"
+.\Sandbox.exe --render-path-smoke
+Pop-Location
+```
+
+Inspect the new `render-path-smoke-results/run-*/result.txt` for `PASS` and
+the console for validation messages. This check switches through Forward,
+Hybrid, and Ray Tracing, verifies visible scene pixels in each capture, then
+resizes the window and verifies that the new capture matches the swapchain
+extent. It exercises the installed GPU and driver, but the small Box scene
+does not establish lighting quality or portability to other GPUs.
+
 ## Run and Explore
 
 `Sandbox` starts with the embedded Box glTF smoke-test asset and selects the

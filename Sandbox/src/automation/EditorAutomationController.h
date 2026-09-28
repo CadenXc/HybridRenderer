@@ -75,6 +75,9 @@ private:
         WaitingForPath,
         WarmingUp,
         WaitingForCapture,
+        WaitingForResize,
+        WarmingUpResized,
+        WaitingForResizedCapture,
         Finished
     };
 
@@ -131,6 +134,11 @@ private:
     std::array<std::filesystem::path, 3> m_RenderPathSmokeCapturePaths;
     std::array<uintmax_t, 3> m_RenderPathSmokeCaptureSizes{};
     std::array<ImageComparisonResult, 3> m_RenderPathSmokeComparisons;
+    std::filesystem::path m_RenderPathSmokeResizedCapturePath;
+    uint32_t m_RenderPathSmokeOriginalWidth = 0;
+    uint32_t m_RenderPathSmokeOriginalHeight = 0;
+    uint32_t m_RenderPathSmokeResizedWidth = 0;
+    uint32_t m_RenderPathSmokeResizedHeight = 0;
     size_t m_RenderPathSmokePathIndex = 0;
     uint32_t m_RenderPathSmokeWarmupFrameCount = 0;
     uint32_t m_RenderPathSmokeStateFrameCount = 0;

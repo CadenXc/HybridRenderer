@@ -12,6 +12,8 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <GLFW/glfw3.h>
+#include <stb_image.h>
 
 namespace Chimera
 {
@@ -43,6 +45,36 @@ bool IsReadyForCapture(Scene* scene, RenderPath* activePath,
            !ResourceManager::Get().HasPendingModelLoads() && scene &&
            (!requireEntity || !scene->GetEntities().empty()) &&
            !scene->HasPendingGpuUpdates();
+}
+
+bool HasVisibleScenePixels(const std::filesystem::path& capturePath)
+{
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    unsigned char* pixels = stbi_load(capturePath.string().c_str(), &width,
+                                      &height, &channels, 4);
+    if (!pixels || width <= 0 || height <= 0)
+    {
+        stbi_image_free(pixels);
+        return false;
+    }
+
+    const int background[3] = {pixels[0], pixels[1], pixels[2]};
+    size_t visiblePixelCount = 0;
+    const size_t pixelCount = static_cast<size_t>(width) * height;
+    for (size_t pixelIndex = 0; pixelIndex < pixelCount; ++pixelIndex)
+    {
+        const unsigned char* pixel = pixels + pixelIndex * 4;
+        if (std::abs(static_cast<int>(pixel[0]) - background[0]) >= 8 ||
+            std::abs(static_cast<int>(pixel[1]) - background[1]) >= 8 ||
+            std::abs(static_cast<int>(pixel[2]) - background[2]) >= 8)
+        {
+            if (++visiblePixelCount >= 64) break;
+        }
+    }
+    stbi_image_free(pixels);
+    return visiblePixelCount >= 64;
 }
 } // namespace
 
@@ -663,6 +695,8 @@ void EditorAutomationController::InitializeRenderPathSmokeTest()
         m_RenderPathSmokeOutputDirectory / "forward.png",
         m_RenderPathSmokeOutputDirectory / "hybrid.png",
         m_RenderPathSmokeOutputDirectory / "ray-tracing.png"};
+    m_RenderPathSmokeResizedCapturePath =
+        m_RenderPathSmokeOutputDirectory / "ray-tracing-resized.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(
@@ -733,6 +767,15 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
                            << m_RenderPathSmokeComparisons[index].rmse
                            << '\n';
             }
+        }
+        if (m_RenderPathSmokeResizedWidth != 0)
+        {
+            resultFile << "ResizedCapture="
+                       << m_RenderPathSmokeResizedCapturePath.string() << '\n'
+                       << "ResizedWidth=" << m_RenderPathSmokeResizedWidth
+                       << '\n'
+                       << "ResizedHeight=" << m_RenderPathSmokeResizedHeight
+                       << '\n';
         }
     }
 
@@ -884,6 +927,12 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 FinishRenderPathSmokeTest(false, comparison.error);
                 return;
             }
+            if (!HasVisibleScenePixels(capturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "render path capture contains no visible scene");
+                return;
+            }
             m_RenderPathSmokeComparisons[m_RenderPathSmokePathIndex] =
                 comparison;
 
@@ -891,17 +940,102 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 "Render path smoke: {} captured ({} bytes)",
                 RenderPathTypeToString(targetPath), captureSize);
 
-            ++m_RenderPathSmokePathIndex;
-            if (m_RenderPathSmokePathIndex >=
+            if (m_RenderPathSmokePathIndex + 1 ==
                 m_RenderPathSmokePaths.size())
             {
-                FinishRenderPathSmokeTest(
-                    true,
-                    "Forward, Hybrid, and RayTracing rendered valid captures");
+                const VkExtent2D extent =
+                    Application::Get().GetContext()->GetSwapChainExtent();
+                m_RenderPathSmokeOriginalWidth = extent.width;
+                m_RenderPathSmokeOriginalHeight = extent.height;
+                glfwSetWindowSize(
+                    Application::Get().GetWindow().GetNativeWindow(),
+                    1280, 720);
+                m_RenderPathSmokeState = RenderPathSmokeState::WaitingForResize;
+                m_RenderPathSmokeStateFrameCount = 0;
+                CH_CORE_INFO("Render path smoke: requested window resize");
                 return;
             }
 
+            ++m_RenderPathSmokePathIndex;
             RequestCurrentRenderPath();
+            return;
+        }
+        case RenderPathSmokeState::WaitingForResize:
+        {
+            int framebufferWidth = 0;
+            int framebufferHeight = 0;
+            glfwGetFramebufferSize(
+                Application::Get().GetWindow().GetNativeWindow(),
+                &framebufferWidth, &framebufferHeight);
+            if (framebufferWidth <= 0 || framebufferHeight <= 0)
+                return;
+
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (extent.width == m_RenderPathSmokeOriginalWidth &&
+                extent.height == m_RenderPathSmokeOriginalHeight)
+                return;
+            if (extent.width != static_cast<uint32_t>(framebufferWidth) ||
+                extent.height != static_cast<uint32_t>(framebufferHeight) ||
+                !ready)
+                return;
+
+            m_RenderPathSmokeResizedWidth = extent.width;
+            m_RenderPathSmokeResizedHeight = extent.height;
+            m_RenderPathSmokeWarmupFrameCount = 0;
+            m_RenderPathSmokeStateFrameCount = 0;
+            m_RenderPathSmokeState = RenderPathSmokeState::WarmingUpResized;
+            CH_CORE_INFO("Render path smoke: swapchain resized to {}x{}",
+                         extent.width, extent.height);
+            return;
+        }
+        case RenderPathSmokeState::WarmingUpResized:
+        {
+            if (!ready || !activePath || activePath->GetType() != targetPath)
+                return;
+
+            if (++m_RenderPathSmokeWarmupFrameCount < 8)
+                return;
+
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_RenderPathSmokeResizedCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "resized frame capture request was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForResizedCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WaitingForResizedCapture:
+        {
+            if (!std::filesystem::exists(m_RenderPathSmokeResizedCapturePath))
+                return;
+
+            int pngWidth = 0;
+            int pngHeight = 0;
+            int channels = 0;
+            if (!stbi_info(m_RenderPathSmokeResizedCapturePath.string().c_str(),
+                           &pngWidth, &pngHeight, &channels) ||
+                pngWidth != static_cast<int>(m_RenderPathSmokeResizedWidth) ||
+                pngHeight != static_cast<int>(m_RenderPathSmokeResizedHeight))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "resized capture does not match swapchain extent");
+                return;
+            }
+            if (!HasVisibleScenePixels(m_RenderPathSmokeResizedCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "resized capture contains no visible scene");
+                return;
+            }
+
+            FinishRenderPathSmokeTest(
+                true,
+                "Forward, Hybrid, RayTracing, and resized RayTracing rendered valid captures");
             return;
         }
         case RenderPathSmokeState::Disabled:
