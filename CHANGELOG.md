@@ -10,7 +10,7 @@ semantic versioning once a release is tagged.
 - GPU smoke coverage for TAA history across camera motion, camera cuts,
   resize, path switches, and scene replacement.
 - SVGF mode-switch captures and a fixed Box-region high-frequency diagnostic,
-  including explicit history reset and recovery frames.
+  including explicit history reset, camera-cut, and recovery frames.
 
 ### Fixed
 

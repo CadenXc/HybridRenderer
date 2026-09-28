@@ -215,9 +215,11 @@ the mean absolute red-channel high-frequency residual on a fixed, flat region
 of the Box front face (1600x900 default capture, pixels x=635..784,
 y=710..849). Temporal modes warm up for 32 frames before measurement. The
 smoke then invalidates SVGF history and captures its first frame and a
-recovered frame after another 32 frames. Lower residuals mean less local
-pixel variation in that region, but do not establish overall denoising
-quality, motion stability, or preservation of detail.
+recovered frame after another 32 frames. Finally, it uses `Frame Scene` to
+make a camera cut and captures that first frame and its recovery. The camera
+captures use a second fixed region of the enlarged Box face. Lower residuals
+mean less local pixel variation in these regions, but do not establish overall
+denoising quality, motion stability, or preservation of detail.
 
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its

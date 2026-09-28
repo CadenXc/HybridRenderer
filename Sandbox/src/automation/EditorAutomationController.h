@@ -105,6 +105,9 @@ private:
         WaitingForSvgfResetCapture,
         WarmingUpSvgfRecovery,
         WaitingForSvgfRecoveredCapture,
+        WaitingForSvgfCameraCutCapture,
+        WarmingUpSvgfCameraRecovery,
+        WaitingForSvgfCameraRecoveredCapture,
         WaitingForResize,
         WarmingUpResized,
         WaitingForResizedCapture,
@@ -123,7 +126,8 @@ private:
     void FinishObjectMotionSmokeTest(bool passed,
                                      const std::string& reason);
     void InitializeRenderPathSmokeTest();
-    void UpdateRenderPathSmokeTest(Scene* scene, RenderPath* activePath,
+    void UpdateRenderPathSmokeTest(EditorCamera& camera, Scene* scene,
+                                   RenderPath* activePath,
                                    bool sceneReady, bool sceneFailed,
                                    RenderFlags& renderFlags);
     void RequestCurrentRenderPath();
@@ -195,8 +199,14 @@ private:
     size_t m_SvgfSwitchIndex = 0;
     std::filesystem::path m_SvgfResetCapturePath;
     std::filesystem::path m_SvgfRecoveredCapturePath;
+    std::filesystem::path m_SvgfCameraCutCapturePath;
+    std::filesystem::path m_SvgfCameraRecoveredCapturePath;
     ImageHighFrequencyResult m_SvgfResetNoiseMetric;
     ImageHighFrequencyResult m_SvgfRecoveredNoiseMetric;
+    ImageHighFrequencyResult m_SvgfCameraCutNoiseMetric;
+    ImageHighFrequencyResult m_SvgfCameraRecoveredNoiseMetric;
+    ImageComparisonResult m_SvgfCameraRecoveryComparison;
+    float m_SvgfCameraCutDistance = 0.0f;
     std::filesystem::path m_RenderPathSmokeResizedCapturePath;
     uint32_t m_RenderPathSmokeOriginalWidth = 0;
     uint32_t m_RenderPathSmokeOriginalHeight = 0;

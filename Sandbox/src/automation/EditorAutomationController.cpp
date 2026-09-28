@@ -98,15 +98,16 @@ uint32_t SvgfSmokeWarmupFrames(SvgfSmokeMode mode)
 }
 
 constexpr ImageRegion BoxRedFaceRegion{635, 710, 150, 140};
+constexpr ImageRegion FramedBoxRedFaceRegion{650, 300, 300, 300};
 constexpr std::array<const char*, 6> SvgfHistoryNames = {
     "ShadowAOAccum", "ShadowAOMoments", "ReflAccum", "ReflMoments",
     "GIAccum", "GIMoments"};
 
 ImageHighFrequencyResult AnalyzeBoxRedFace(
-    const std::filesystem::path& capturePath)
+    const std::filesystem::path& capturePath, ImageRegion region)
 {
     ImageHighFrequencyResult metric = AnalyzeHighFrequencyPng(
-        capturePath.string(), BoxRedFaceRegion);
+        capturePath.string(), region);
     if (metric.success &&
         (metric.meanRgb[0] <= metric.meanRgb[1] + 40.0 ||
          metric.meanRgb[0] <= metric.meanRgb[2] + 40.0))
@@ -275,8 +276,8 @@ void EditorAutomationController::UpdateAfterScene(
 {
     UpdateTaaDisocclusionSmokeTest(camera, scene, activePath, sceneReady,
                                    sceneFailed);
-    UpdateRenderPathSmokeTest(scene, activePath, sceneReady, sceneFailed,
-                              renderFlags);
+    UpdateRenderPathSmokeTest(camera, scene, activePath, sceneReady,
+                              sceneFailed, renderFlags);
 }
 
 void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
@@ -1396,6 +1397,10 @@ void EditorAutomationController::InitializeRenderPathSmokeTest()
         m_RenderPathSmokeOutputDirectory / "hybrid-history-reset.png";
     m_SvgfRecoveredCapturePath =
         m_RenderPathSmokeOutputDirectory / "hybrid-history-recovered.png";
+    m_SvgfCameraCutCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-camera-cut-first.png";
+    m_SvgfCameraRecoveredCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-camera-cut-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(
@@ -1543,6 +1548,33 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
             else if (!m_SvgfRecoveredNoiseMetric.error.empty())
                 resultFile << "HistoryRecoveredNoiseMetricError="
                            << m_SvgfRecoveredNoiseMetric.error << '\n';
+            resultFile << "CameraCutDistance=" << m_SvgfCameraCutDistance
+                       << '\n'
+                       << "CameraNoiseRegion=650,300,300,300\n"
+                       << "CameraCutCapture="
+                       << m_SvgfCameraCutCapturePath.string() << '\n'
+                       << "CameraRecoveredCapture="
+                       << m_SvgfCameraRecoveredCapturePath.string() << '\n';
+            if (m_SvgfCameraCutNoiseMetric.success)
+                resultFile << "CameraCutHighFrequencyResidual="
+                           << m_SvgfCameraCutNoiseMetric.meanAbsoluteResidual
+                           << '\n';
+            else if (!m_SvgfCameraCutNoiseMetric.error.empty())
+                resultFile << "CameraCutNoiseMetricError="
+                           << m_SvgfCameraCutNoiseMetric.error << '\n';
+            if (m_SvgfCameraRecoveredNoiseMetric.success)
+                resultFile << "CameraRecoveredHighFrequencyResidual="
+                           << m_SvgfCameraRecoveredNoiseMetric.meanAbsoluteResidual
+                           << '\n';
+            else if (!m_SvgfCameraRecoveredNoiseMetric.error.empty())
+                resultFile << "CameraRecoveredNoiseMetricError="
+                           << m_SvgfCameraRecoveredNoiseMetric.error << '\n';
+            if (m_SvgfCameraRecoveryComparison.success)
+                resultFile << "CameraRecoveryDifferentPixels="
+                           << m_SvgfCameraRecoveryComparison.differentPixelCount
+                           << '\n'
+                           << "CameraRecoveryRmse="
+                           << m_SvgfCameraRecoveryComparison.rmse << '\n';
         }
         if (m_RenderPathSmokeResizedWidth != 0)
         {
@@ -1570,8 +1602,8 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
 }
 
 void EditorAutomationController::UpdateRenderPathSmokeTest(
-    Scene* scene, RenderPath* activePath, bool sceneReady, bool sceneFailed,
-    RenderFlags& renderFlags)
+    EditorCamera& camera, Scene* scene, RenderPath* activePath,
+    bool sceneReady, bool sceneFailed, RenderFlags& renderFlags)
 {
     if (m_RenderPathSmokeState == RenderPathSmokeState::Disabled ||
         m_RenderPathSmokeState == RenderPathSmokeState::Finished)
@@ -1824,7 +1856,8 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
             m_SvgfSwitchCaptureSizes[m_SvgfSwitchIndex] = captureSize;
-            ImageHighFrequencyResult metric = AnalyzeBoxRedFace(capturePath);
+            ImageHighFrequencyResult metric =
+                AnalyzeBoxRedFace(capturePath, BoxRedFaceRegion);
             m_SvgfSwitchNoiseMetrics[m_SvgfSwitchIndex] = metric;
             if (!metric.success)
                 CH_CORE_WARN("Render path smoke: {} noise metric unavailable: {}",
@@ -1876,7 +1909,7 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
             m_SvgfResetNoiseMetric =
-                AnalyzeBoxRedFace(m_SvgfResetCapturePath);
+                AnalyzeBoxRedFace(m_SvgfResetCapturePath, BoxRedFaceRegion);
             if (!HasCompleteSvgfHistory(*activePath))
             {
                 FinishRenderPathSmokeTest(
@@ -1922,7 +1955,109 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
             m_SvgfRecoveredNoiseMetric =
-                AnalyzeBoxRedFace(m_SvgfRecoveredCapturePath);
+                AnalyzeBoxRedFace(m_SvgfRecoveredCapturePath,
+                                  BoxRedFaceRegion);
+            ChimeraAABB bounds;
+            if (!scene || !scene->TryGetWorldBounds(bounds))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "scene bounds unavailable for SVGF camera cut");
+                return;
+            }
+            const glm::vec3 previousPosition = camera.GetPosition();
+            camera.FrameBounds(bounds);
+            m_SvgfCameraCutDistance =
+                glm::distance(previousPosition, camera.GetPosition());
+            if (m_SvgfCameraCutDistance < 1.0f)
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF camera cut did not move far enough");
+                return;
+            }
+            activePath->InvalidateHistory();
+            if (HasAnySvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF history remained usable after camera cut");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_SvgfCameraCutCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF camera-cut capture request was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfCameraCutCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            CH_CORE_INFO("Render path smoke: SVGF camera cut moved {:.2f} units",
+                         m_SvgfCameraCutDistance);
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfCameraCutCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfCameraCutCapturePath))
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                !HasVisibleScenePixels(m_SvgfCameraCutCapturePath) ||
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF camera-cut first frame or history is invalid");
+                return;
+            }
+            m_SvgfCameraCutNoiseMetric = AnalyzeBoxRedFace(
+                m_SvgfCameraCutCapturePath, FramedBoxRedFaceRegion);
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WarmingUpSvgfCameraRecovery;
+            m_RenderPathSmokeWarmupFrameCount = 0;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WarmingUpSvgfCameraRecovery:
+        {
+            if (!ready || !activePath ||
+                activePath->GetType() != RenderPathType::Hybrid)
+                return;
+            if (++m_RenderPathSmokeWarmupFrameCount <
+                SvgfSmokeWarmupFrames(SvgfSmokeMode::TemporalAndSpatial))
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_SvgfCameraRecoveredCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF camera-recovery capture request was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfCameraRecoveredCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfCameraRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfCameraRecoveredCapturePath))
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                !HasVisibleScenePixels(m_SvgfCameraRecoveredCapturePath) ||
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF camera-recovered frame or history is invalid");
+                return;
+            }
+            m_SvgfCameraRecoveredNoiseMetric = AnalyzeBoxRedFace(
+                m_SvgfCameraRecoveredCapturePath, FramedBoxRedFaceRegion);
+            m_SvgfCameraRecoveryComparison = ComparePngFiles(
+                m_SvgfCameraCutCapturePath.string(),
+                m_SvgfCameraRecoveredCapturePath.string());
+            if (!m_SvgfCameraRecoveryComparison.success)
+            {
+                FinishRenderPathSmokeTest(
+                    false, m_SvgfCameraRecoveryComparison.error);
+                return;
+            }
             ++m_RenderPathSmokePathIndex;
             RequestCurrentRenderPath();
             return;
