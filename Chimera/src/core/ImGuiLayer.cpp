@@ -54,34 +54,47 @@ void ImGuiLayer::OnAttach()
     pool_info.poolSizeCount = (uint32_t)IM_ARRAYSIZE(pool_sizes);
     pool_info.pPoolSizes = pool_sizes;
 
-    vkCreateDescriptorPool(m_Context->GetDevice(), &pool_info, nullptr,
-                           &m_Pool);
+    try
+    {
+        VK_CHECK(vkCreateDescriptorPool(m_Context->GetDevice(), &pool_info,
+                                        nullptr, &m_Pool));
 
-    ImGui_ImplGlfw_InitForVulkan(m_Context->GetWindow(), false);
+        if (!ImGui_ImplGlfw_InitForVulkan(m_Context->GetWindow(), false))
+            throw std::runtime_error("Failed to initialize ImGui GLFW backend");
+        m_GlfwBackendInitialized = true;
 
-    ImGui_ImplVulkan_InitInfo init_info = {};
-    init_info.Instance = m_Context->GetInstance();
-    init_info.PhysicalDevice = m_Context->GetPhysicalDevice();
-    init_info.Device = m_Context->GetDevice();
-    init_info.QueueFamily = m_Context->GetGraphicsQueueFamily();
-    init_info.Queue = m_Context->GetGraphicsQueue();
-    init_info.DescriptorPool = m_Pool;
-    init_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
-    init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
-    init_info.UseDynamicRendering = true;
+        ImGui_ImplVulkan_InitInfo init_info = {};
+        init_info.Instance = m_Context->GetInstance();
+        init_info.PhysicalDevice = m_Context->GetPhysicalDevice();
+        init_info.Device = m_Context->GetDevice();
+        init_info.QueueFamily = m_Context->GetGraphicsQueueFamily();
+        init_info.Queue = m_Context->GetGraphicsQueue();
+        init_info.DescriptorPool = m_Pool;
+        init_info.MinImageCount = MAX_FRAMES_IN_FLIGHT;
+        init_info.ImageCount = MAX_FRAMES_IN_FLIGHT;
+        init_info.UseDynamicRendering = true;
 
-    init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-    init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
-        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    init_info.PipelineInfoMain.PipelineRenderingCreateInfo
-        .colorAttachmentCount = 1;
+        init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
+            VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+        init_info.PipelineInfoMain.PipelineRenderingCreateInfo
+            .colorAttachmentCount = 1;
 
-    static VkFormat swapchainFormat;
-    swapchainFormat = m_Context->GetSwapChainImageFormat();
-    init_info.PipelineInfoMain.PipelineRenderingCreateInfo
-        .pColorAttachmentFormats = &swapchainFormat;
+        static VkFormat swapchainFormat;
+        swapchainFormat = m_Context->GetSwapChainImageFormat();
+        init_info.PipelineInfoMain.PipelineRenderingCreateInfo
+            .pColorAttachmentFormats = &swapchainFormat;
 
-    ImGui_ImplVulkan_Init(&init_info);
+        if (!ImGui_ImplVulkan_Init(&init_info))
+            throw std::runtime_error(
+                "Failed to initialize ImGui Vulkan backend");
+        m_VulkanBackendInitialized = true;
+    }
+    catch (...)
+    {
+        OnDetach();
+        throw;
+    }
 }
 
 void ImGuiLayer::OnDetach()
@@ -94,10 +107,23 @@ void ImGuiLayer::OnDetach()
     if (m_Context && m_Context->GetDevice() != VK_NULL_HANDLE)
     {
         vkDeviceWaitIdle(m_Context->GetDevice());
-        ClearTextureCache();
-        ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
+
+        if (m_VulkanBackendInitialized)
+        {
+            ClearTextureCache();
+            ImGui_ImplVulkan_Shutdown();
+            m_VulkanBackendInitialized = false;
+        }
+        else
+        {
+            m_TextureCache.clear();
+        }
+
+        if (m_GlfwBackendInitialized)
+        {
+            ImGui_ImplGlfw_Shutdown();
+            m_GlfwBackendInitialized = false;
+        }
 
         if (m_Pool != VK_NULL_HANDLE)
         {
@@ -105,6 +131,8 @@ void ImGuiLayer::OnDetach()
             m_Pool = VK_NULL_HANDLE;
         }
     }
+
+    ImGui::DestroyContext();
 }
 
 void ImGuiLayer::OnEvent(Event& e)

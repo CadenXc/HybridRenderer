@@ -28,6 +28,8 @@ private:
 private:
     std::shared_ptr<VulkanContext> m_Context;
     VkDescriptorPool m_Pool = VK_NULL_HANDLE;
+    bool m_GlfwBackendInitialized = false;
+    bool m_VulkanBackendInitialized = false;
     std::unordered_map<VkImageView, ImTextureID> m_TextureCache;
 };
 } // namespace Chimera
