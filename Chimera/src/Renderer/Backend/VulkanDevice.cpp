@@ -539,6 +539,27 @@ QueueFamilyIndices VulkanDevice::FindQueueFamilies(VkPhysicalDevice device,
     return indices;
 }
 
+bool VulkanDevice::CheckDeviceExtensionSupport(VkPhysicalDevice device)
+{
+    uint32_t extensionCount = 0;
+    VK_CHECK(vkEnumerateDeviceExtensionProperties(
+        device, nullptr, &extensionCount, nullptr));
+
+    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+    VK_CHECK(vkEnumerateDeviceExtensionProperties(
+        device, nullptr, &extensionCount, availableExtensions.data()));
+    availableExtensions.resize(extensionCount);
+
+    std::set<std::string> missingExtensions;
+    for (const char* extension : requiredDeviceExtensions)
+        missingExtensions.insert(extension);
+
+    for (const auto& extension : availableExtensions)
+        missingExtensions.erase(extension.extensionName);
+
+    return missingExtensions.empty();
+}
+
 int VulkanDevice::RateDeviceSuitability(VkPhysicalDevice device,
                                         VkSurfaceKHR surface)
 {
@@ -547,10 +568,17 @@ int VulkanDevice::RateDeviceSuitability(VkPhysicalDevice device,
     int score =
         (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) ? 1000 : 0;
     QueueFamilyIndices indices = FindQueueFamilies(device, surface);
-    if (!indices.isComplete())
+    if (!indices.isComplete() || !CheckDeviceExtensionSupport(device))
     {
         return 0;
     }
+
+    SwapChainSupportDetails swapchainSupport =
+        Swapchain::QuerySwapChainSupport(device, surface);
+    if (swapchainSupport.formats.empty() ||
+        swapchainSupport.presentModes.empty())
+        return 0;
+
     return score + 1;
 }
 
