@@ -46,6 +46,9 @@ For the current validation scope and the remaining release gates, see the
 [v0.1 release checklist](RELEASE_CHECKLIST.md).
 The work-in-progress Hybrid denoising milestone is tracked in the
 [v0.2 release-candidate checklist](V0.2_CHECKLIST.md).
+The local v0.2 candidate passes the listed build, shader, unit-test, and GPU
+smoke gates on one RTX 5070 Ti; it is not a tagged release or a portability
+claim. Windows CI still needs to run after the candidate is pushed.
 
 ## Rendering Architecture
 
@@ -229,7 +232,7 @@ Lower residuals
 mean less local pixel variation in these regions, but do not establish overall
 denoising quality, motion stability, or preservation of detail.
 
-`\.\Sandbox.exe --render-path-texture-smoke` uses the bundled
+`.\Sandbox.exe --render-path-texture-smoke` uses the bundled
 `TextureCoordinateTest.glb` instead of the Box. It frames the front-facing
 XY test card, lights that side, captures all three paths with temporal and
 spatial SVGF enabled for Hybrid, and checks that each capture retains the
