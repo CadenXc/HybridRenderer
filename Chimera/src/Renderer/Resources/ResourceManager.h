@@ -101,8 +101,9 @@ public:
     {
         if (!s_Instance)
         {
-            s_Instance = new ResourceManager();
-            s_Instance->InitGlobalResources();
+            std::unique_ptr<ResourceManager> instance(new ResourceManager());
+            instance->InitGlobalResources();
+            s_Instance = instance.release();
         }
         return *s_Instance;
     }
