@@ -137,6 +137,18 @@ bool GraphMatchesSvgfSmokeMode(RenderGraph& graph, SvgfSmokeMode mode)
            matchesPresence("_Filtered_0", expectSpatial);
 }
 
+bool HasCompleteSvgfHistory(const RenderPath& path)
+{
+    for (const char* historyName : {"ShadowAOAccum", "ShadowAOMoments",
+                                    "ReflAccum", "ReflMoments", "GIAccum",
+                                    "GIMoments"})
+    {
+        if (!path.HasUsableHistory(historyName))
+            return false;
+    }
+    return true;
+}
+
 bool RejectsPriorHistory(const TemporalHistoryDebugStatistics& stats,
                          uint32_t width, uint32_t height)
 {
@@ -1566,6 +1578,13 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                         "Hybrid SVGF graph has unexpected resources");
                     return;
                 }
+                if (m_Options.svgfSmokeMode != SvgfSmokeMode::SpatialOnly &&
+                    !HasCompleteSvgfHistory(*activePath))
+                {
+                    FinishRenderPathSmokeTest(
+                        false, "Hybrid SVGF history did not warm up");
+                    return;
+                }
             }
 
             if (!Renderer::Get().RequestFrameCapture(
@@ -1683,6 +1702,13 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
             {
                 FinishRenderPathSmokeTest(
                     false, "Hybrid SVGF graph did not match switched mode");
+                return;
+            }
+            if (mode != SvgfSmokeMode::SpatialOnly &&
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "switched SVGF history did not warm up");
                 return;
             }
             if (!Renderer::Get().RequestFrameCapture(

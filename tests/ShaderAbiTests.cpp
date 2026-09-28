@@ -235,6 +235,21 @@ void TestTaaUsesCatmullRomHistoryReconstruction()
     }
 }
 
+void TestSvgfTemporalRejectsUnavailableHistory()
+{
+    const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
+    const std::string temporal =
+        ReadTextFile(shaderRoot / "postprocess/svgf/temporal.comp");
+
+    if (temporal.find("int historyAvailable;") == std::string::npos ||
+        temporal.find("pc.historyAvailable != 0 &&") == std::string::npos ||
+        temporal.find("outHLen = 1.0;") == std::string::npos)
+    {
+        throw std::runtime_error(
+            "SVGF temporal shader does not reject unavailable history");
+    }
+}
+
 void TestPostprocessHasNonSrgbSwapchainFallback()
 {
     const std::filesystem::path shaderRoot = CHIMERA_SHADER_SOURCE_DIR;
@@ -434,6 +449,8 @@ int main()
         std::cout << "[PASS] TAA History display mode visualizes history acceptance\n";
         TestTaaUsesCatmullRomHistoryReconstruction();
         std::cout << "[PASS] TAA history uses Catmull-Rom reconstruction\n";
+        TestSvgfTemporalRejectsUnavailableHistory();
+        std::cout << "[PASS] SVGF temporal rejects unavailable history\n";
         TestPostprocessHasNonSrgbSwapchainFallback();
         std::cout << "[PASS] non-sRGB swapchains use manual output encoding\n";
         TestNormalMapTangentFrameIsOrthogonalized();

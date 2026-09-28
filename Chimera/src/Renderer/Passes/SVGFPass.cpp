@@ -64,9 +64,27 @@ void SVGFTemporalPass::Setup(SVGFTemporalData& data,
 void SVGFTemporalPass::Execute(const SVGFTemporalData& data,
                                ComputeExecutionContext& ctx)
 {
-    int demod = m_Config.useAlbedoDemod ? 1 : 0;
+    struct PushConstants
+    {
+        int useAlbedoDemod;
+        int historyAvailable;
+    } pc{};
+    static_assert(sizeof(PushConstants) == 8);
+
+    const RenderGraph& graph = ctx.GetGraph();
+    pc.useAlbedoDemod = m_Config.useAlbedoDemod ? 1 : 0;
+    pc.historyAvailable =
+        graph.HasHistory(m_Config.historyBaseName) &&
+        graph.HasHistory(m_Config.prefix + "Moments") &&
+        graph.HasHistory(RS::Depth) && graph.HasHistory(RS::Normal) &&
+        graph.HasHistory(RS::ObjectID) && graph.HasHistory(RS::Motion);
+
+    if (pc.historyAvailable == 0 && m_Config.prefix == "Refl")
+        CH_CORE_INFO("SVGF temporal: previous-frame history unavailable; "
+                     "recording current-sample reset");
+
     ctx.BindPipeline("SVGF_Temporal");
-    ctx.PushConstants(VK_SHADER_STAGE_ALL, demod);
+    ctx.PushConstants(VK_SHADER_STAGE_ALL, pc);
     ctx.Dispatch("SVGF_Temporal", (ctx.GetGraph().GetWidth() + 15) / 16,
                  (ctx.GetGraph().GetHeight() + 15) / 16);
 }

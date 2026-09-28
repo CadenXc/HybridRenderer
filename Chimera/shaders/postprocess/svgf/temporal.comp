@@ -14,7 +14,10 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(push_constant) uniform PushConstants { int useAlbedoDemod; } pc;
+layout(push_constant) uniform PushConstants {
+    int useAlbedoDemod;
+    int historyAvailable;
+} pc;
 
 // --- 绑定顺序与 SVGFTemporalPass::Setup 严格对应 ---
 layout(set = 2, binding = 0)  uniform sampler2D  gCurSignal;      // 当前帧原始光追信号
@@ -109,7 +112,10 @@ void main()
     for (int i = 0; i < 4; i++) 
     {
         vec2 sampleUV = (vec2(prevCoordBase + offsets[i]) + 0.5) / displayData.xy;
-        if (is_valid_reprojection(sampleUV, curNormal, curDepth, curID)) 
+        // ReadHistorySafe binds a current-frame fallback on the first frame.
+        // It is a valid descriptor, but not valid temporal evidence.
+        if (pc.historyAvailable != 0 &&
+            is_valid_reprojection(sampleUV, curNormal, curDepth, curID))
         {
             vec4 hSig = texture(gHistorySignal, sampleUV);
             vec4 hM = texture(gHistoryMoments, sampleUV);
