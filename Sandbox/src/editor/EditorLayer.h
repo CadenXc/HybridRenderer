@@ -139,6 +139,7 @@ private:
 
     EditorAutomationController m_Automation;
     bool m_TexturedSceneSmokeTest = false;
+    bool m_HybridMultiObjectSmokeTest = false;
 
                 // Resize debounce
     float m_ResizeTimer = 0.0f;

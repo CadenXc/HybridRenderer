@@ -32,6 +32,7 @@ struct EditorAutomationOptions
     bool renderPathSmokeTest = false;
     bool texturedSceneSmokeTest = false;
     bool svgfToggleSmokeTest = false;
+    bool hybridMultiObjectSmokeTest = false;
     SvgfSmokeMode svgfSmokeMode = SvgfSmokeMode::None;
 };
 
@@ -55,7 +56,8 @@ public:
     // previous matrices used to calculate this frame's motion vectors.
     void UpdateAfterScene(EditorCamera& camera, Scene* scene,
                           RenderPath* activePath, bool sceneReady,
-                          bool sceneFailed, RenderFlags& renderFlags);
+                          bool sceneFailed, RenderFlags& renderFlags,
+                          DisplayMode& displayMode);
 
 private:
     enum class TaaDisocclusionSmokeState
@@ -125,6 +127,16 @@ private:
         Finished
     };
 
+    enum class HybridMultiObjectState
+    {
+        Disabled,
+        WaitingForScene,
+        WarmingUp,
+        WarmingUpMotion,
+        WaitingForCapture,
+        Finished
+    };
+
     void InitializeTaaDisocclusionSmokeTest();
     void UpdateTaaDisocclusionSmokeTest(EditorCamera& camera, Scene* scene,
                                         RenderPath* activePath,
@@ -146,6 +158,15 @@ private:
                                 RenderFlags& renderFlags);
     void FinishRenderPathSmokeTest(bool passed,
                                    const std::string& reason);
+    void InitializeHybridMultiObjectSmokeTest();
+    void UpdateHybridMultiObjectSmokeTest(EditorCamera& camera, Scene* scene,
+                                          RenderPath* activePath,
+                                          bool sceneReady, bool sceneFailed,
+                                          DisplayMode& displayMode);
+    void FinishHybridMultiObjectSmokeTest(bool passed,
+                                          const std::string& reason,
+                                          const EditorCamera* camera,
+                                          const Scene* scene);
 
 private:
     EditorAutomationOptions m_Options;
@@ -240,6 +261,23 @@ private:
     size_t m_RenderPathSmokePathIndex = 0;
     uint32_t m_RenderPathSmokeWarmupFrameCount = 0;
     uint32_t m_RenderPathSmokeStateFrameCount = 0;
+
+    HybridMultiObjectState m_HybridMultiObjectState =
+        HybridMultiObjectState::Disabled;
+    std::filesystem::path m_HybridMultiObjectOutputDirectory;
+    std::array<DisplayMode, 5> m_HybridMultiObjectModes = {
+        DisplayMode::Final, DisplayMode::Shadow, DisplayMode::AO,
+        DisplayMode::Reflection, DisplayMode::GI};
+    std::array<std::filesystem::path, 5> m_HybridMultiObjectStillPaths;
+    std::array<std::filesystem::path, 5> m_HybridMultiObjectMovingPaths;
+    ImageComparisonResult m_HybridMultiObjectFinalComparison;
+    size_t m_HybridMultiObjectBoxIndex = 0;
+    size_t m_HybridMultiObjectCardIndex = 0;
+    size_t m_HybridMultiObjectModeIndex = 0;
+    uint32_t m_HybridMultiObjectWarmupFrames = 0;
+    uint32_t m_HybridMultiObjectStateFrames = 0;
+    uint32_t m_HybridMultiObjectMotionFrames = 0;
+    bool m_HybridMultiObjectMoving = false;
 };
 
 } // namespace Chimera

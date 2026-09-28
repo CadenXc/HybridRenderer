@@ -237,6 +237,16 @@ yellow, orange, blue, and green textured quadrants. This catches a dark or
 missing-material image that a generic "visible pixels" check would accept;
 it is still a static texture test, not a reflection or GI quality reference.
 
+`.\Sandbox.exe --hybrid-multi-object-smoke` combines the bundled Box with a
+horizontal texture card, makes the card glossy for this test only, enables
+RT shadow/AO/reflection/GI and temporal-plus-spatial SVGF, and captures still
+and moving final, shadow, AO, reflection, and GI display modes. Its
+`hybrid-multi-object-results/run-*/result.txt` records the GPU, raw Vulkan
+driver version, camera, flags, resolution, entity transforms, and image paths.
+Inspect the images: a `PASS` checks capture dimensions, visible final color,
+and changed final pixels, not physical lighting accuracy or absence of
+ghosting.
+
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
 `taa-smoke-results/run-*/result.txt` checks stable history, camera-motion

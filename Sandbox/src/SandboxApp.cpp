@@ -85,6 +85,12 @@ Chimera::Application* Chimera::CreateApplication(int argc, char** argv)
             automationOptions.texturedSceneSmokeTest = true;
             automationOptions.svgfSmokeMode = SvgfSmokeMode::TemporalAndSpatial;
         }
+        else if (std::string_view(argv[argumentIndex]) ==
+                 "--hybrid-multi-object-smoke")
+        {
+            automationOptions.hybridMultiObjectSmokeTest = true;
+            automationOptions.svgfSmokeMode = SvgfSmokeMode::TemporalAndSpatial;
+        }
     }
 
     if (automationOptions.svgfToggleSmokeTest)

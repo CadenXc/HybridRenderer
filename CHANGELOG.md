@@ -14,6 +14,8 @@ semantic versioning once a release is tagged.
   scene-replacement, and recovery frames.
 - A bundled textured-scene GPU smoke that verifies all three render paths
   retain the expected quadrant colors under a front-facing light preset.
+- A reproducible two-object Hybrid GPU smoke with still/moving captures for
+  final color, shadow, AO, reflection, and GI debug views.
 
 ### Fixed
 

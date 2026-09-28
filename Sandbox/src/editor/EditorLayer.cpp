@@ -197,7 +197,9 @@ EditorLayer::EditorLayer(EditorAutomationOptions automationOptions)
     : Layer("EditorLayer"),
       m_EditorCamera(45.0f, 1.778f, 0.1f, 1000.0f),
       m_Automation(automationOptions),
-      m_TexturedSceneSmokeTest(automationOptions.texturedSceneSmokeTest)
+      m_TexturedSceneSmokeTest(automationOptions.texturedSceneSmokeTest),
+      m_HybridMultiObjectSmokeTest(
+          automationOptions.hybridMultiObjectSmokeTest)
 {
     m_ShowControlPanel = true;
 
@@ -248,6 +250,10 @@ void EditorLayer::OnAttach()
     m_BenchmarkPrepareStartFrame =
         Application::Get().GetTotalFrameCount();
     ResourceManager::Get().LoadScene(m_ActiveAssetPath);
+    if (m_HybridMultiObjectSmokeTest)
+        ResourceManager::Get().LoadScene(
+            Application::Get().GetSpecification().AssetDir +
+            "models/texture_coordinate_test/TextureCoordinateTest.glb");
 
     m_Automation.Initialize();
 
@@ -417,7 +423,7 @@ void EditorLayer::OnUpdate(Timestep ts)
         m_EditorCamera, scene, activePath,
         m_BenchmarkSceneState == BenchmarkSceneState::Ready,
         m_BenchmarkSceneState == BenchmarkSceneState::Failed,
-        m_RenderFlags);
+        m_RenderFlags, m_DisplayMode);
 
     AppFrameContext context;
     context.View = m_EditorCamera.GetViewMatrix();

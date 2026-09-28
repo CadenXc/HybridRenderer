@@ -6,7 +6,9 @@
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Pipelines/RenderSettingsChange.h"
 #include "Renderer/Resources/ResourceManager.h"
+#include "Renderer/Resources/Material.h"
 #include "Scene/EditorCamera.h"
+#include "Scene/Model.h"
 #include "Scene/Scene.h"
 
 #include <chrono>
@@ -226,6 +228,19 @@ bool HasAnySvgfHistory(const RenderPath& path)
     return false;
 }
 
+const char* HybridSmokeDisplayModeName(DisplayMode mode)
+{
+    switch (mode)
+    {
+        case DisplayMode::Final: return "final";
+        case DisplayMode::Shadow: return "shadow";
+        case DisplayMode::AO: return "ao";
+        case DisplayMode::Reflection: return "reflection";
+        case DisplayMode::GI: return "gi";
+        default: return "unknown";
+    }
+}
+
 bool RejectsPriorHistory(const TemporalHistoryDebugStatistics& stats,
                          uint32_t width, uint32_t height)
 {
@@ -260,7 +275,8 @@ bool EditorAutomationController::IsActive() const
 {
     return m_Options.taaDisocclusionSmokeTest ||
            m_Options.objectMotionSmokeTest ||
-           m_Options.renderPathSmokeTest;
+           m_Options.renderPathSmokeTest ||
+           m_Options.hybridMultiObjectSmokeTest;
 }
 
 void EditorAutomationController::ConfigureRenderSettings(
@@ -287,6 +303,14 @@ void EditorAutomationController::ConfigureRenderSettings(
         displayMode = DisplayMode::Final;
         showControlPanel = false;
     }
+    else if (m_Options.hybridMultiObjectSmokeTest)
+    {
+        renderFlags = WithSvgfSmokeMode(
+            renderFlags, SvgfSmokeMode::TemporalAndSpatial);
+        renderFlags |= RenderFlags_AOBit;
+        displayMode = DisplayMode::Final;
+        showControlPanel = false;
+    }
 }
 
 void EditorAutomationController::Initialize()
@@ -303,22 +327,42 @@ void EditorAutomationController::Initialize()
     {
         InitializeRenderPathSmokeTest();
     }
+    else if (m_Options.hybridMultiObjectSmokeTest)
+    {
+        InitializeHybridMultiObjectSmokeTest();
+    }
 }
 
 void EditorAutomationController::UpdateBeforeScene(
     Scene* scene, RenderPath* activePath, bool sceneReady, bool sceneFailed)
 {
     UpdateObjectMotionSmokeTest(scene, activePath, sceneReady, sceneFailed);
+    if (m_HybridMultiObjectMoving && scene &&
+        m_HybridMultiObjectBoxIndex < scene->GetEntities().size())
+    {
+        const Entity& box = scene->GetEntities()[m_HybridMultiObjectBoxIndex];
+        const uint32_t phase = ++m_HybridMultiObjectMotionFrames % 40;
+        const float travel = static_cast<float>(
+            phase <= 20 ? phase : 40 - phase);
+        const float x = -0.4f + 0.06f * travel;
+        scene->UpdateEntityTRS(
+            static_cast<uint32_t>(m_HybridMultiObjectBoxIndex),
+            {x, -0.15f, 0.0f},
+            box.transform.rotation, box.transform.scale);
+    }
 }
 
 void EditorAutomationController::UpdateAfterScene(
     EditorCamera& camera, Scene* scene, RenderPath* activePath,
-    bool sceneReady, bool sceneFailed, RenderFlags& renderFlags)
+    bool sceneReady, bool sceneFailed, RenderFlags& renderFlags,
+    DisplayMode& displayMode)
 {
     UpdateTaaDisocclusionSmokeTest(camera, scene, activePath, sceneReady,
                                    sceneFailed);
     UpdateRenderPathSmokeTest(camera, scene, activePath, sceneReady,
                               sceneFailed, renderFlags);
+    UpdateHybridMultiObjectSmokeTest(camera, scene, activePath, sceneReady,
+                                     sceneFailed, displayMode);
 }
 
 void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
@@ -2526,6 +2570,362 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
         }
         case RenderPathSmokeState::Disabled:
         case RenderPathSmokeState::Finished:
+            return;
+    }
+}
+
+void EditorAutomationController::InitializeHybridMultiObjectSmokeTest()
+{
+    m_HybridMultiObjectOutputDirectory =
+        MakeSmokeOutputDirectory("hybrid-multi-object-results");
+    for (size_t index = 0; index < m_HybridMultiObjectModes.size(); ++index)
+    {
+        const std::string mode =
+            HybridSmokeDisplayModeName(m_HybridMultiObjectModes[index]);
+        m_HybridMultiObjectStillPaths[index] =
+            m_HybridMultiObjectOutputDirectory / ("still-" + mode + ".png");
+        m_HybridMultiObjectMovingPaths[index] =
+            m_HybridMultiObjectOutputDirectory / ("moving-" + mode + ".png");
+    }
+
+    std::error_code directoryError;
+    std::filesystem::create_directories(
+        m_HybridMultiObjectOutputDirectory, directoryError);
+    if (directoryError)
+    {
+        CH_CORE_ERROR("Hybrid multi-object smoke could not create {}: {}",
+                      m_HybridMultiObjectOutputDirectory.string(),
+                      directoryError.message());
+        m_HybridMultiObjectState = HybridMultiObjectState::Finished;
+        Application::Get().Close(1);
+        return;
+    }
+    m_HybridMultiObjectState = HybridMultiObjectState::WaitingForScene;
+    CH_CORE_INFO("Hybrid multi-object smoke started; output: {}",
+                 m_HybridMultiObjectOutputDirectory.string());
+}
+
+void EditorAutomationController::FinishHybridMultiObjectSmokeTest(
+    bool passed, const std::string& reason, const EditorCamera* camera,
+    const Scene* scene)
+{
+    const std::filesystem::path resultPath =
+        m_HybridMultiObjectOutputDirectory / "result.txt";
+    std::ofstream resultFile(resultPath);
+    if (resultFile)
+    {
+        const auto& properties =
+            Application::Get().GetContext()->GetDeviceProperties();
+        const VkExtent2D extent =
+            Application::Get().GetContext()->GetSwapChainExtent();
+        resultFile << (passed ? "PASS" : "FAIL") << '\n'
+                   << "reason=" << reason << '\n'
+                   << "scene=Box.gltf + TextureCoordinateTest.glb\n"
+                   << "gpu=" << properties.deviceName << '\n'
+                   << "vendorId=" << properties.vendorID << '\n'
+                   << "deviceId=" << properties.deviceID << '\n'
+                   << "driverVersion=" << properties.driverVersion << '\n'
+                   << "width=" << extent.width << '\n'
+                   << "height=" << extent.height << '\n'
+                   << "renderFlags="
+                   << static_cast<uint32_t>(
+                          Application::Get().GetFrameContext().RenderFlags)
+                   << '\n'
+                   << "svgf=temporal-and-spatial\n"
+                   << "motion=triangle wave, 0.06 world units per rendered frame, 40-frame period\n";
+        if (camera)
+            resultFile << "cameraFocalPoint="
+                       << camera->GetFocalPoint().x << ','
+                       << camera->GetFocalPoint().y << ','
+                       << camera->GetFocalPoint().z << '\n'
+                       << "cameraDistance=" << camera->GetDistance() << '\n'
+                       << "cameraPitch=" << camera->GetPitch() << '\n'
+                       << "cameraYaw=" << camera->GetYaw() << '\n'
+                       << "cameraFov=" << camera->GetFOV() << '\n';
+        if (scene)
+        {
+            resultFile << "entityCount=" << scene->GetEntities().size() << '\n';
+            for (size_t index = 0; index < scene->GetEntities().size(); ++index)
+            {
+                const Entity& entity = scene->GetEntities()[index];
+                resultFile << "entity[" << index << "].name=" << entity.name
+                           << '\n'
+                           << "entity[" << index << "].position="
+                           << entity.transform.position.x << ','
+                           << entity.transform.position.y << ','
+                           << entity.transform.position.z << '\n'
+                           << "entity[" << index << "].rotation="
+                           << entity.transform.rotation.x << ','
+                           << entity.transform.rotation.y << ','
+                           << entity.transform.rotation.z << '\n'
+                           << "entity[" << index << "].scale="
+                           << entity.transform.scale.x << ','
+                           << entity.transform.scale.y << ','
+                           << entity.transform.scale.z << '\n';
+            }
+            if (!scene->GetLights().empty())
+            {
+                const Light& light = scene->GetLights().front();
+                resultFile << "lightDirection=" << light.direction.x << ','
+                           << light.direction.y << ',' << light.direction.z << '\n'
+                           << "lightColor=" << light.color.x << ','
+                           << light.color.y << ',' << light.color.z << '\n'
+                           << "lightIntensity=" << light.color.a << '\n';
+            }
+        }
+        for (size_t index = 0; index < m_HybridMultiObjectModes.size(); ++index)
+        {
+            const char* mode =
+                HybridSmokeDisplayModeName(m_HybridMultiObjectModes[index]);
+            resultFile << "still." << mode << '='
+                       << m_HybridMultiObjectStillPaths[index].string() << '\n'
+                       << "moving." << mode << '='
+                       << m_HybridMultiObjectMovingPaths[index].string() << '\n';
+        }
+        if (m_HybridMultiObjectFinalComparison.success)
+            resultFile << "finalDifferentPixels="
+                       << m_HybridMultiObjectFinalComparison.differentPixelCount
+                       << '\n'
+                       << "finalRmse="
+                       << m_HybridMultiObjectFinalComparison.rmse << '\n';
+    }
+
+    if (passed)
+        CH_CORE_INFO("Hybrid multi-object smoke PASSED: {}", reason);
+    else
+        CH_CORE_ERROR("Hybrid multi-object smoke FAILED: {}", reason);
+    CH_CORE_INFO("Hybrid multi-object result: {}", resultPath.string());
+    m_HybridMultiObjectMoving = false;
+    m_HybridMultiObjectState = HybridMultiObjectState::Finished;
+    Application::Get().Close(passed ? 0 : 1);
+}
+
+void EditorAutomationController::UpdateHybridMultiObjectSmokeTest(
+    EditorCamera& camera, Scene* scene, RenderPath* activePath,
+    bool sceneReady, bool sceneFailed, DisplayMode& displayMode)
+{
+    if (m_HybridMultiObjectState == HybridMultiObjectState::Disabled ||
+        m_HybridMultiObjectState == HybridMultiObjectState::Finished)
+        return;
+
+    if (++m_HybridMultiObjectStateFrames > 900 || sceneFailed)
+    {
+        FinishHybridMultiObjectSmokeTest(
+            false, sceneFailed ? "scene failed to load" : "test phase timed out",
+            &camera, scene);
+        return;
+    }
+
+    const bool ready =
+        IsReadyForCapture(scene, activePath, sceneReady, true) &&
+        activePath->GetType() == RenderPathType::Hybrid;
+    switch (m_HybridMultiObjectState)
+    {
+        case HybridMultiObjectState::WaitingForScene:
+        {
+            if (!ready || scene->GetEntities().size() != 2)
+                return;
+            bool foundBox = false;
+            bool foundCard = false;
+            for (size_t index = 0; index < scene->GetEntities().size(); ++index)
+            {
+                const std::string& name = scene->GetEntities()[index].name;
+                if (name == "Box.gltf")
+                {
+                    m_HybridMultiObjectBoxIndex = index;
+                    foundBox = true;
+                }
+                else if (name == "TextureCoordinateTest.glb")
+                {
+                    m_HybridMultiObjectCardIndex = index;
+                    foundCard = true;
+                }
+            }
+            if (!foundBox || !foundCard)
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "expected Box and texture card were not loaded",
+                    &camera, scene);
+                return;
+            }
+            scene->UpdateEntityTRS(
+                static_cast<uint32_t>(m_HybridMultiObjectBoxIndex),
+                {-0.4f, -0.15f, 0.0f}, {0.0f, 0.0f, 0.0f},
+                {1.0f, 1.0f, 1.0f});
+            scene->UpdateEntityTRS(
+                static_cast<uint32_t>(m_HybridMultiObjectCardIndex),
+                {0.0f, -1.15f, 0.0f}, {-90.0f, 0.0f, 0.0f},
+                {2.5f, 2.5f, 2.5f});
+            // The card's default roughness is above the RT reflection cutoff.
+            // Keep its base-color texture, but make this smoke-only floor glossy.
+            const Entity& card =
+                scene->GetEntities()[m_HybridMultiObjectCardIndex];
+            const auto& materials = ResourceManager::Get().GetMaterials();
+            for (const Mesh& mesh : card.mesh.model->GetMeshes())
+            {
+                if (mesh.materialIndex < 0 ||
+                    static_cast<size_t>(mesh.materialIndex) >= materials.size())
+                    continue;
+                GpuMaterial material =
+                    materials[mesh.materialIndex]->GetData();
+                material.roughness = 0.5f;
+                material.metallic = 0.3f;
+                material.roughnessTexture = -1;
+                material.metallicTexture = -1;
+                ResourceManager::Get().UpdateMaterial(
+                    static_cast<uint32_t>(mesh.materialIndex), material);
+            }
+            Light& light = scene->GetMainLight();
+            light.direction = glm::vec4(
+                glm::normalize(glm::vec3(0.5f, -0.8f, 0.3f)), 0.1f);
+            light.color = glm::vec4(1.0f, 0.95f, 0.8f, 5.0f);
+            ChimeraAABB bounds;
+            if (!scene->TryGetWorldBounds(bounds))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "multi-object world bounds are invalid", &camera,
+                    scene);
+                return;
+            }
+            camera.SetYaw(0.0f);
+            camera.SetPitch(0.35f);
+            camera.FrameBounds(bounds);
+            activePath->InvalidateHistory();
+            m_HybridMultiObjectState = HybridMultiObjectState::WarmingUp;
+            m_HybridMultiObjectStateFrames = 0;
+            CH_CORE_INFO("Hybrid multi-object: Box and floor configured; warming history");
+            return;
+        }
+        case HybridMultiObjectState::WarmingUp:
+        {
+            if (!ready)
+                return;
+            if (++m_HybridMultiObjectWarmupFrames < 32)
+                return;
+            if (!HasCompleteSvgfHistory(*activePath))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "SVGF history did not warm up", &camera, scene);
+                return;
+            }
+            m_HybridMultiObjectModeIndex = 0;
+            displayMode = m_HybridMultiObjectModes[0];
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_HybridMultiObjectStillPaths[0]))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "still capture request was rejected", &camera,
+                    scene);
+                return;
+            }
+            m_HybridMultiObjectState = HybridMultiObjectState::WaitingForCapture;
+            m_HybridMultiObjectStateFrames = 0;
+            return;
+        }
+        case HybridMultiObjectState::WarmingUpMotion:
+        {
+            if (!ready)
+                return;
+            if (m_HybridMultiObjectMotionFrames < 4)
+                return;
+            m_HybridMultiObjectModeIndex = m_HybridMultiObjectModes.size() - 1;
+            displayMode = m_HybridMultiObjectModes[m_HybridMultiObjectModeIndex];
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_HybridMultiObjectMovingPaths[m_HybridMultiObjectModeIndex]))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "moving capture request was rejected", &camera,
+                    scene);
+                return;
+            }
+            m_HybridMultiObjectState = HybridMultiObjectState::WaitingForCapture;
+            m_HybridMultiObjectStateFrames = 0;
+            return;
+        }
+        case HybridMultiObjectState::WaitingForCapture:
+        {
+            const auto& paths = m_HybridMultiObjectMoving
+                                    ? m_HybridMultiObjectMovingPaths
+                                    : m_HybridMultiObjectStillPaths;
+            const std::filesystem::path& capturePath =
+                paths[m_HybridMultiObjectModeIndex];
+            if (!std::filesystem::exists(capturePath))
+                return;
+            int width = 0;
+            int height = 0;
+            int channels = 0;
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (!stbi_info(capturePath.string().c_str(), &width, &height,
+                           &channels) ||
+                width != static_cast<int>(extent.width) ||
+                height != static_cast<int>(extent.height) ||
+                (m_HybridMultiObjectModeIndex == 0 &&
+                 !HasVisibleScenePixels(capturePath)))
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "capture is missing, wrong-sized, or has no final scene",
+                    &camera, scene);
+                return;
+            }
+            CH_CORE_INFO("Hybrid multi-object: {} {} captured",
+                         m_HybridMultiObjectMoving ? "moving" : "still",
+                         HybridSmokeDisplayModeName(
+                             m_HybridMultiObjectModes[m_HybridMultiObjectModeIndex]));
+            if (!m_HybridMultiObjectMoving)
+            {
+                if (++m_HybridMultiObjectModeIndex <
+                    m_HybridMultiObjectModes.size())
+                {
+                    displayMode = m_HybridMultiObjectModes[m_HybridMultiObjectModeIndex];
+                    if (!Renderer::Get().RequestFrameCapture(
+                            m_HybridMultiObjectStillPaths[m_HybridMultiObjectModeIndex]))
+                    {
+                        FinishHybridMultiObjectSmokeTest(
+                            false, "next still capture request was rejected",
+                            &camera, scene);
+                    }
+                    m_HybridMultiObjectStateFrames = 0;
+                    return;
+                }
+                m_HybridMultiObjectMoving = true;
+                m_HybridMultiObjectMotionFrames = 0;
+                m_HybridMultiObjectState = HybridMultiObjectState::WarmingUpMotion;
+                m_HybridMultiObjectStateFrames = 0;
+                return;
+            }
+            if (m_HybridMultiObjectModeIndex > 0)
+            {
+                --m_HybridMultiObjectModeIndex;
+                displayMode = m_HybridMultiObjectModes[m_HybridMultiObjectModeIndex];
+                if (!Renderer::Get().RequestFrameCapture(
+                        m_HybridMultiObjectMovingPaths[m_HybridMultiObjectModeIndex]))
+                {
+                    FinishHybridMultiObjectSmokeTest(
+                        false, "next moving capture request was rejected",
+                        &camera, scene);
+                }
+                m_HybridMultiObjectStateFrames = 0;
+                return;
+            }
+            m_HybridMultiObjectFinalComparison = ComparePngFiles(
+                m_HybridMultiObjectStillPaths[0].string(),
+                m_HybridMultiObjectMovingPaths[0].string(), 2);
+            if (!m_HybridMultiObjectFinalComparison.success ||
+                m_HybridMultiObjectFinalComparison.differentPixelCount < 64)
+            {
+                FinishHybridMultiObjectSmokeTest(
+                    false, "moving final image did not differ from still image",
+                    &camera, scene);
+                return;
+            }
+            FinishHybridMultiObjectSmokeTest(
+                true, "still and moving Hybrid display modes captured",
+                &camera, scene);
+            return;
+        }
+        case HybridMultiObjectState::Disabled:
+        case HybridMultiObjectState::Finished:
             return;
     }
 }
