@@ -15,6 +15,24 @@ static const char* optionalDeviceExtensions[] = {
     VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
     VK_KHR_RAY_QUERY_EXTENSION_NAME};
 
+static bool SupportsRequiredBaseFeatures(
+    const VkPhysicalDeviceFeatures2& features,
+    const VkPhysicalDeviceVulkan12Features& features12,
+    const VkPhysicalDeviceVulkan13Features& features13)
+{
+    return features.features.samplerAnisotropy &&
+           features.features.shaderInt64 && features12.bufferDeviceAddress &&
+           features12.descriptorIndexing &&
+           features12.shaderSampledImageArrayNonUniformIndexing &&
+           features12.runtimeDescriptorArray &&
+           features12.descriptorBindingPartiallyBound &&
+           features12.descriptorBindingSampledImageUpdateAfterBind &&
+           features12.descriptorBindingStorageBufferUpdateAfterBind &&
+           features12.scalarBlockLayout && features12.hostQueryReset &&
+           features13.dynamicRendering && features13.synchronization2 &&
+           features13.shaderDemoteToHelperInvocation;
+}
+
 VulkanDevice::VulkanDevice(VkInstance instance, VkSurfaceKHR surface)
 {
     try
@@ -247,19 +265,8 @@ void VulkanDevice::CreateLogicalDevice(VkSurfaceKHR surface)
                 .minAccelerationStructureScratchOffsetAlignment);
     }
 
-    const bool baseCapabilitiesSupported =
-        supported.features.samplerAnisotropy &&
-        supported.features.shaderInt64 &&
-
-        supported12.bufferDeviceAddress && supported12.descriptorIndexing &&
-        supported12.shaderSampledImageArrayNonUniformIndexing &&
-        supported12.runtimeDescriptorArray &&
-        supported12.descriptorBindingPartiallyBound &&
-        supported12.descriptorBindingSampledImageUpdateAfterBind &&
-        supported12.descriptorBindingStorageBufferUpdateAfterBind &&
-        supported12.scalarBlockLayout && supported12.hostQueryReset &&
-        supported13.dynamicRendering && supported13.synchronization2 &&
-        supported13.shaderDemoteToHelperInvocation;
+    const bool baseCapabilitiesSupported = SupportsRequiredBaseFeatures(
+        supported, supported12, supported13);
 
     const bool rtFeaturesSupported =
         supportedRT.rayTracingPipeline && supportedAS.accelerationStructure &&
@@ -577,6 +584,19 @@ int VulkanDevice::RateDeviceSuitability(VkPhysicalDevice device,
         Swapchain::QuerySwapChainSupport(device, surface);
     if (swapchainSupport.formats.empty() ||
         swapchainSupport.presentModes.empty())
+        return 0;
+
+    VkPhysicalDeviceFeatures2 supported{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    VkPhysicalDeviceVulkan12Features supported12{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceVulkan13Features supported13{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    supported.pNext = &supported13;
+    supported13.pNext = &supported12;
+    vkGetPhysicalDeviceFeatures2(device, &supported);
+
+    if (!SupportsRequiredBaseFeatures(supported, supported12, supported13))
         return 0;
 
     return score + 1;
