@@ -247,6 +247,17 @@ Inspect the images: a `PASS` checks capture dimensions, visible final color,
 and changed final pixels, not physical lighting accuracy or absence of
 ghosting.
 
+`.\Sandbox.exe --hybrid-benchmark-smoke` benchmarks the bundled Box scene
+twice at the same camera and 1600x900 resolution: first with RT shadow/AO,
+reflection, GI, and temporal-plus-spatial SVGF, then with only direct light
+enabled. Each profile has 60 GPU-timestamp warm-up samples and 180 captured
+samples. The run writes `full.csv`, `minimal.csv`, and a `result.txt` containing
+the GPU, raw Vulkan driver version, render flags, and capture settings under
+`hybrid-benchmark-results/run-*`. These are per-pass GPU timings, not CPU frame
+times or whole-frame latency. Disabling the RT effect flags currently leaves
+the three RT producer passes in the Hybrid graph; the minimal profile therefore
+measures their residual dispatch cost rather than a no-RT graph.
+
 For temporal-history behavior on the same GPU, run
 `.\Sandbox.exe --taa-disocclusion-smoke` in that executable directory. Its
 `taa-smoke-results/run-*/result.txt` checks stable history, camera-motion

@@ -33,6 +33,7 @@ struct EditorAutomationOptions
     bool texturedSceneSmokeTest = false;
     bool svgfToggleSmokeTest = false;
     bool hybridMultiObjectSmokeTest = false;
+    bool hybridBenchmarkSmokeTest = false;
     SvgfSmokeMode svgfSmokeMode = SvgfSmokeMode::None;
 };
 
@@ -137,6 +138,16 @@ private:
         Finished
     };
 
+    enum class HybridBenchmarkState
+    {
+        Disabled,
+        WaitingForScene,
+        RunningFull,
+        WaitingForMinimalGraph,
+        RunningMinimal,
+        Finished
+    };
+
     void InitializeTaaDisocclusionSmokeTest();
     void UpdateTaaDisocclusionSmokeTest(EditorCamera& camera, Scene* scene,
                                         RenderPath* activePath,
@@ -167,6 +178,12 @@ private:
                                           const std::string& reason,
                                           const EditorCamera* camera,
                                           const Scene* scene);
+    void InitializeHybridBenchmarkSmokeTest();
+    void UpdateHybridBenchmarkSmokeTest(Scene* scene, RenderPath* activePath,
+                                        bool sceneReady, bool sceneFailed,
+                                        RenderFlags& renderFlags);
+    void FinishHybridBenchmarkSmokeTest(bool passed,
+                                        const std::string& reason);
 
 private:
     EditorAutomationOptions m_Options;
@@ -278,6 +295,13 @@ private:
     uint32_t m_HybridMultiObjectStateFrames = 0;
     uint32_t m_HybridMultiObjectMotionFrames = 0;
     bool m_HybridMultiObjectMoving = false;
+
+    HybridBenchmarkState m_HybridBenchmarkState =
+        HybridBenchmarkState::Disabled;
+    std::filesystem::path m_HybridBenchmarkOutputDirectory;
+    uint32_t m_HybridBenchmarkStateFrames = 0;
+    RenderFlags m_HybridBenchmarkFullFlags = RenderFlags_None;
+    RenderFlags m_HybridBenchmarkMinimalFlags = RenderFlags_LightBit;
 };
 
 } // namespace Chimera

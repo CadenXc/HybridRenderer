@@ -16,6 +16,8 @@ semantic versioning once a release is tagged.
   retain the expected quadrant colors under a front-facing light preset.
 - A reproducible two-object Hybrid GPU smoke with still/moving captures for
   final color, shadow, AO, reflection, and GI debug views.
+- A fixed-scene, paired Hybrid GPU benchmark exporting per-pass timings for
+  full and minimal render flags.
 
 ### Fixed
 

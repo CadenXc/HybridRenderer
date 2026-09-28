@@ -3,6 +3,7 @@
 
 #include "Core/Application.h"
 #include "Renderer/Backend/Renderer.h"
+#include "Renderer/Benchmark/BenchmarkCsvWriter.h"
 #include "Renderer/Pipelines/RenderPath.h"
 #include "Renderer/Pipelines/RenderSettingsChange.h"
 #include "Renderer/Resources/ResourceManager.h"
@@ -276,7 +277,8 @@ bool EditorAutomationController::IsActive() const
     return m_Options.taaDisocclusionSmokeTest ||
            m_Options.objectMotionSmokeTest ||
            m_Options.renderPathSmokeTest ||
-           m_Options.hybridMultiObjectSmokeTest;
+           m_Options.hybridMultiObjectSmokeTest ||
+           m_Options.hybridBenchmarkSmokeTest;
 }
 
 void EditorAutomationController::ConfigureRenderSettings(
@@ -311,6 +313,16 @@ void EditorAutomationController::ConfigureRenderSettings(
         displayMode = DisplayMode::Final;
         showControlPanel = false;
     }
+    else if (m_Options.hybridBenchmarkSmokeTest)
+    {
+        renderFlags = RenderFlags_LightBit | RenderFlags_ShadowBit |
+                      RenderFlags_AOBit | RenderFlags_ReflectionBit |
+                      RenderFlags_GIBit | RenderFlags_SVGFBit |
+                      RenderFlags_SVGFTemporalBit |
+                      RenderFlags_SVGFSpatialBit;
+        displayMode = DisplayMode::Final;
+        showControlPanel = false;
+    }
 }
 
 void EditorAutomationController::Initialize()
@@ -330,6 +342,10 @@ void EditorAutomationController::Initialize()
     else if (m_Options.hybridMultiObjectSmokeTest)
     {
         InitializeHybridMultiObjectSmokeTest();
+    }
+    else if (m_Options.hybridBenchmarkSmokeTest)
+    {
+        InitializeHybridBenchmarkSmokeTest();
     }
 }
 
@@ -363,6 +379,8 @@ void EditorAutomationController::UpdateAfterScene(
                               sceneFailed, renderFlags);
     UpdateHybridMultiObjectSmokeTest(camera, scene, activePath, sceneReady,
                                      sceneFailed, displayMode);
+    UpdateHybridBenchmarkSmokeTest(scene, activePath, sceneReady, sceneFailed,
+                                   renderFlags);
 }
 
 void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
@@ -2926,6 +2944,161 @@ void EditorAutomationController::UpdateHybridMultiObjectSmokeTest(
         }
         case HybridMultiObjectState::Disabled:
         case HybridMultiObjectState::Finished:
+            return;
+    }
+}
+
+void EditorAutomationController::InitializeHybridBenchmarkSmokeTest()
+{
+    m_HybridBenchmarkOutputDirectory =
+        MakeSmokeOutputDirectory("hybrid-benchmark-results");
+    std::error_code directoryError;
+    std::filesystem::create_directories(m_HybridBenchmarkOutputDirectory,
+                                        directoryError);
+    if (directoryError)
+    {
+        CH_CORE_ERROR("Hybrid benchmark could not create {}: {}",
+                      m_HybridBenchmarkOutputDirectory.string(),
+                      directoryError.message());
+        m_HybridBenchmarkState = HybridBenchmarkState::Finished;
+        Application::Get().Close(1);
+        return;
+    }
+    m_HybridBenchmarkState = HybridBenchmarkState::WaitingForScene;
+    CH_CORE_INFO("Hybrid benchmark started; output: {}",
+                 m_HybridBenchmarkOutputDirectory.string());
+}
+
+void EditorAutomationController::FinishHybridBenchmarkSmokeTest(
+    bool passed, const std::string& reason)
+{
+    const std::filesystem::path resultPath =
+        m_HybridBenchmarkOutputDirectory / "result.txt";
+    std::ofstream resultFile(resultPath);
+    if (resultFile)
+    {
+        const auto& properties =
+            Application::Get().GetContext()->GetDeviceProperties();
+        const VkExtent2D extent =
+            Application::Get().GetContext()->GetSwapChainExtent();
+        resultFile << (passed ? "PASS" : "FAIL") << '\n'
+                   << "reason=" << reason << '\n'
+                   << "gpu=" << properties.deviceName << '\n'
+                   << "vendorId=" << properties.vendorID << '\n'
+                   << "deviceId=" << properties.deviceID << '\n'
+                   << "driverVersion=" << properties.driverVersion << '\n'
+                   << "scene=smoke-test-box-v1\n"
+                   << "renderPath=Hybrid\n"
+                   << "width=" << extent.width << '\n'
+                   << "height=" << extent.height << '\n'
+                   << "warmupFrames=60\n"
+                   << "captureFrames=180\n"
+                   << "full.renderFlags="
+                   << static_cast<uint32_t>(m_HybridBenchmarkFullFlags) << '\n'
+                   << "full.csv="
+                   << (m_HybridBenchmarkOutputDirectory / "full.csv").string()
+                   << '\n'
+                   << "minimal.renderFlags="
+                   << static_cast<uint32_t>(m_HybridBenchmarkMinimalFlags)
+                   << '\n'
+                   << "minimal.csv="
+                   << (m_HybridBenchmarkOutputDirectory / "minimal.csv").string()
+                   << '\n'
+                   << "scope=GPU pass timestamps; same Box scene and camera; no CPU frame-time claim\n";
+    }
+    if (passed)
+        CH_CORE_INFO("Hybrid benchmark PASSED: {}", reason);
+    else
+        CH_CORE_ERROR("Hybrid benchmark FAILED: {}", reason);
+    CH_CORE_INFO("Hybrid benchmark result: {}", resultPath.string());
+    m_HybridBenchmarkState = HybridBenchmarkState::Finished;
+    Application::Get().Close(passed ? 0 : 1);
+}
+
+void EditorAutomationController::UpdateHybridBenchmarkSmokeTest(
+    Scene* scene, RenderPath* activePath, bool sceneReady, bool sceneFailed,
+    RenderFlags& renderFlags)
+{
+    if (m_HybridBenchmarkState == HybridBenchmarkState::Disabled ||
+        m_HybridBenchmarkState == HybridBenchmarkState::Finished)
+        return;
+
+    if (++m_HybridBenchmarkStateFrames > 900 || sceneFailed)
+    {
+        FinishHybridBenchmarkSmokeTest(
+            false, sceneFailed ? "scene failed to load" : "benchmark timed out");
+        return;
+    }
+
+    const bool ready =
+        IsReadyForCapture(scene, activePath, sceneReady, true) &&
+        activePath->GetType() == RenderPathType::Hybrid;
+    const auto exportCsv = [&](const char* filename) -> bool
+    {
+        BenchmarkCsvMetadata metadata;
+        metadata.gpuName =
+            Application::Get().GetContext()->GetDeviceProperties().deviceName;
+        metadata.renderPath = "Hybrid";
+        metadata.scenePreset = "smoke-test-box-v1";
+        metadata.width = activePath->GetRenderGraph().GetWidth();
+        metadata.height = activePath->GetRenderGraph().GetHeight();
+        metadata.renderFlags = static_cast<uint32_t>(renderFlags);
+        const BenchmarkCsvResult result = WriteBenchmarkCsv(
+            activePath->GetBenchmarkRecorder(), metadata,
+            m_HybridBenchmarkOutputDirectory / filename);
+        if (!result.success)
+            CH_CORE_ERROR("Hybrid benchmark CSV export failed: {}",
+                          result.error);
+        return result.success;
+    };
+
+    switch (m_HybridBenchmarkState)
+    {
+        case HybridBenchmarkState::WaitingForScene:
+            if (!ready) return;
+            m_HybridBenchmarkFullFlags = renderFlags;
+            activePath->StartBenchmark(60, 180);
+            m_HybridBenchmarkState = HybridBenchmarkState::RunningFull;
+            m_HybridBenchmarkStateFrames = 0;
+            CH_CORE_INFO("Hybrid benchmark: capturing full-effect profile");
+            return;
+        case HybridBenchmarkState::RunningFull:
+            if (!activePath ||
+                !activePath->GetBenchmarkRecorder().IsComplete()) return;
+            if (!exportCsv("full.csv"))
+            {
+                FinishHybridBenchmarkSmokeTest(false,
+                                               "full CSV export failed");
+                return;
+            }
+            renderFlags = m_HybridBenchmarkMinimalFlags;
+            activePath->RequestGraphRebuild();
+            m_HybridBenchmarkState =
+                HybridBenchmarkState::WaitingForMinimalGraph;
+            m_HybridBenchmarkStateFrames = 0;
+            CH_CORE_INFO("Hybrid benchmark: switching to minimal-effect profile");
+            return;
+        case HybridBenchmarkState::WaitingForMinimalGraph:
+            if (!ready) return;
+            activePath->StartBenchmark(60, 180);
+            m_HybridBenchmarkState = HybridBenchmarkState::RunningMinimal;
+            m_HybridBenchmarkStateFrames = 0;
+            CH_CORE_INFO("Hybrid benchmark: capturing minimal-effect profile");
+            return;
+        case HybridBenchmarkState::RunningMinimal:
+            if (!activePath ||
+                !activePath->GetBenchmarkRecorder().IsComplete()) return;
+            if (!exportCsv("minimal.csv"))
+            {
+                FinishHybridBenchmarkSmokeTest(false,
+                                               "minimal CSV export failed");
+                return;
+            }
+            FinishHybridBenchmarkSmokeTest(
+                true, "full and minimal Hybrid GPU pass timings captured");
+            return;
+        case HybridBenchmarkState::Disabled:
+        case HybridBenchmarkState::Finished:
             return;
     }
 }
