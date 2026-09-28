@@ -5,7 +5,19 @@ semantic versioning once a release is tagged.
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- GPU smoke coverage for TAA history across camera motion, camera cuts,
+  resize, path switches, and scene replacement.
+- SVGF mode-switch captures and a fixed Box-region high-frequency diagnostic,
+  including explicit history reset and recovery frames.
+
+### Fixed
+
+- Reject unavailable SVGF temporal history on the first frame.
+- Avoid albedo remodulation in spatial-only SVGF filtering.
+- Invalidate TAA history when the scene, camera, render path, or swapchain
+  changes in ways that make the previous image incompatible.
 
 ## [0.1.0] - 2026-08-18
 

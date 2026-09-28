@@ -102,6 +102,9 @@ private:
         WaitingForCapture,
         WarmingUpSvgfSwitch,
         WaitingForSvgfSwitchCapture,
+        WaitingForSvgfResetCapture,
+        WarmingUpSvgfRecovery,
+        WaitingForSvgfRecoveredCapture,
         WaitingForResize,
         WarmingUpResized,
         WaitingForResizedCapture,
@@ -190,6 +193,10 @@ private:
     std::array<uintmax_t, 3> m_SvgfSwitchCaptureSizes{};
     std::array<ImageHighFrequencyResult, 3> m_SvgfSwitchNoiseMetrics;
     size_t m_SvgfSwitchIndex = 0;
+    std::filesystem::path m_SvgfResetCapturePath;
+    std::filesystem::path m_SvgfRecoveredCapturePath;
+    ImageHighFrequencyResult m_SvgfResetNoiseMetric;
+    ImageHighFrequencyResult m_SvgfRecoveredNoiseMetric;
     std::filesystem::path m_RenderPathSmokeResizedCapturePath;
     uint32_t m_RenderPathSmokeOriginalWidth = 0;
     uint32_t m_RenderPathSmokeOriginalHeight = 0;

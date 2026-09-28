@@ -90,6 +90,33 @@ const char* SvgfSmokeModeName(SvgfSmokeMode mode)
     return "unknown";
 }
 
+uint32_t SvgfSmokeWarmupFrames(SvgfSmokeMode mode)
+{
+    // Temporal history length is capped at 32 in temporal.comp. Capture only
+    // after it has had enough submitted frames to reach that limit.
+    return mode == SvgfSmokeMode::SpatialOnly ? 8u : 32u;
+}
+
+constexpr ImageRegion BoxRedFaceRegion{635, 710, 150, 140};
+constexpr std::array<const char*, 6> SvgfHistoryNames = {
+    "ShadowAOAccum", "ShadowAOMoments", "ReflAccum", "ReflMoments",
+    "GIAccum", "GIMoments"};
+
+ImageHighFrequencyResult AnalyzeBoxRedFace(
+    const std::filesystem::path& capturePath)
+{
+    ImageHighFrequencyResult metric = AnalyzeHighFrequencyPng(
+        capturePath.string(), BoxRedFaceRegion);
+    if (metric.success &&
+        (metric.meanRgb[0] <= metric.meanRgb[1] + 40.0 ||
+         metric.meanRgb[0] <= metric.meanRgb[2] + 40.0))
+    {
+        metric.success = false;
+        metric.error = "Box front-face region is not red-dominant";
+    }
+    return metric;
+}
+
 RenderFlags WithSvgfSmokeMode(RenderFlags renderFlags, SvgfSmokeMode mode)
 {
     if (mode == SvgfSmokeMode::None)
@@ -139,14 +166,22 @@ bool GraphMatchesSvgfSmokeMode(RenderGraph& graph, SvgfSmokeMode mode)
 
 bool HasCompleteSvgfHistory(const RenderPath& path)
 {
-    for (const char* historyName : {"ShadowAOAccum", "ShadowAOMoments",
-                                    "ReflAccum", "ReflMoments", "GIAccum",
-                                    "GIMoments"})
+    for (const char* historyName : SvgfHistoryNames)
     {
         if (!path.HasUsableHistory(historyName))
             return false;
     }
     return true;
+}
+
+bool HasAnySvgfHistory(const RenderPath& path)
+{
+    for (const char* historyName : SvgfHistoryNames)
+    {
+        if (path.HasUsableHistory(historyName))
+            return true;
+    }
+    return false;
 }
 
 bool RejectsPriorHistory(const TemporalHistoryDebugStatistics& stats,
@@ -1357,6 +1392,10 @@ void EditorAutomationController::InitializeRenderPathSmokeTest()
         m_RenderPathSmokeOutputDirectory / "hybrid-spatial-only.png",
         m_RenderPathSmokeOutputDirectory / "hybrid-temporal-only.png",
         m_RenderPathSmokeOutputDirectory / "hybrid-temporal-spatial.png"};
+    m_SvgfResetCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-history-reset.png";
+    m_SvgfRecoveredCapturePath =
+        m_RenderPathSmokeOutputDirectory / "hybrid-history-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(
@@ -1457,7 +1496,8 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
         }
         if (m_Options.svgfToggleSmokeTest)
         {
-            resultFile << "NoiseRegion=635,710,150,140\n"
+            resultFile << "SvgfTemporalWarmupFrames=32\n"
+                       << "NoiseRegion=635,710,150,140\n"
                        << "NoiseMetric=mean absolute red-channel residual from four adjacent pixels; Box front face only\n";
             for (size_t index = 0; index < m_SvgfSwitchModes.size(); ++index)
             {
@@ -1485,6 +1525,24 @@ void EditorAutomationController::FinishRenderPathSmokeTest(
                                << "NoiseMetricError=" << metric.error << '\n';
                 }
             }
+            resultFile << "HistoryResetCapture="
+                       << m_SvgfResetCapturePath.string() << '\n'
+                       << "HistoryRecoveredCapture="
+                       << m_SvgfRecoveredCapturePath.string() << '\n';
+            if (m_SvgfResetNoiseMetric.success)
+                resultFile << "HistoryResetHighFrequencyResidual="
+                           << m_SvgfResetNoiseMetric.meanAbsoluteResidual
+                           << '\n';
+            else if (!m_SvgfResetNoiseMetric.error.empty())
+                resultFile << "HistoryResetNoiseMetricError="
+                           << m_SvgfResetNoiseMetric.error << '\n';
+            if (m_SvgfRecoveredNoiseMetric.success)
+                resultFile << "HistoryRecoveredHighFrequencyResidual="
+                           << m_SvgfRecoveredNoiseMetric.meanAbsoluteResidual
+                           << '\n';
+            else if (!m_SvgfRecoveredNoiseMetric.error.empty())
+                resultFile << "HistoryRecoveredNoiseMetricError="
+                           << m_SvgfRecoveredNoiseMetric.error << '\n';
         }
         if (m_RenderPathSmokeResizedWidth != 0)
         {
@@ -1579,7 +1637,11 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
 
-            constexpr uint32_t WarmupFrameCount = 8;
+            const uint32_t WarmupFrameCount =
+                m_Options.svgfSmokeMode != SvgfSmokeMode::None &&
+                        targetPath == RenderPathType::Hybrid
+                    ? SvgfSmokeWarmupFrames(m_Options.svgfSmokeMode)
+                    : 8u;
             ++m_RenderPathSmokeWarmupFrameCount;
             if (m_RenderPathSmokeWarmupFrameCount < WarmupFrameCount)
             {
@@ -1713,7 +1775,9 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 activePath->GetType() != RenderPathType::Hybrid)
                 return;
 
-            if (++m_RenderPathSmokeWarmupFrameCount < 8)
+            if (++m_RenderPathSmokeWarmupFrameCount <
+                SvgfSmokeWarmupFrames(
+                    m_SvgfSwitchModes[m_SvgfSwitchIndex]))
                 return;
 
             const SvgfSmokeMode mode = m_SvgfSwitchModes[m_SvgfSwitchIndex];
@@ -1760,15 +1824,7 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 return;
             }
             m_SvgfSwitchCaptureSizes[m_SvgfSwitchIndex] = captureSize;
-            ImageHighFrequencyResult metric = AnalyzeHighFrequencyPng(
-                capturePath.string(), {635, 710, 150, 140});
-            if (metric.success &&
-                (metric.meanRgb[0] <= metric.meanRgb[1] + 40.0 ||
-                 metric.meanRgb[0] <= metric.meanRgb[2] + 40.0))
-            {
-                metric.success = false;
-                metric.error = "Box front-face region is not red-dominant";
-            }
+            ImageHighFrequencyResult metric = AnalyzeBoxRedFace(capturePath);
             m_SvgfSwitchNoiseMetrics[m_SvgfSwitchIndex] = metric;
             if (!metric.success)
                 CH_CORE_WARN("Render path smoke: {} noise metric unavailable: {}",
@@ -1785,6 +1841,88 @@ void EditorAutomationController::UpdateRenderPathSmokeTest(
                 RequestSvgfSmokeSwitch(activePath, renderFlags);
                 return;
             }
+            activePath->InvalidateHistory();
+            if (HasAnySvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF history remained usable after invalidation");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(m_SvgfResetCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF reset capture request was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfResetCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfResetCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfResetCapturePath))
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid)
+            {
+                FinishRenderPathSmokeTest(
+                    false, "Hybrid path changed during SVGF reset capture");
+                return;
+            }
+            if (!HasVisibleScenePixels(m_SvgfResetCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF reset capture has no visible scene");
+                return;
+            }
+            m_SvgfResetNoiseMetric =
+                AnalyzeBoxRedFace(m_SvgfResetCapturePath);
+            if (!HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF history did not restart after reset frame");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WarmingUpSvgfRecovery;
+            m_RenderPathSmokeWarmupFrameCount = 0;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WarmingUpSvgfRecovery:
+        {
+            if (!ready || !activePath ||
+                activePath->GetType() != RenderPathType::Hybrid)
+                return;
+            if (++m_RenderPathSmokeWarmupFrameCount <
+                SvgfSmokeWarmupFrames(SvgfSmokeMode::TemporalAndSpatial))
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_SvgfRecoveredCapturePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF recovery capture request was rejected");
+                return;
+            }
+            m_RenderPathSmokeState =
+                RenderPathSmokeState::WaitingForSvgfRecoveredCapture;
+            m_RenderPathSmokeStateFrameCount = 0;
+            return;
+        }
+        case RenderPathSmokeState::WaitingForSvgfRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_SvgfRecoveredCapturePath))
+                return;
+            if (!activePath || activePath->GetType() != RenderPathType::Hybrid ||
+                !HasVisibleScenePixels(m_SvgfRecoveredCapturePath) ||
+                !HasCompleteSvgfHistory(*activePath))
+            {
+                FinishRenderPathSmokeTest(
+                    false, "SVGF recovered frame or history is invalid");
+                return;
+            }
+            m_SvgfRecoveredNoiseMetric =
+                AnalyzeBoxRedFace(m_SvgfRecoveredCapturePath);
             ++m_RenderPathSmokePathIndex;
             RequestCurrentRenderPath();
             return;
