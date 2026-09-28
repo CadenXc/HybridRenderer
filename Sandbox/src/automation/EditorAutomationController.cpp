@@ -184,6 +184,10 @@ void EditorAutomationController::InitializeTaaDisocclusionSmokeTest()
         m_TaaSmokeOutputDirectory / "forward-first-frame.png";
     m_TaaSmokePathRecoveredCapturePath =
         m_TaaSmokeOutputDirectory / "forward-recovered.png";
+    m_TaaSmokeSceneFirstCapturePath =
+        m_TaaSmokeOutputDirectory / "scene-first-frame.png";
+    m_TaaSmokeSceneRecoveredCapturePath =
+        m_TaaSmokeOutputDirectory / "scene-recovered.png";
 
     std::error_code directoryError;
     std::filesystem::create_directories(m_TaaSmokeOutputDirectory,
@@ -567,6 +571,28 @@ void EditorAutomationController::FinishTaaDisocclusionSmokeTest(
                        << '\n'
                        << "pathRecoveredRejected="
                        << m_TaaSmokePathRecoveredStatistics.rejectedPixelCount
+                       << '\n';
+        }
+        if (m_TaaSmokeSceneFirstStatistics.success)
+        {
+            resultFile << "sceneFirstCapture="
+                       << m_TaaSmokeSceneFirstCapturePath.string() << '\n'
+                       << "sceneFirstAccepted="
+                       << m_TaaSmokeSceneFirstStatistics.acceptedPixelCount
+                       << '\n'
+                       << "sceneFirstRejected="
+                       << m_TaaSmokeSceneFirstStatistics.rejectedPixelCount
+                       << '\n';
+        }
+        if (m_TaaSmokeSceneRecoveredStatistics.success)
+        {
+            resultFile << "sceneRecoveredCapture="
+                       << m_TaaSmokeSceneRecoveredCapturePath.string() << '\n'
+                       << "sceneRecoveredAccepted="
+                       << m_TaaSmokeSceneRecoveredStatistics.acceptedPixelCount
+                       << '\n'
+                       << "sceneRecoveredRejected="
+                       << m_TaaSmokeSceneRecoveredStatistics.rejectedPixelCount
                        << '\n';
         }
     }
@@ -987,9 +1013,113 @@ void EditorAutomationController::UpdateTaaDisocclusionSmokeTest(
                     false, "Forward TAA history did not recover after path switch");
                 return;
             }
+            ResourceManager::Get().ClearScene();
+            ResourceManager::Get().LoadScene(
+                Application::Get().GetSpecification().AssetDir +
+                "models/smoke_test/Box.gltf");
+            m_TaaSmokeState = TaaDisocclusionSmokeState::WaitingForSceneReset;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: requested scene replacement and Box reload");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForSceneReset:
+        {
+            if (!scene || !activePath ||
+                activePath->GetType() != RenderPathType::Forward)
+                return;
+            if (activePath->HasUsableHistory("TAAOutput"))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "old TAA history remained usable after scene replacement");
+                return;
+            }
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokeSceneFirstCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "first replacement-scene capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForSceneCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: capturing first frame after scene replacement");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForSceneCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokeSceneFirstCapturePath))
+                return;
+
+            m_TaaSmokeSceneFirstStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokeSceneFirstCapturePath.string());
+            if (!m_TaaSmokeSceneFirstStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokeSceneFirstStatistics.error);
+                return;
+            }
+            const VkExtent2D extent =
+                Application::Get().GetContext()->GetSwapChainExtent();
+            if (!RejectsPriorHistory(m_TaaSmokeSceneFirstStatistics,
+                                     extent.width, extent.height))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "first replacement-scene frame did not reject prior history");
+                return;
+            }
+
+            m_TaaSmokeWarmupFrameCount = 0;
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WarmingUpAfterSceneReset;
+            m_TaaSmokeStateFrameCount = 0;
+            CH_CORE_INFO("TAA smoke: scene replacement rejected history; waiting for Box");
+            return;
+        }
+        case TaaDisocclusionSmokeState::WarmingUpAfterSceneReset:
+        {
+            if (!IsReadyForCapture(scene, activePath, sceneReady, true) ||
+                activePath->GetType() != RenderPathType::Forward)
+                return;
+
+            if (++m_TaaSmokeWarmupFrameCount < 32)
+                return;
+            if (!Renderer::Get().RequestFrameCapture(
+                    m_TaaSmokeSceneRecoveredCapturePath))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "scene-recovery capture request was rejected");
+                return;
+            }
+            m_TaaSmokeState =
+                TaaDisocclusionSmokeState::WaitingForSceneRecoveredCapture;
+            m_TaaSmokeStateFrameCount = 0;
+            return;
+        }
+        case TaaDisocclusionSmokeState::WaitingForSceneRecoveredCapture:
+        {
+            if (!std::filesystem::exists(m_TaaSmokeSceneRecoveredCapturePath))
+                return;
+
+            m_TaaSmokeSceneRecoveredStatistics = AnalyzeTemporalHistoryPng(
+                m_TaaSmokeSceneRecoveredCapturePath.string());
+            if (!m_TaaSmokeSceneRecoveredStatistics.success)
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, m_TaaSmokeSceneRecoveredStatistics.error);
+                return;
+            }
+            if (!HasRecoveredHistory(m_TaaSmokeSceneRecoveredStatistics,
+                                     m_TaaSmokeSceneFirstStatistics.width,
+                                     m_TaaSmokeSceneFirstStatistics.height))
+            {
+                FinishTaaDisocclusionSmokeTest(
+                    false, "TAA history did not recover after scene replacement");
+                return;
+            }
             FinishTaaDisocclusionSmokeTest(
                 true,
-                "stable history, camera disocclusion, resize, and path-switch resets verified");
+                "stable history, camera disocclusion, resize, path switch, and scene replacement verified");
             return;
         }
         case TaaDisocclusionSmokeState::Disabled:

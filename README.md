@@ -202,7 +202,8 @@ For temporal-history behavior on the same GPU, run
 `taa-smoke-results/run-*/result.txt` checks stable history, camera-motion
 disocclusion, rejection on the first resized frame, and history recovery. It
 then switches from Hybrid to Forward and checks that the new path rejects the
-old history before accumulating its own.
+old history before accumulating its own. Finally it replaces the scene,
+reloads the embedded Box, and checks that TAA history resets and recovers.
 
 ## Run and Explore
 
