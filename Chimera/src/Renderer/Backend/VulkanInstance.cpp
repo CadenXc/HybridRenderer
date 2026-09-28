@@ -53,14 +53,29 @@ VulkanInstance::VulkanInstance(const std::string& appName)
         throw std::runtime_error("failed to initialize volk!");
     }
 
-    CreateInstance(appName);
-    volkLoadInstance(m_Instance);
-    SetupDebugMessenger();
+    try
+    {
+        CreateInstance(appName);
+        volkLoadInstance(m_Instance);
+        SetupDebugMessenger();
+    }
+    catch (...)
+    {
+        Cleanup();
+        throw;
+    }
 }
 
 VulkanInstance::~VulkanInstance()
 {
-    if (enableValidationLayers)
+    Cleanup();
+}
+
+void VulkanInstance::Cleanup() noexcept
+{
+    if (m_Instance == VK_NULL_HANDLE) return;
+
+    if (m_DebugMessenger != VK_NULL_HANDLE)
     {
         auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
             m_Instance, "vkDestroyDebugUtilsMessengerEXT");
@@ -68,8 +83,11 @@ VulkanInstance::~VulkanInstance()
         {
             func(m_Instance, m_DebugMessenger, nullptr);
         }
+        m_DebugMessenger = VK_NULL_HANDLE;
     }
+
     vkDestroyInstance(m_Instance, nullptr);
+    m_Instance = VK_NULL_HANDLE;
 }
 
 void VulkanInstance::CreateInstance(const std::string& appName)

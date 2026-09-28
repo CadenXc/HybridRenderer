@@ -20,6 +20,7 @@ public:
 private:
     void CreateInstance(const std::string& appName);
     void SetupDebugMessenger();
+    void Cleanup() noexcept;
 
 private:
     VkInstance m_Instance = VK_NULL_HANDLE;

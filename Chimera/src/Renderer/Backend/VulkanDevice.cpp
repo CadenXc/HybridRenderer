@@ -17,10 +17,27 @@ static const char* optionalDeviceExtensions[] = {
 
 VulkanDevice::VulkanDevice(VkInstance instance, VkSurfaceKHR surface)
 {
-    PickPhysicalDevice(instance, surface);
-    CreateLogicalDevice(surface);
-    volkLoadDevice(m_LogicalDevice);
-    CreateAllocator(instance);
+    try
+    {
+        PickPhysicalDevice(instance, surface);
+        CreateLogicalDevice(surface);
+        volkLoadDevice(m_LogicalDevice);
+        CreateAllocator(instance);
+    }
+    catch (...)
+    {
+        if (m_Allocator != nullptr)
+        {
+            vmaDestroyAllocator(m_Allocator);
+            m_Allocator = nullptr;
+        }
+        if (m_LogicalDevice != VK_NULL_HANDLE)
+        {
+            vkDestroyDevice(m_LogicalDevice, nullptr);
+            m_LogicalDevice = VK_NULL_HANDLE;
+        }
+        throw;
+    }
 }
 
 VulkanDevice::~VulkanDevice()
