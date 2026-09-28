@@ -28,10 +28,12 @@ Image::Image(uint32_t width, uint32_t height, VkFormat format,
     VmaAllocationCreateInfo allocInfo{};
     allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 
-    if (vmaCreateImage(m_Allocator, &imageInfo, &allocInfo, &m_Image,
-                       &m_Allocation, nullptr) != VK_SUCCESS)
+    VkResult imageResult = vmaCreateImage(m_Allocator, &imageInfo, &allocInfo,
+                                          &m_Image, &m_Allocation, nullptr);
+    if (imageResult != VK_SUCCESS)
     {
-        throw std::runtime_error("failed to create image!");
+        throw std::runtime_error("vmaCreateImage failed with VkResult: " +
+                                 std::to_string(imageResult));
     }
 
     CH_CORE_TRACE("Image: ALLOCATED. Handle: [0x{:x}], Size: {}x{}, Name: {}",
@@ -53,9 +55,15 @@ Image::Image(uint32_t width, uint32_t height, VkFormat format,
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 1;
 
-    if (vkCreateImageView(m_Device, &viewInfo, nullptr, &m_View) != VK_SUCCESS)
+    VkResult viewResult =
+        vkCreateImageView(m_Device, &viewInfo, nullptr, &m_View);
+    if (viewResult != VK_SUCCESS)
     {
-        throw std::runtime_error("failed to create image view!");
+        vmaDestroyImage(m_Allocator, m_Image, m_Allocation);
+        m_Image = VK_NULL_HANDLE;
+        m_Allocation = VK_NULL_HANDLE;
+        throw std::runtime_error("vkCreateImageView failed with VkResult: " +
+                                 std::to_string(viewResult));
     }
 
     if (!name.empty())
