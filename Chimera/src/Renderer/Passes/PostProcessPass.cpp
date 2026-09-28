@@ -27,8 +27,8 @@ void PostProcessPass::Execute(const PassData& data, RenderGraphRegistry& reg,
     ctx.SetScissor(0, 0, reg.graph.GetWidth(), reg.graph.GetHeight());
 
     GraphicsPipelineDescription desc{"PostProcess",
-                                     "common/fullscreen.vert",
-                                     "postprocess/postprocess.frag",
+                                     "Fullscreen_Vert",
+                                     "PostProcess_Frag",
                                      false,
                                      false,
                                      (VkCompareOp)0,
