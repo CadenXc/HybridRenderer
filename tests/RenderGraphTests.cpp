@@ -3,6 +3,7 @@
 #include "Renderer/Graph/ResourceNames.h"
 #include "Renderer/Graph/ExecutionContext.h"
 #include "Renderer/Graph/GraphicsExecutionContext.h"
+#include "Renderer/Backend/PipelineManager.h"
 #include "Renderer/Backend/Shader.h"
 #include "Renderer/Passes/CompositionPass.h"
 #include "Renderer/Passes/RTShadowPass.h"
@@ -101,6 +102,134 @@ void TestRenderFlagChangeClassification()
                                       Chimera::RenderFlags_LightBit) ==
                 RenderSettingsChangeImpact::GraphRebuild,
             "graph rebuild must dominate mixed flag changes");
+}
+
+void TestGraphicsPipelineCacheKeyCoversCreationState()
+{
+    Chimera::GraphicsPipelineDescription desc;
+    desc.name = "TestGraphics";
+    desc.vertex_shader = "VertexA";
+    desc.fragment_shader = "FragmentA";
+    desc.depth_test = true;
+    desc.depth_write = true;
+    desc.depth_compare_op = VK_COMPARE_OP_GREATER;
+    desc.cull_mode = VK_CULL_MODE_BACK_BIT;
+    desc.specializationConstants = {3, 7};
+
+    const std::vector<VkFormat> colorFormats = {
+        VK_FORMAT_R16G16B16A16_SFLOAT};
+    const VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
+    const std::string baseKey = Chimera::PipelineCacheKey::BuildGraphics(
+        colorFormats, depthFormat, desc);
+
+    Require(baseKey == Chimera::PipelineCacheKey::BuildGraphics(
+                           colorFormats, depthFormat, desc),
+            "identical graphics pipeline state must produce the same key");
+
+    auto requireDescriptionChange =
+        [&](const Chimera::GraphicsPipelineDescription& changed,
+            const std::string& field)
+    {
+        Require(baseKey != Chimera::PipelineCacheKey::BuildGraphics(
+                               colorFormats, depthFormat, changed),
+                "graphics cache key ignores " + field);
+    };
+
+    auto changed = desc;
+    changed.name = "FullscreenAlias";
+    requireDescriptionChange(changed, "pipeline name");
+    changed = desc;
+    changed.vertex_shader = "VertexB";
+    requireDescriptionChange(changed, "vertex shader");
+    changed = desc;
+    changed.fragment_shader = "FragmentB";
+    requireDescriptionChange(changed, "fragment shader");
+    changed = desc;
+    changed.depth_test = false;
+    requireDescriptionChange(changed, "depth test state");
+    changed = desc;
+    changed.depth_write = false;
+    requireDescriptionChange(changed, "depth write state");
+    changed = desc;
+    changed.depth_compare_op = VK_COMPARE_OP_LESS;
+    requireDescriptionChange(changed, "depth compare operation");
+    changed = desc;
+    changed.cull_mode = VK_CULL_MODE_NONE;
+    requireDescriptionChange(changed, "cull mode");
+    changed = desc;
+    changed.specializationConstants[1] = 9;
+    requireDescriptionChange(changed, "specialization constants");
+
+    Require(baseKey != Chimera::PipelineCacheKey::BuildGraphics(
+                           {VK_FORMAT_R8G8B8A8_UNORM}, depthFormat, desc),
+            "graphics cache key ignores color attachment formats");
+    Require(baseKey != Chimera::PipelineCacheKey::BuildGraphics(
+                           colorFormats, VK_FORMAT_D24_UNORM_S8_UINT, desc),
+            "graphics cache key ignores depth attachment format");
+}
+
+void TestRaytracingPipelineCacheKeyCoversShaderGroups()
+{
+    Chimera::RaytracingPipelineDescription desc;
+    desc.raygen_shader = "RaygenA";
+    desc.miss_shaders = {"MissA", "MissB"};
+    desc.hit_shaders = {{"ClosestA", "AnyA", ""}};
+    desc.specializationConstants = {5};
+
+    const std::string baseKey =
+        Chimera::PipelineCacheKey::BuildRaytracing(desc);
+    Require(baseKey == Chimera::PipelineCacheKey::BuildRaytracing(desc),
+            "identical ray tracing pipeline state must produce the same key");
+
+    auto requireChange =
+        [&](const Chimera::RaytracingPipelineDescription& changed,
+            const std::string& field)
+    {
+        Require(baseKey !=
+                    Chimera::PipelineCacheKey::BuildRaytracing(changed),
+                "ray tracing cache key ignores " + field);
+    };
+
+    auto changed = desc;
+    changed.raygen_shader = "RaygenB";
+    requireChange(changed, "ray generation shader");
+    changed = desc;
+    changed.miss_shaders[1] = "MissC";
+    requireChange(changed, "miss shader groups");
+    changed = desc;
+    changed.hit_shaders[0].closest_hit = "ClosestB";
+    requireChange(changed, "closest-hit shader groups");
+    changed = desc;
+    changed.hit_shaders[0].any_hit = "AnyB";
+    requireChange(changed, "any-hit shader groups");
+    changed = desc;
+    changed.hit_shaders[0].intersection = "IntersectionA";
+    requireChange(changed, "intersection shader groups");
+    changed = desc;
+    changed.specializationConstants[0] = 6;
+    requireChange(changed, "specialization constants");
+}
+
+void TestComputePipelineCacheKeyUsesCreationState()
+{
+    Chimera::ComputePipelineDescription::Kernel kernel{
+        "KernelA", "ComputeA", {2, 4}};
+    const std::string baseKey =
+        Chimera::PipelineCacheKey::BuildCompute(kernel);
+
+    auto renamed = kernel;
+    renamed.name = "HumanReadableName";
+    Require(baseKey == Chimera::PipelineCacheKey::BuildCompute(renamed),
+            "compute kernel label must not change pipeline identity");
+
+    auto changed = kernel;
+    changed.shader = "ComputeB";
+    Require(baseKey != Chimera::PipelineCacheKey::BuildCompute(changed),
+            "compute cache key ignores shader identity");
+    changed = kernel;
+    changed.specializationConstants[0] = 8;
+    Require(baseKey != Chimera::PipelineCacheKey::BuildCompute(changed),
+            "compute cache key ignores specialization constants");
 }
 
 void TestAttachmentClearIntentIsExplicit()
@@ -1307,6 +1436,15 @@ int main()
 
         TestRenderFlagChangeClassification();
         std::cout << "[PASS] render setting changes use the minimum update scope\n";
+
+        TestGraphicsPipelineCacheKeyCoversCreationState();
+        std::cout << "[PASS] graphics pipeline cache key covers creation state\n";
+
+        TestRaytracingPipelineCacheKeyCoversShaderGroups();
+        std::cout << "[PASS] ray tracing cache key covers shader groups\n";
+
+        TestComputePipelineCacheKeyUsesCreationState();
+        std::cout << "[PASS] compute pipeline cache key uses creation state\n";
 
         TestAttachmentClearIntentIsExplicit();
         std::cout << "[PASS] attachment clear intent is explicit\n";

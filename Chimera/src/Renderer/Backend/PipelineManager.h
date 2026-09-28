@@ -9,6 +9,15 @@
 
 namespace Chimera
 {
+namespace PipelineCacheKey
+{
+std::string BuildGraphics(
+    const std::vector<VkFormat>& colorFormats, VkFormat depthFormat,
+    const GraphicsPipelineDescription& desc);
+std::string BuildRaytracing(const RaytracingPipelineDescription& desc);
+std::string BuildCompute(const ComputePipelineDescription::Kernel& kernel);
+} // namespace PipelineCacheKey
+
 struct GraphicsPipeline
 {
     VkPipeline handle = VK_NULL_HANDLE;

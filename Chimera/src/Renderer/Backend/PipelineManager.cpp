@@ -9,6 +9,89 @@
 
 namespace Chimera
 {
+namespace
+{
+void AppendUnsigned(std::string& key, uint64_t value)
+{
+    key += std::to_string(value);
+    key.push_back(';');
+}
+
+void AppendString(std::string& key, const std::string& value)
+{
+    key += std::to_string(value.size());
+    key.push_back(':');
+    key += value;
+    key.push_back(';');
+}
+
+void AppendSpecializationConstants(std::string& key,
+                                   const std::vector<uint32_t>& constants)
+{
+    AppendUnsigned(key, constants.size());
+    for (uint32_t value : constants)
+    {
+        AppendUnsigned(key, value);
+    }
+}
+} // namespace
+
+std::string PipelineCacheKey::BuildGraphics(
+    const std::vector<VkFormat>& colorFormats, VkFormat depthFormat,
+    const GraphicsPipelineDescription& desc)
+{
+    std::string key = "graphics;";
+    AppendString(key, desc.name);
+    AppendString(key, desc.vertex_shader);
+    AppendString(key, desc.fragment_shader);
+    AppendUnsigned(key, desc.depth_test ? 1u : 0u);
+    AppendUnsigned(key, desc.depth_write ? 1u : 0u);
+    AppendUnsigned(key, static_cast<uint32_t>(desc.depth_compare_op));
+    AppendUnsigned(key, desc.cull_mode);
+    AppendUnsigned(key, colorFormats.size());
+    for (VkFormat format : colorFormats)
+    {
+        AppendUnsigned(key, static_cast<uint32_t>(format));
+    }
+    AppendUnsigned(key, static_cast<uint32_t>(depthFormat));
+    AppendSpecializationConstants(key, desc.specializationConstants);
+    return key;
+}
+
+std::string PipelineCacheKey::BuildRaytracing(
+    const RaytracingPipelineDescription& desc)
+{
+    std::string key = "raytracing;";
+    AppendString(key, desc.raygen_shader);
+
+    AppendUnsigned(key, desc.miss_shaders.size());
+    for (const std::string& missShader : desc.miss_shaders)
+    {
+        AppendString(key, missShader);
+    }
+
+    AppendUnsigned(key, desc.hit_shaders.size());
+    for (const RaytracingPipelineDescription::HitGroup& hitGroup :
+         desc.hit_shaders)
+    {
+        AppendString(key, hitGroup.closest_hit);
+        AppendString(key, hitGroup.any_hit);
+        AppendString(key, hitGroup.intersection);
+    }
+
+    AppendSpecializationConstants(key, desc.specializationConstants);
+    return key;
+}
+
+std::string PipelineCacheKey::BuildCompute(
+    const ComputePipelineDescription::Kernel& kernel)
+{
+    std::string key = "compute;";
+    AppendString(key, kernel.shader);
+    AppendSpecializationConstants(key, kernel.specializationConstants);
+    return key;
+}
+
 PipelineManager* PipelineManager::s_Instance = nullptr;
 
 PipelineManager::PipelineManager()
@@ -90,11 +173,8 @@ GraphicsPipeline& PipelineManager::GetGraphicsPipeline(
     const std::vector<VkFormat>& colorFormats, VkFormat depthFormat,
     const GraphicsPipelineDescription& desc)
 {
-    std::string cacheKey = desc.name;
-    for (uint32_t val : desc.specializationConstants)
-    {
-        cacheKey += "_" + std::to_string(val);
-    }
+    const std::string cacheKey =
+        PipelineCacheKey::BuildGraphics(colorFormats, depthFormat, desc);
 
     if (m_GraphicsCache.count(cacheKey))
     {
@@ -273,11 +353,7 @@ GraphicsPipeline& PipelineManager::GetGraphicsPipeline(
 RaytracingPipeline& PipelineManager::GetRaytracingPipeline(
     const RaytracingPipelineDescription& desc)
 {
-    std::string cacheKey = desc.raygen_shader;
-    for (uint32_t val : desc.specializationConstants)
-    {
-        cacheKey += "_" + std::to_string(val);
-    }
+    const std::string cacheKey = PipelineCacheKey::BuildRaytracing(desc);
 
     if (m_RaytracingCache.count(cacheKey))
     {
@@ -423,11 +499,7 @@ RaytracingPipeline& PipelineManager::GetRaytracingPipeline(
 ComputePipeline& PipelineManager::GetComputePipeline(
     const ComputePipelineDescription::Kernel& kernel)
 {
-    std::string cacheKey = kernel.shader;
-    for (uint32_t val : kernel.specializationConstants)
-    {
-        cacheKey += "_" + std::to_string(val);
-    }
+    const std::string cacheKey = PipelineCacheKey::BuildCompute(kernel);
 
     if (m_ComputeCache.count(cacheKey))
     {
